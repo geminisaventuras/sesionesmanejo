@@ -1,7 +1,8 @@
-// @build: 2026-06-17.09-00-00 | id: B51-C2 | desc: AppContext completo con createStaffUser, seedDatabase, cleanExpiredLocks
+// @build: 2026-06-18.07-30-00 | id: B51 | desc: Lógica de creación de staff centralizada en el contexto
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { LockService } from '../services/LockService';
+import { StaffService } from '../modules/admin/services/StaffService';
 import { AppContext } from './AppContextValue';
 import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -27,11 +28,39 @@ export const AppProvider = ({ children }) => {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
+  const restoreUserRole = async (currentUser) => {
+    if (!currentUser || !currentUser.email) return;
+    const email = currentUser.email.toLowerCase();
+    if (email === 'armandoaventurasve@gmail.com') {
+      setUser({ role: 'admin', data: { nombre: 'Administrador', email }, uid: currentUser.uid });
+      return;
+    }
+    try {
+      const basePath = `artifacts/${APP_ID}/public/data`;
+      const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
+      const instSnap = await getDocs(instQuery);
+      if (!instSnap.empty) {
+        const instData = instSnap.docs[0].data();
+        if (!instData.activo) { setUser(null); showToast('Tu cuenta de instructor está inactiva', 'error'); return; }
+        setUser({ role: 'instructor', data: instData, uid: currentUser.uid });
+        return;
+      }
+      const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
+      const provSnap = await getDocs(provQuery);
+      if (!provSnap.empty) {
+        const provData = provSnap.docs[0].data();
+        if (!provData.activo) { setUser(null); showToast('Tu cuenta de proveedor está inactiva', 'error'); return; }
+        setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
+        return;
+      }
+    } catch (e) { console.error('Error restaurando rol:', e); }
+  };
+
   useEffect(() => {
     const unsubscribe = AuthService.onAuthChange((currentUser) => {
       setFbUser(currentUser);
-      setAuthReady(true);
-      if (!currentUser) setUser(null);
+      if (currentUser) { restoreUserRole(currentUser).finally(() => setAuthReady(true)); }
+      else { setUser(null); setAuthReady(true); }
     });
     return () => unsubscribe();
   }, []);
@@ -70,9 +99,7 @@ export const AppProvider = ({ children }) => {
     return LockService.escucharLocks(fecha, (locks) => setActiveLocks(locks));
   }, []);
 
-  const buildPath = (colName) => {
-    return `artifacts/${APP_ID}/public/data/${colName}`;
-  };
+  const buildPath = (colName) => `artifacts/${APP_ID}/public/data/${colName}`;
 
   const useFirebaseCollection = (colName, initialData = [], condition = true, queryConstraint = null, requireAuth = true) => {
     const [data, setData] = useState(initialData);
@@ -116,11 +143,14 @@ export const AppProvider = ({ children }) => {
   const [instructores, saveInstructor] = useFirebaseCollection('instructores', [], true, null, false);
   const [proveedores, saveProveedor] = useFirebaseCollection('proveedores', [], true, null, false);
   const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, false);
-
-  const fechaHace30Dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, where('fecha', '>=', fechaHace30Dias), false);
-  const [movimientos, saveMovimiento] = useFirebaseCollection('movimientos', [], isAdmin, where('fecha', '>=', fechaHace30Dias));
+  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, false);
+  const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
+
+  const saveMovimiento = useCallback(async (item) => {
+    const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
+    await saveMovimientoRaw(itemConUsuario);
+  }, [fbUser, user, saveMovimientoRaw]);
 
   const getTodayStr = useCallback(() => {
     const d = new Date();
@@ -148,20 +178,16 @@ export const AppProvider = ({ children }) => {
 
   const findAvailableResources = useCallback(({ fecha1, fecha2, horaId, sedeId, tipoMoto, traeMoto, activeLockIds = [] }) => {
     if (!fecha1 || !fecha2 || !horaId || !sedeId || !tipoMoto) return null;
-
     const isLockedResource = (instructorId, motoAsignadaId) => {
       const lockId = buildLockId(fecha1, horaId, instructorId, motoAsignadaId);
       return activeLockIds.includes(lockId);
     };
-
     const availableInstructors = instructores
       .filter(i => i.activo && (i.sedes || []).includes(sedeId))
       .filter(inst => !reservas.some(r => String(r.instructorId) === String(inst.id) && isReservationConflict(r, fecha1, fecha2, horaId)))
       .filter(inst => !isLockedResource(inst.id, null));
-
     if (availableInstructors.length === 0) return null;
     const selected = availableInstructors.find(i => i.esPrincipal) || availableInstructors[0];
-    
     let motoId = null;
     if (traeMoto !== 'Sí') {
       const motosDelTipo = (motos || []).filter(m => m.tipo === tipoMoto && m.activa && (m.sedes || []).includes(sedeId));
@@ -183,75 +209,50 @@ export const AppProvider = ({ children }) => {
     return total > 0 ? total : 0;
   }, [config, sedes]);
 
+  // [B51] Lógica centralizada de creación de staff
   const handleSaveInstructorSeguro = async (datos) => {
+    if (!datos.id && datos.email && datos.password) {
+      const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
+      if (!res.success) { showToast(res.error.message, 'error'); return; }
+      showToast('Usuario creado correctamente', 'success');
+      return;
+    }
     if (datos.esPrincipal) {
       for (let inst of instructores) {
-        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) {
-          await saveInstructor({ ...inst, esPrincipal: false });
-        }
+        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
       }
     }
     await saveInstructor(datos);
+    showToast('Guardado exitoso');
   };
 
-  // [B51] FUNCIÓN: createStaffUser
+  const saveProveedorSeguro = async (datos) => {
+    if (!datos.id && datos.email && datos.password) {
+      const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
+      if (!res.success) { showToast(res.error.message, 'error'); return; }
+      showToast('Usuario creado correctamente', 'success');
+      return;
+    }
+    await saveProveedor(datos);
+    showToast('Guardado exitoso');
+  };
+
   const createStaffUser = async (email, password, role, data) => {
-    try {
-      const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-      const res = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, returnSecureToken: false })
-        }
-      );
-      const json = await res.json();
-      if (json.error) {
-        const mensaje = json.error.message || 'Error desconocido';
-        return { success: false, error: { code: json.error.message, message: mensaje } };
-      }
-      const uid = json.localId;
-      await saveInstructor({ ...data, email, uid });
-      return { success: true, data: { uid } };
-    } catch (error) {
-      return { success: false, error: { code: 'network-error', message: error.message } };
-    }
+    return await StaffService.crearStaff(email, password, role, data);
   };
 
-  // [C2] FUNCIÓN: seedDatabase
   const seedDatabase = async () => {
-    const basePath = buildPath('');
-    try {
-      const sedesSnap = await getDocs(collection(db, basePath + 'sedes'));
-      if (!sedesSnap.empty) return showToast('La base de datos ya tiene datos.', 'info');
-
-      await setDoc(doc(db, basePath + 'sedes', 'sede1'), { id: 'sede1', nombre: 'Guarenas', direccion: 'Av. Principal', activo: true });
-      await setDoc(doc(db, basePath + 'sedes', 'sede2'), { id: 'sede2', nombre: 'Caracas', direccion: 'Centro', activo: true });
-
-      await setDoc(doc(db, basePath + 'horarios', 'h1'), { id: 'h1', label: '08:00 AM - 10:00 AM', activo: true, isLunch: false });
-      await setDoc(doc(db, basePath + 'horarios', 'h2'), { id: 'h2', label: '10:00 AM - 12:00 PM', activo: true, isLunch: false });
-      await setDoc(doc(db, basePath + 'horarios', 'h3'), { id: 'h3', label: '12:00 PM - 02:00 PM', activo: true, isLunch: true });
-      await setDoc(doc(db, basePath + 'horarios', 'h4'), { id: 'h4', label: '02:00 PM - 04:00 PM', activo: true, isLunch: false });
-      await setDoc(doc(db, basePath + 'horarios', 'h5'), { id: 'h5', label: '04:00 PM - 06:00 PM', activo: true, isLunch: false });
-
-      await setDoc(doc(db, basePath + 'cursos', 'c1'), { id: 'c1', nombre: 'Básico', modulos: ['Teoría', 'Práctica'], activo: true });
-      await setDoc(doc(db, basePath + 'cursos', 'c2'), { id: 'c2', nombre: 'Intermedio', modulos: ['Teoría', 'Práctica', 'Carretera'], activo: true });
-
-      showToast('Base de datos inicializada correctamente.', 'success');
-    } catch (error) {
-      showToast('Error al sembrar la base de datos.', 'error');
-    }
+    const res = await StaffService.seedDatabase();
+    if (res.success) showToast('Base de datos inicializada correctamente.', 'success');
+    else if (res.error.code === 'already-seeded') showToast('La base de datos ya tiene datos.', 'info');
+    else showToast(res.error.message, 'error');
   };
 
-  // [C2] FUNCIÓN: cleanExpiredLocks
-  const cleanExpiredLocks = async () => {
-    await LockService.limpiarLocksExpirados(getTodayStr());
-  };
+  const cleanExpiredLocks = async () => { await StaffService.cleanExpiredLocks(); };
 
   const contextValue = {
     config, saveConfig, sedes, saveSede, horarios, saveHorario, cursos, saveCurso,
-    instructores, saveInstructor, handleSaveInstructorSeguro, proveedores, saveProveedor, motos, saveMoto,
+    instructores, saveInstructor, handleSaveInstructorSeguro, proveedores, saveProveedor: saveProveedorSeguro, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
     user, setUser, toast, showToast, autoLoginData, setAutoLoginData,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources, calcularBaseUSD,

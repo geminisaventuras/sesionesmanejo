@@ -1,11 +1,15 @@
+// @build: 2026-06-18.06-30-00 | id: SISTEMA | desc: Botones primary y sin título duplicado
 import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
+import { useToast } from '../modules/shared/components/ToastProvider';
+import AppShell from '../modules/shared/components/AppShell';
 import { Button, Input } from '../components/UI';
 import { ChevronLeft, Lock, Mail } from 'lucide-react';
 
 export const LoginView = () => {
-  const { loginWithGoogle, loginWithEmail, showToast, setUser, instructores, proveedores } = useContext(AppContext);
+  const { loginWithGoogle, loginWithEmail, setUser, instructores, proveedores } = useContext(AppContext);
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -69,41 +73,48 @@ export const LoginView = () => {
     } finally { setIsLoggingIn(false); }
   };
 
-  return (
-    <div className="p-6 h-full flex flex-col justify-center min-h-screen bg-white">
-      <button onClick={() => navigate('/')} className="absolute top-6 left-6 p-2 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
+  const header = (
+    <div className="bg-white border-b px-5 py-3 flex items-center gap-3">
+      <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
         <ChevronLeft size={24} />
       </button>
-      <div className="w-20 h-20 bg-gray-900 rounded-3xl flex items-center justify-center mb-6 shadow-xl mx-auto transform -rotate-6">
-        <Lock size={36} className="text-white transform rotate-6" />
-      </div>
-      <h2 className="text-3xl font-black text-center text-gray-900 mb-2 uppercase tracking-tight">Acceso Privado</h2>
-      <p className="text-center text-gray-500 text-sm mb-8">
-        {showEmailForm ? 'Ingresa tus credenciales' : 'Inicia sesión con tu cuenta de Google o con correo y clave.'}
-      </p>
-      {!showEmailForm ? (
-        <>
-          <Button onClick={handleGoogleLogin} variant="dark" className="mt-4" disabled={isLoggingIn}>
-            {isLoggingIn ? 'Conectando con Google...' : 'Iniciar sesión con Google'}
-          </Button>
-          <p className="text-center text-sm text-gray-500 mt-4">
-            <button type="button" onClick={() => setShowEmailForm(true)} className="text-blue-600 font-bold underline">
-              Iniciar sesión con correo y clave
-            </button>
-          </p>
-        </>
-      ) : (
-        <form onSubmit={handleEmailLogin} className="space-y-4">
-          <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} required />
-          <Input label="Contraseña" type="password" icon={Lock} value={password} onChange={e => setPassword(e.target.value)} required />
-          <Button type="submit" variant="dark" disabled={isLoggingIn}>{isLoggingIn ? 'Verificando...' : 'Entrar'}</Button>
-          <p className="text-center text-sm text-gray-500 mt-2">
-            <button type="button" onClick={() => setShowEmailForm(false)} className="text-blue-600 underline">
-              Volver a inicio de sesión con Google
-            </button>
-          </p>
-        </form>
-      )}
+      <h2 className="text-xl font-black uppercase flex-1">Acceso Privado</h2>
     </div>
+  );
+
+  return (
+    <AppShell header={header} bgColor="bg-white">
+      <div className="p-6 flex flex-col items-center justify-center min-h-full">
+        <div className="w-20 h-20 bg-gray-900 rounded-3xl flex items-center justify-center mb-6 shadow-xl mx-auto transform -rotate-6">
+          <Lock size={36} className="text-white transform rotate-6" />
+        </div>
+        <p className="text-center text-gray-500 text-sm mb-8">
+          {showEmailForm ? 'Ingresa tus credenciales' : 'Inicia sesión con tu cuenta de Google o con correo y clave.'}
+        </p>
+        {!showEmailForm ? (
+          <>
+            <Button onClick={handleGoogleLogin} variant="primary" className="mt-4" disabled={isLoggingIn}>
+              {isLoggingIn ? 'Conectando con Google...' : 'Iniciar sesión con Google'}
+            </Button>
+            <p className="text-center text-sm text-gray-500 mt-4">
+              <button type="button" onClick={() => setShowEmailForm(true)} className="text-blue-600 font-bold underline">
+                Iniciar sesión con correo y clave
+              </button>
+            </p>
+          </>
+        ) : (
+          <form onSubmit={handleEmailLogin} className="space-y-4 w-full">
+            <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} required />
+            <Input label="Contraseña" type="password" icon={Lock} value={password} onChange={e => setPassword(e.target.value)} required />
+            <Button type="submit" variant="primary" disabled={isLoggingIn}>{isLoggingIn ? 'Verificando...' : 'Entrar'}</Button>
+            <p className="text-center text-sm text-gray-500 mt-2">
+              <button type="button" onClick={() => setShowEmailForm(false)} className="text-blue-600 underline">
+                Volver a inicio de sesión con Google
+              </button>
+            </p>
+          </form>
+        )}
+      </div>
+    </AppShell>
   );
 };

@@ -1,7 +1,9 @@
-// @build: 2026-06-16.00-00-00 | id: B44 | desc: Login de estudiante actualiza estado user y redirige al panel
+// @build: 2026-06-18.06-30-00 | id: SISTEMA | desc: Botón primary y sin título duplicado
 import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
+import { useToast } from '../modules/shared/components/ToastProvider';
+import AppShell from '../modules/shared/components/AppShell';
 import { Button, Input } from '../components/UI';
 import { ChevronLeft, Hash, Key, Clock } from 'lucide-react';
 
@@ -9,7 +11,8 @@ const MAX_INTENTOS = 3;
 const TIEMPO_BLOQUEO = 15 * 60 * 1000;
 
 export const PortalEstudiante = () => {
-  const { loginEstudiante, showToast, setUser } = useContext(AppContext);
+  const { loginEstudiante, setUser } = useContext(AppContext);
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [cedula, setCedula] = useState('');
   const [pin, setPin] = useState('');
@@ -50,7 +53,6 @@ export const PortalEstudiante = () => {
     setCargando(false);
     if (result.success) {
       localStorage.removeItem('login_intentos'); localStorage.removeItem('login_bloqueo_hasta');
-      // Actualizar el estado global user para que ProtectedRoute permita el acceso
       setUser({ role: 'estudiante', data: { cedula }, uid: result.data.user.uid });
       navigate('/portal-reservas');
     } else {
@@ -67,24 +69,38 @@ export const PortalEstudiante = () => {
     }
   };
 
-  return (
-    <div className="p-6 h-full flex flex-col justify-center bg-white min-h-screen">
-      <button onClick={() => navigate('/')} className="absolute top-6 left-6 p-2 bg-gray-100 rounded-full"><ChevronLeft size={24} /></button>
-      <div className="w-20 h-20 bg-blue-100 rounded-3xl flex items-center justify-center mb-6 mx-auto"><Hash size={36} className="text-blue-600" /></div>
-      <h2 className="text-2xl font-black text-center mb-4">Portal Estudiante</h2>
-      {bloqueado ? (
-        <div className="text-center bg-red-50 border border-red-200 p-4 rounded-xl">
-          <Clock size={24} className="text-red-700 mx-auto mb-2" />
-          <p className="font-bold text-red-700">Acceso bloqueado</p>
-          <p className="text-sm text-red-600">Demasiados intentos. Tiempo restante: {formatTiempo(tiempoRestante)}</p>
-        </div>
-      ) : (
-        <form onSubmit={handleLogin} className="space-y-4">
-          <Input label="Cédula" type="tel" icon={Hash} value={cedula} onChange={e => setCedula(e.target.value.replace(/\D/g, ''))} required />
-          <Input label="PIN de 6 dígitos" type="password" icon={Key} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} required />
-          <Button type="submit" disabled={cargando}>{cargando ? 'Verificando...' : 'Entrar'}</Button>
-        </form>
-      )}
+  const header = (
+    <div className="bg-white border-b px-5 py-3 flex items-center gap-3">
+      <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full">
+        <ChevronLeft size={24} />
+      </button>
+      <h2 className="text-xl font-black uppercase flex-1">Portal Estudiante</h2>
     </div>
+  );
+
+  return (
+    <AppShell header={header} bgColor="bg-white">
+      <div className="p-6 flex flex-col justify-center min-h-full">
+        <div className="w-20 h-20 bg-blue-100 rounded-3xl flex items-center justify-center mb-6 mx-auto">
+          <Hash size={36} className="text-blue-600" />
+        </div>
+        <p className="text-center text-gray-500 text-sm mb-8">
+          Ingresa tu cédula y PIN para acceder a tu panel.
+        </p>
+        {bloqueado ? (
+          <div className="text-center bg-red-50 border border-red-200 p-4 rounded-xl">
+            <Clock size={24} className="text-red-700 mx-auto mb-2" />
+            <p className="font-bold text-red-700">Acceso bloqueado</p>
+            <p className="text-sm text-red-600">Demasiados intentos. Tiempo restante: {formatTiempo(tiempoRestante)}</p>
+          </div>
+        ) : (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <Input label="Cédula" type="tel" icon={Hash} value={cedula} onChange={e => setCedula(e.target.value.replace(/\D/g, ''))} required />
+            <Input label="PIN de 6 dígitos" type="password" icon={Key} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} required />
+            <Button type="submit" variant="primary" disabled={cargando}>{cargando ? 'Verificando...' : 'Entrar'}</Button>
+          </form>
+        )}
+      </div>
+    </AppShell>
   );
 };

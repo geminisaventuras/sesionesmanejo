@@ -1,10 +1,11 @@
-// @build: 2026-06-17.10-00-00 | id: B51-DIAG | desc: Diagnóstico visible de email/password en handleSaveGeneral
+// @build: 2026-06-18.00-30-00 | id: B15 | desc: Refactorizado para usar AppShell con barra inferior fija
 import { useContext, useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Input, Select } from '../components/UI';
+import AppShell from '../modules/shared/components/AppShell';
 import { ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings, Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle, BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut } from 'lucide-react';
-import InstructorPanel from './InstructorPanel';
-import ProveedorPanel from './ProveedorPanel';
+import InstructorPanel from '../admin/InstructorPanel';
+import ProveedorPanel from '../admin/ProveedorPanel';
 
 const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
   <div onClick={onClick} className={`${color} text-white p-6 rounded-[2rem] shadow-[0_10px_40px_rgba(29,78,216,0.4)] cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
@@ -165,7 +166,6 @@ const AdminAjustes = memo(({ setTab }) => {
   );
 });
 
-// [B51-DIAG] CRUDView con diagnóstico de email/password
 const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, setTab, rol }) => {
   const { showToast, instructores, saveInstructor, proveedores, saveProveedor, createStaffUser, user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
@@ -173,33 +173,10 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
 
   const handleSaveGeneral = useCallback(async (datos, id = null) => {
     if (!isAdmin) return;
-
-    // [DIAGNÓSTICO TEMPORAL] Mostrar valores reales de email y password
-    showToast(`DIAG: email="${datos.email}" (${typeof datos.email}), password="${datos.password}" (${typeof datos.password}), id=${id}, rol=${rol}`, 'error');
-
-    if (!id && (rol === 'instructor' || rol === 'proveedor') && datos.email && datos.password) {
-      const res = await createStaffUser(datos.email, datos.password, rol, datos);
-      if (res && res.success) {
-        setItemEdit(null);
-        showToast('Usuario creado correctamente', 'success');
-        return;
-      } else {
-        showToast(res?.error?.message || 'Error al crear el usuario', 'error');
-        return;
-      }
-    }
-
-    if (rol === 'instructor' && datos.esPrincipal) {
-      for (let i of (instructores || [])) {
-        if (String(i.id) !== String(id) && i.esPrincipal) {
-          await saveInstructor({ ...i, esPrincipal: false });
-        }
-      }
-    }
     if (typeof saveFn === 'function') await saveFn(datos);
     setItemEdit(null);
     showToast('Guardado exitoso');
-  }, [isAdmin, rol, createStaffUser, instructores, saveInstructor, saveFn, showToast]);
+  }, [isAdmin, saveFn, showToast]);
 
   if (itemEdit !== null) return <FormComponent item={itemEdit} onSave={(d) => handleSaveGeneral(d, itemEdit?.id)} onCancel={() => setItemEdit(null)} />;
   
@@ -211,7 +188,7 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
         return (
           <div key={item.id} className={`bg-white p-4 rounded-2xl shadow-sm border mb-3 flex items-center justify-between ${item.activo ? 'border-gray-100' : 'border-red-100 opacity-60'}`}>
             <div className="flex-1 pr-2"><h4 className="font-bold text-gray-900 text-sm">{itemTitle} {item.apellido || ''}</h4>{item.direccion && <p className="text-xs text-gray-500 mt-1">{item.direccion}</p>}<div className="flex gap-1 flex-wrap mt-1">{!item.activo && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">Inactivo</span>}{item.esPrincipal && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black uppercase">Principal</span>}</div></div>
-            {isAdmin && (<div className="flex gap-2"><button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button><button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiado'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button></div>)}
+            {isAdmin && (<div className="flex gap-2"><button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button><button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiato'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button></div>)}
           </div>
         );
       })}
@@ -227,7 +204,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
 const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
   const { sedes } = useContext(AppContext);
   const isInst = rol === 'instructor';
-  const [form, setForm] = useState(item.id ? item : { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false });
+  const [form, setForm] = useState(item.id ? item : { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false, activo: true });
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} {rol}</h3></div><Input label="Nombre" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />{isInst && <Input label="Apellido" value={form.apellido} onChange={e => setForm({ ...form, apellido: e.target.value })} />}<Input label="Cédula / RIF" value={form.cedula} onChange={e => setForm({ ...form, cedula: e.target.value })} /><Input label="Teléfono" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-2">Acceso Sistema</h4><Input label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /><Input label="Contraseña" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div><div className="bg-blue-50 p-4 rounded-xl border border-blue-100"><h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4><Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} /><Input label="Teléfono Pago Móvil" value={form.pagoTelefono} onChange={e => setForm({ ...form, pagoTelefono: e.target.value })} /><Input label="Cédula Pago Móvil" value={form.pagoCedula} onChange={e => setForm({ ...form, pagoCedula: e.target.value })} /></div><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes Asignadas</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div>{isInst && <div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.esPrincipal} onChange={e => setForm({ ...form, esPrincipal: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Definir como Instructor Principal</label></div>}<Button type="button" onClick={() => onSave(form)} variant="dark">Guardar</Button></div>);
 });
 
@@ -254,10 +231,33 @@ export const DashboardView = () => {
   if (user.role === 'instructor') return <InstructorPanel />;
   if (user.role === 'proveedor') return <ProveedorPanel />;
   const handleLogout = useCallback(() => { if (logoutUser) logoutUser(); else { setUser(null); setView('home'); } }, [logoutUser, setUser, setView]);
+
+  const header = (
+    <div className="bg-[#0f172a] text-white px-6 pt-10 pb-6 rounded-b-[40px] flex justify-between items-center">
+      <div>
+        <h1 className="text-2xl font-black tracking-tight uppercase">Admin Panel</h1>
+        <p className="text-slate-400 text-xs mt-0.5">{user?.data?.nombre || 'Administrador'} ({user?.role || 'admin'})</p>
+      </div>
+      <button onClick={handleLogout} className="w-12 h-12 bg-[#1e293b] rounded-full flex items-center justify-center hover:bg-slate-700 transition-colors shadow-inner">
+        <LogOut size={20} className="text-gray-300 ml-1" />
+      </button>
+    </div>
+  );
+
+  const footer = (
+    <div className="bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center">
+      {[{ id: 'inicio', icon: Activity, label: 'Inicio' }, { id: 'finanzas', icon: Wallet, label: 'Finanzas' }, { id: 'config', icon: Settings, label: 'Configuración' }].map(t => (
+        <button key={t.id} type="button" onClick={() => setTab(t.id)} className={`flex flex-col items-center w-20 transition-all ${tab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}>
+          <div className={`p-1.5 rounded-xl ${tab === t.id ? 'bg-gray-100' : ''}`}><t.icon size={22} className={tab === t.id ? 'stroke-[2.5px]' : ''} /></div>
+          <span className="text-[10px] font-bold">{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="flex flex-col h-full bg-gray-50 w-full relative overflow-hidden">
-      <div className="bg-[#0f172a] text-white px-6 pt-10 pb-6 rounded-b-[40px] shrink-0 z-20 shadow-lg flex justify-between items-center"><div><h1 className="text-2xl font-black tracking-tight uppercase">Admin Panel</h1><p className="text-slate-400 text-xs mt-0.5">{user?.data?.nombre || 'Administrador'} ({user?.role || 'admin'})</p></div><button onClick={handleLogout} className="w-12 h-12 bg-[#1e293b] rounded-full flex items-center justify-center hover:bg-slate-700 transition-colors shadow-inner"><LogOut size={20} className="text-gray-300 ml-1" /></button></div>
-      <div className="flex-1 p-6 overflow-y-auto pb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+    <AppShell header={header} footer={footer}>
+      <div className="p-6">
         {tab === 'inicio' && <AdminResumen setTab={setTab} />}
         {tab === 'reservas' && <AdminReservas setTab={setTab} />}
         {tab === 'finanzas' && <AdminFinanzas />}
@@ -270,14 +270,6 @@ export const DashboardView = () => {
         {tab === 'instructores' && <CRUDView titulo="Instructores" items={instructores} saveFn={handleSaveInstructorSeguro} formComponent={(p) => <FormPersonal {...p} rol="instructor" />} setTab={setTab} rol="instructor" />}
         {tab === 'proveedores' && <CRUDView titulo="Proveedores" items={proveedores} saveFn={saveProveedor} formComponent={(p) => <FormPersonal {...p} rol="proveedor" />} setTab={setTab} rol="proveedor" />}
       </div>
-      <div className="bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center shrink-0 z-30">
-        {[{ id: 'inicio', icon: Activity, label: 'Inicio' }, { id: 'finanzas', icon: Wallet, label: 'Finanzas' }, { id: 'config', icon: Settings, label: 'Configuración' }].map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)} className={`flex flex-col items-center w-20 transition-all ${tab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}>
-            <div className={`p-1.5 rounded-xl ${tab === t.id ? 'bg-gray-100' : ''}`}><t.icon size={22} className={tab === t.id ? 'stroke-[2.5px]' : ''} /></div>
-            <span className="text-[10px] font-bold">{t.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
+    </AppShell>
   );
 };

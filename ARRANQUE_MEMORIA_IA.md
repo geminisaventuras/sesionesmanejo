@@ -1,31 +1,69 @@
-# ARRANQUE_MEMORIA_IA.md – MotoEscuela App v1.1.0
+# ARRANQUE MEMORIA_IA.md – MotoEscuela App v1.7.3
 ## Contexto de Emergencia para el Arquitecto IA
 
-**Instrucción de Arranque:** El Operador te ha pedido que leas este archivo. Asimila todo su contenido como si fuera tu memoria de la conversación anterior. Ahora eres el Arquitecto del proyecto "MotoEscuela App". Aplica rigurosamente el Marco de Trabajo V6.3 y el Manual del Arquitecto V2.1.
+**Instrucción:** Asimila este contenido como tu memoria. Eres el Arquitecto del proyecto "MotoEscuela App". Aplica el Marco de Trabajo V6.3 y el Manual del Arquitecto V2.1.
 
 ### 1. Proyecto y Stack
-- **Nombre:** MotoEscuela App v1.1.0 (Escuela de Manejo de Moto).
-- **Frontend:** React 18 + Vite 5 + Tailwind CSS 3 + React Router 6 + Lucide React 0.400.0.
-- **Backend:** Firebase (Auth, Firestore). Plan Spark (gratuito).
-- **Entorno:** Desarrollo en Termux (móvil). El Operador usa comandos `cat << 'EOF'` que tú debes proporcionar en cajas de texto bien formateadas.
+- **Nombre:** MotoEscuela App v1.7.3
+- **Frontend:** React 18 + Vite 5 + Tailwind CSS 3 + React Router 6 + Lucide React.
+- **Backend:** Firebase (Auth, Firestore). Plan Spark.
+- **Entorno:** Desarrollo en Termux (móvil). Comandos `cat << 'EOF'`.
 
-### 2. Estado General del Sistema
-- **Registro de estudiantes (ESTABLE):** Flujo de 4 pasos con validaciones, creación temprana de cuenta, y auto-login.
-- **Panel del estudiante (ESTABLE):** Muestra datos de la reserva, estado del pago y avance académico.
-- **Dashboard administrativo (FUNCIONAL):** Acceso para admin, instructor y proveedor. Tiene bugs pendientes (B17, B51).
-- **Página de prueba (ACTIVA):** Existe una ruta `/test-bloques` con una página aislada para depurar la disponibilidad de horarios. Carga datos directamente desde Firestore sin depender del contexto global.
+### 2. Estructura del Proyecto (Refactorizada)
+```
+src/modules/
+├── auth/services/       # AuthService.js
+├── inscripcion/
+┄│   ├── services/        # ReservaService.js, LockService.jss
+│   └── components/      # ModalPIN.jsx
+├── admin/services/      # StaffService.js
+├── shared/
+│   ├── components/      # UI.jsx, AppShell.jsx, ToastProvider.jsx
+│   ├── context/         # AppContext.jsx, AppContextValue.jsx
+│   └── firebase/        # firebase.js
+└── views/             #VIstas principales
+```
 
-### 3. Decisiones Arquitectónicas Clave (NO DEBES CAMBIAR)
-1.  **Creación temprana del estudiante:** La cuenta se crea al final del PASO 1.
-2.  **Autenticación anónima ABANDONADA:** No usar `signInAnonymously`.
-3.  **`appId` CORRECTO:** `motoescuela-pro-v1`.
-4.  **Campo de fecha en Firestore:** Las reservas usan el campo `fecha` (no `fecha1`).
-5.  **Página de prueba aislada:** `TestBloquesView` carga sus propios datos con `getDocs` para evitar dependencias del contexto.
+### 3. Decisiones Arquitectónicas Clave
+1.  **Creación temprana:** Cuenta creada al final del PASO 1.
+2.  **Auth anónima ELIMINADA.**
+3.  **appId:** `motoescuela-pro-v1`.
+4.  **Campo de fecha:** `fecha` (no `fecha1`).
+5.  **Sistema de Diseño:** `AppShell` + `ToastProvider`.
+6.  **Persistencia:** `sessionStorage` para paso, datos y PIN.
+7.  **Locks:** 10 min, contador SVG, renovación única, expira autom.
+8.  **Disponibilidad:** Cálculo en tiempo real con `useMemo`.
+9.  **StaffService:** REST API para crear staff (sin cerrar sesión admin).
+10. **Reglas Firestore:** Lectura restringida a `isAuth()`.
 
-### 4. Deuda Técnica Actualizada (Ver BACKLOG_V2.md)
-[Incluir lista resumida de bugs críticos y alta]
+### 4. Bugs Corregidos (Última Sesión)
+B15, B17, B51, B62, B14/B46/B60, B27, B42a, B76, C1, C2, B55, B71-B74.
+Ajustes visuales: Paso 4 factura, reloj SVG, moto en barra, límite 15 días, sugerencia de fecha.
 
-### 5. Archivos Clave
-- `src/views/TestBloquesView.jsx`: Página de prueba con carga directa de Firestore.
-- `src/context/AppContext.jsx`: Contexto global con `appId` corregido.
-- `src/services/ReservaService.js`: Transacción atómica con `cursoId` obligatorio.
+### 5. Archivos Clave Modificados
+- `InscripcionView.jsx` (múltiples mejoras)
+- `DashboardView.jsx` (AppShell + rol en CRUDView)
+- `LoginView.jsx`, `PortalEstudiante.jsx`, `EstudiantePanel.jsx` (AppShell + useToast)
+- `AppContext.jsx` (restauración sesión, StaffService, saveMoviriento con userId)
+- `StaffService.js` (NUEVO)
+- `AppShell.jsx` (NUEVO)
+- `ToastProvider.jsx` (NUEVO)
+- `vite.config.js` (NUEVO, anti-caché)
+
+### 6. Protocolo para Transferencia de Archivos (Base64)
+**Problema:** Las rutas largas, árboles de directorios o bloques de código con caracteres especiales pueden desbordar la caja de texto del chat y corromper el archivo al copiarlo.
+**Solución:** Usar codificación Base64 para transferir contenido de forma segura.
+
+**Para generar el bloque (Arquitecto):**
+```bash
+Base64 -w 0 archivo_a_transferir.md
+```
+Esto produce una cadena de texto sin saltos de línea que se puede pegar en el chat sin riesgo.
+
+**Para decodificar y restaurar el archivo (Operador):**
+```bash
+Base64 -d << 'ENDOFFILE' > archivo_destino.md
+[CADENA_BASE64]
+ENDOFFILE
+```
+**Nota:** La cadena Base64 debe pegarse tal cual, sin modificaciones. El comando `Base64 -d` la decodifica y restaura el archivo exacto.
