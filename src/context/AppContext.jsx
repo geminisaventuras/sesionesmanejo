@@ -1,9 +1,9 @@
-// @build: 2026-06-16.10-00-00 | id: B5 | desc: Corrección de appId a motoescuela-dev
+// @build: 2026-06-17.09-00-00 | id: B51-C2 | desc: AppContext completo con createStaffUser, seedDatabase, cleanExpiredLocks
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { LockService } from '../services/LockService';
 import { AppContext } from './AppContextValue';
-import { collection, doc, setDoc, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const INITIAL_CONFIG = {
@@ -12,11 +12,7 @@ const INITIAL_CONFIG = {
   autoTasas: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' }
 };
 
-// -------------------------------------------------------------------
-// CONSTANTE: APP_ID
-// Identificador de la aplicación en Firestore (corregido)
-// -------------------------------------------------------------------
-const APP_ID = 'motoescuela-dev';
+const APP_ID = 'motoescuela-pro-v1';
 
 export const AppProvider = ({ children }) => {
   const [fbUser, setFbUser] = useState(null);
@@ -74,10 +70,6 @@ export const AppProvider = ({ children }) => {
     return LockService.escucharLocks(fecha, (locks) => setActiveLocks(locks));
   }, []);
 
-  // -----------------------------------------------------------------
-  // FUNCIÓN: buildPath
-  // Construye la ruta base para colecciones dentro de Firestore
-  // -----------------------------------------------------------------
   const buildPath = (colName) => {
     return `artifacts/${APP_ID}/public/data/${colName}`;
   };
@@ -126,7 +118,7 @@ export const AppProvider = ({ children }) => {
   const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, false);
 
   const fechaHace30Dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, where('fecha1', '>=', fechaHace30Dias), false);
+  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, where('fecha', '>=', fechaHace30Dias), false);
   const [movimientos, saveMovimiento] = useFirebaseCollection('movimientos', [], isAdmin, where('fecha', '>=', fechaHace30Dias));
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
 
@@ -191,14 +183,80 @@ export const AppProvider = ({ children }) => {
     return total > 0 ? total : 0;
   }, [config, sedes]);
 
+  const handleSaveInstructorSeguro = async (datos) => {
+    if (datos.esPrincipal) {
+      for (let inst of instructores) {
+        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) {
+          await saveInstructor({ ...inst, esPrincipal: false });
+        }
+      }
+    }
+    await saveInstructor(datos);
+  };
+
+  // [B51] FUNCIÓN: createStaffUser
+  const createStaffUser = async (email, password, role, data) => {
+    try {
+      const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+      const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, returnSecureToken: false })
+        }
+      );
+      const json = await res.json();
+      if (json.error) {
+        const mensaje = json.error.message || 'Error desconocido';
+        return { success: false, error: { code: json.error.message, message: mensaje } };
+      }
+      const uid = json.localId;
+      await saveInstructor({ ...data, email, uid });
+      return { success: true, data: { uid } };
+    } catch (error) {
+      return { success: false, error: { code: 'network-error', message: error.message } };
+    }
+  };
+
+  // [C2] FUNCIÓN: seedDatabase
+  const seedDatabase = async () => {
+    const basePath = buildPath('');
+    try {
+      const sedesSnap = await getDocs(collection(db, basePath + 'sedes'));
+      if (!sedesSnap.empty) return showToast('La base de datos ya tiene datos.', 'info');
+
+      await setDoc(doc(db, basePath + 'sedes', 'sede1'), { id: 'sede1', nombre: 'Guarenas', direccion: 'Av. Principal', activo: true });
+      await setDoc(doc(db, basePath + 'sedes', 'sede2'), { id: 'sede2', nombre: 'Caracas', direccion: 'Centro', activo: true });
+
+      await setDoc(doc(db, basePath + 'horarios', 'h1'), { id: 'h1', label: '08:00 AM - 10:00 AM', activo: true, isLunch: false });
+      await setDoc(doc(db, basePath + 'horarios', 'h2'), { id: 'h2', label: '10:00 AM - 12:00 PM', activo: true, isLunch: false });
+      await setDoc(doc(db, basePath + 'horarios', 'h3'), { id: 'h3', label: '12:00 PM - 02:00 PM', activo: true, isLunch: true });
+      await setDoc(doc(db, basePath + 'horarios', 'h4'), { id: 'h4', label: '02:00 PM - 04:00 PM', activo: true, isLunch: false });
+      await setDoc(doc(db, basePath + 'horarios', 'h5'), { id: 'h5', label: '04:00 PM - 06:00 PM', activo: true, isLunch: false });
+
+      await setDoc(doc(db, basePath + 'cursos', 'c1'), { id: 'c1', nombre: 'Básico', modulos: ['Teoría', 'Práctica'], activo: true });
+      await setDoc(doc(db, basePath + 'cursos', 'c2'), { id: 'c2', nombre: 'Intermedio', modulos: ['Teoría', 'Práctica', 'Carretera'], activo: true });
+
+      showToast('Base de datos inicializada correctamente.', 'success');
+    } catch (error) {
+      showToast('Error al sembrar la base de datos.', 'error');
+    }
+  };
+
+  // [C2] FUNCIÓN: cleanExpiredLocks
+  const cleanExpiredLocks = async () => {
+    await LockService.limpiarLocksExpirados(getTodayStr());
+  };
+
   const contextValue = {
     config, saveConfig, sedes, saveSede, horarios, saveHorario, cursos, saveCurso,
-    instructores, saveInstructor, proveedores, saveProveedor, motos, saveMoto,
+    instructores, saveInstructor, handleSaveInstructorSeguro, proveedores, saveProveedor, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
     user, setUser, toast, showToast, autoLoginData, setAutoLoginData,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources, calcularBaseUSD,
     fbUser, authReady, loginWithGoogle, loginWithEmail, loginEstudiante, crearEstudiante, logoutUser,
-    activeLocks, suscribirLocks
+    activeLocks, suscribirLocks, createStaffUser, seedDatabase, cleanExpiredLocks
   };
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;

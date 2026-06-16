@@ -59,3 +59,11 @@
 - **B5** – `src/App.jsx`: Eliminada ruta de prueba `/test-bloques` (posteriormente reañadida para continuar diagnóstico).
 - **B69** – `BACKLOG_V2.md`: Registrada deuda para habilitar/deshabilitar bloques de horario desde el panel.
 - **B70** – `BACKLOG_V2.md`: Registrada deuda para agrupar y deshabilitar bloques de horario por grupo (mañana/noche).
+
+### Sesión 17/06/2026 (madrugada) – Corrección del Dashboard
+- **B51** – `src/context/AppContext.jsx`: Agregada función `handleSaveInstructorSeguro` para crear instructores correctamente.
+- **B71-B74** – `BACKLOG_V2.md`: Documentadas funciones ausentes como deuda técnica (`seedDatabase`, `cleanExpiredLocks`, `refreshExchangeRates`, `rateFetchError`).
+
+### Sesión 17/06/2026 (madrugada) – Corrección del Dashboard
+- **B51** – `src/context/AppContext.jsx`: Agregada función `handleSaveInstructorSeguro` para crear instructores correctamente.
+- **B71-B74** – `BACKLOG_V2.md`: Documentadas funciones ausentes como deuda técnica (`seedDatabase`, `cleanExpiredLocks`, `refreshExchangeRates`, `rateFetchError`).

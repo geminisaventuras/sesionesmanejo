@@ -1,4 +1,4 @@
-// @build: 2026-06-16.03-30-00 | id: B62 | desc: cursoId ahora es campo obligatorio en la transacción
+// @build: 2026-06-17.05-00-00 | id: C1 | desc: Agregar fechaNacimiento a CAMPOS_PERMITIDOS en ReservaService
 import { db } from '../firebase';
 import { collection, doc, runTransaction, Timestamp } from 'firebase/firestore';
 
@@ -12,7 +12,7 @@ const CAMPOS_PERMITIDOS = {
   nombre: { tipo: 'string', maxLength: 50 },
   apellido: { tipo: 'string', maxLength: 50 },
   telefono: { tipo: 'string', maxLength: 11 },
-  fechaNacimiento: { tipo: 'string', maxLength: 10 },
+  fechaNacimiento: { tipo: 'string', maxLength: 10 },  // [C1] AGREGADO
   sexo: { tipo: 'string', maxLength: 20 },
   estado: { tipo: 'string', maxLength: 50 },
   zona: { tipo: 'string', maxLength: 100 },

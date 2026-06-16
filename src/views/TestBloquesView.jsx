@@ -1,14 +1,14 @@
-// @build: 2026-06-16.14-00-00 | id: B5-DIAG | desc: Página de prueba completa con bloques, búsqueda y carga de nombres
+// @build: 2026-06-16.17-30-00 | id: B5-DIAG | desc: Filtro para mostrar solo bloques ocupados
 import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
 import { LockService } from '../services/LockService';
-import { ChevronLeft, Calendar, Clock, Search } from 'lucide-react';
+import { ChevronLeft, Calendar, Clock, Search, Filter } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export const TestBloquesView = () => {
-  const { horarios, activeLocks, suscribirLocks, getTodayStr, fbUser } = useContext(AppContext);
+  const { activeLocks, suscribirLocks, getTodayStr, fbUser } = useContext(AppContext);
   const navigate = useNavigate();
   const [fecha, setFecha] = useState(getTodayStr());
   const [bloques, setBloques] = useState([]);
@@ -18,6 +18,7 @@ export const TestBloquesView = () => {
   const [reservasLocales, setReservasLocales] = useState([]);
   const [instructoresLocales, setInstructoresLocales] = useState([]);
   const [motosLocales, setMotosLocales] = useState([]);
+  const [horariosLocales, setHorariosLocales] = useState([]);
   const [error, setError] = useState(null);
   const [searchType, setSearchType] = useState('nombre');
   const [searchValue, setSearchValue] = useState('');
@@ -26,7 +27,10 @@ export const TestBloquesView = () => {
   const [allNames, setAllNames] = useState([]);
   const [loadingAll, setLoadingAll] = useState(false);
 
-  // Carga inicial de instructores y motos
+  // Filtro de ocupados
+  const [mostrarSoloOcupados, setMostrarSoloOcupados] = useState(false);
+
+  // Carga inicial de instructores, motos Y HORARIOS
   useEffect(() => {
     const cargarDatos = async () => {
       try {
@@ -36,6 +40,8 @@ export const TestBloquesView = () => {
         setInstructoresLocales(instSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         const motosSnap = await getDocs(collection(db, basePath, 'motos'));
         setMotosLocales(motosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const horSnap = await getDocs(collection(db, basePath, 'horarios'));
+        setHorariosLocales(horSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) { setError(e.message); }
     };
     cargarDatos();
@@ -63,9 +69,9 @@ export const TestBloquesView = () => {
 
   // Cálculo de bloques
   useEffect(() => {
-    if (!fecha || !horarios) { setBloques([]); return; }
+    if (!fecha || !horariosLocales.length) { setBloques([]); return; }
     const todayStr = getTodayStr();
-    const hor = horarios.filter(h => h.activo).sort((a, b) => a.id.localeCompare(b.id));
+    const hor = horariosLocales.filter(h => h.activo).sort((a, b) => a.id.localeCompare(b.id));
     const fecha2Calc = (() => { const d = new Date(fecha + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
     const blocks = hor.map(b => {
       if (fecha < todayStr) return { ...b, disponible: false, reason: 'CERRADO' };
@@ -80,7 +86,7 @@ export const TestBloquesView = () => {
       return { ...b, disponible, ocupado: estaOcupado };
     });
     setBloques(blocks);
-  }, [fecha, horarios, reservasLocales, activeLocks, getTodayStr]);
+  }, [fecha, horariosLocales, reservasLocales, activeLocks, getTodayStr]);
 
   const handleSelectHorario = async (bloque) => {
     if (isSelectingHorario || !fbUser || !bloque.disponible) return;
@@ -133,6 +139,14 @@ export const TestBloquesView = () => {
     setLoadingAll(false);
   };
 
+  // Filtrar bloques según el toggle
+  const bloquesFiltrados = mostrarSoloOcupados 
+    ? bloques.filter(b => b.ocupado) 
+    : bloques;
+
+  const disponibles = bloques.filter(b => b.disponible).length;
+  const ocupados = bloques.filter(b => b.ocupado).length;
+
   return (
     <div className="bg-white min-h-screen flex flex-col max-w-md mx-auto shadow-xl">
       <div className="flex items-center gap-3 p-5 border-b bg-white z-10">
@@ -145,10 +159,27 @@ export const TestBloquesView = () => {
           <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} min={getTodayStr()}
             className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none" />
         </div>
+
+        {/* Botón de filtro de ocupados */}
+        <div className="mb-4">
+          <button 
+            onClick={() => setMostrarSoloOcupados(!mostrarSoloOcupados)}
+            className={`w-full py-2 rounded-xl font-bold text-sm transition-colors duration-200 flex items-center justify-center gap-2 ${
+              mostrarSoloOcupados 
+                ? 'bg-red-600 text-white' 
+                : 'bg-white border-2 border-red-300 text-red-600'
+            }`}
+          >
+            <Filter size={16} />
+            {mostrarSoloOcupados ? 'Mostrando solo ocupados' : 'Mostrar solo ocupados'}
+          </button>
+        </div>
+
         <div className="bg-gray-900 text-green-400 p-3 rounded-xl mb-4 text-xs font-mono">
           <p className="font-bold text-white mb-1">DIAGNÓSTICO</p>
           <p>instructores: {instructoresLocales.length}</p>
           <p>motos: {motosLocales.length}</p>
+          <p>horarios: {horariosLocales.length}</p>
           <p>reservas: {reservasLocales.length}</p>
           <p>locks: {activeLocks?.length || 0}</p>
           <p>bloques: {bloques.length}</p>
@@ -208,9 +239,11 @@ export const TestBloquesView = () => {
           )}
         </div>
         
-        <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2"><Clock size={20} /> Bloques de Horario</h3>
+        <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2">
+          <Clock size={20} /> Bloques del día {fecha.split('-').reverse().join('/')} — {disponibles} disponibles / {ocupados} ocupados
+        </h3>
         <div className="grid gap-2">
-          {bloques.map(b => (
+          {bloquesFiltrados.map(b => (
             <button key={b.id}
               disabled={!b.disponible || b.isLunch || isSelectingHorario}
               onClick={() => handleSelectHorario(b)}

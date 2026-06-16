@@ -168,3 +168,27 @@ Al finalizar el proyecto, el Arquitecto debe emitir un informe donde describa:
 
 ======================================================================
 FIN DEL DOCUMENTO
+
+## XIII. PROCEDIMIENTO DE RESPALDO EN GITHUB
+1. Para respaldar el código en la nube, se utiliza un repositorio privado en GitHub.
+2. Cada cierto tiempo (o al finalizar una sesión importante), ejecutar los siguientes comandos en Termux:
+   cd ~/motoescuela-app
+   git add .
+   git commit -m "Backup periódico"
+   git push
+3. El repositorio remoto está configurado como origin. La autenticación se realiza mediante token de acceso personal de GitHub.
+4. Este respaldo complementa al script de backup local, proporcionando una copia externa y un historial de versiones completo.
+
+## XIII. PROCEDIMIENTO DE RESPALDO EN GITHUB
+1. Crear un repositorio vacío en GitHub (sin README, sin .gitignore).
+2. En Termux, instalar Git con `pkg install git -y`.
+3. Configurar usuario: `git config --global user.name "SuNombre"` y `git config --global user.email "su-correo@ejemplo.com"`.
+4. En la carpeta del proyecto, crear `.gitignore` con `node_modules/`, `dist/`, `.vite/`, `*.local`, `.env`.
+5. Inicializar repositorio local: `git init` → `git add .` → `git commit -m "primer commit"`.
+6. Generar un token en GitHub (Settings → Developer settings → Personal access tokens → Tokens classic) con permiso `repo`.
+7. Conectar con el remoto y subir:  
+   `git remote add origin https://github.com/USUARIO/REPO.git`  
+   `git branch -M main`  
+   `git push -u origin main`  
+   (usar el token como contraseña cuando la pida).
+8. Para futuros respaldos, solo ejecutar `git add . && git commit -m "backup" && git push`.

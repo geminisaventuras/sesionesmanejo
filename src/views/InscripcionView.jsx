@@ -1,5 +1,5 @@
-// @build: 2026-06-16.08-15-00 | id: B5 | desc: Corrección de dependencias en useEffect, sin panel de diagnóstico
-import { useState, useContext, useEffect } from 'react';
+// @build: 2026-06-17.04-30-00 | id: B62 | desc: Evita reintento de creación de cuenta al retroceder al paso 1 corrigiendo detección de sesión existente
+import { useState, useContext, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
 import { ReservaService } from '../services/ReservaService';
@@ -8,7 +8,13 @@ import { AuthService } from '../services/AuthService';
 import ModalPIN from '../components/ModalPIN';
 import { Button, Input, Select, Spinner } from '../components/UI';
 import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditCard, Check, ArrowRight, AlertCircle, Calendar, Clock, Hash, X } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
+// -------------------------------------------------------------------
+// CONSTANTES DE LISTAS ESTÁTICAS
+// Opciones para los selects del formulario.
+// -------------------------------------------------------------------
 const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
 const BANCOS = [
   'Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro',
@@ -17,6 +23,10 @@ const BANCOS = [
 ];
 const SEXOS = ['Masculino', 'Femenino'];
 
+// -------------------------------------------------------------------
+// FUNCIÓN: isPastBlock
+// Determina si un bloque de horario ya pasó (solo para la fecha de hoy).
+// -------------------------------------------------------------------
 const isPastBlock = (fecha, label, todayStr) => {
   if (fecha !== todayStr || !label) return false;
   try {
@@ -32,9 +42,14 @@ const isPastBlock = (fecha, label, todayStr) => {
   } catch { return false; }
 };
 
+// -------------------------------------------------------------------
+// COMPONENTE: InscripcionView
+// Flujo de inscripción de 4 pasos.
+// -------------------------------------------------------------------
 export const InscripcionView = () => {
-  const { config, cursos, sedes, horarios, showToast, fbUser, authReady, setUser, reservas,
-          getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks, suscribirLocks } = useContext(AppContext);
+  const { config, cursos, sedes, horarios, showToast, fbUser, authReady, setUser,
+          getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks, suscribirLocks, reservas,
+          instructores, motos } = useContext(AppContext);
   const navigate = useNavigate();
   const [step, setStep] = useState('1');
   const [form, setForm] = useState({ cursoId: '', sedeId: '', tipoMoto: '', horaId: '', fecha1: '', fecha2: '', nombre: '', apellido: '', cedula: '', diaNac: '', mesNac: '', anoNac: '', sexo: '', estado: '', zona: '', telefono: '', sabeBicicleta: '', traeMoto: 'No', pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: '' });
@@ -50,18 +65,36 @@ export const InscripcionView = () => {
   const [captchaA, setCaptchaA] = useState(() => Math.floor(Math.random() * 8) + 1);
   const [captchaB, setCaptchaB] = useState(() => Math.floor(Math.random() * 8) + 1);
 
+  // -----------------------------------------------------------------
+  // ESTADO: cacheDisponibilidad (useRef)
+  // Almacena la precarga de ocupación para los próximos 7 días.
+  // -----------------------------------------------------------------
+  const cacheDisponibilidad = useRef({});
+  const [cargandoDisponibilidad, setCargandoDisponibilidad] = useState(true);
+
+  // -----------------------------------------------------------------
+  // FUNCIÓN: regenerateCaptcha
+  // Genera un nuevo captcha matemático.
+  // -----------------------------------------------------------------
   const regenerateCaptcha = () => {
     setCaptchaA(Math.floor(Math.random() * 8) + 1);
     setCaptchaB(Math.floor(Math.random() * 8) + 1);
     setCaptchaValue('');
   };
 
+  // -----------------------------------------------------------------
+  // EFECTO: Inicialización automática del primer curso.
+  // -----------------------------------------------------------------
   useEffect(() => {
     if (cursos && cursos.length > 0 && !form.cursoId) {
       setForm(prev => ({ ...prev, cursoId: cursos[0].id }));
     }
   }, [cursos]);
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: showLocalMsg
+  // Muestra un mensaje emergente local durante 4 segundos.
+  // -----------------------------------------------------------------
   const showLocalMsg = (msg, type = 'success') => {
     setLocalMsg({ msg, type });
     setTimeout(() => setLocalMsg(null), 4000);
@@ -75,6 +108,10 @@ export const InscripcionView = () => {
     ? `${form.anoNac}-${String(form.mesNac).padStart(2, '0')}-${String(form.diaNac).padStart(2, '0')}` 
     : '';
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: esMayorDeEdad
+  // Valida mayoría de edad a partir de la fecha de nacimiento.
+  // -----------------------------------------------------------------
   const esMayorDeEdad = () => {
     if (!form.diaNac || !form.mesNac || !form.anoNac) return false;
     const hoy = new Date();
@@ -86,6 +123,10 @@ export const InscripcionView = () => {
     return edad >= 18;
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: desglosePrecio
+  // Calcula el desglose del precio según los filtros seleccionados.
+  // -----------------------------------------------------------------
   const desglosePrecio = () => {
     const partes = [];
     partes.push(`Base: $${config.precioBase || 0}`);
@@ -101,14 +142,78 @@ export const InscripcionView = () => {
     return partes;
   };
 
+  // -----------------------------------------------------------------
+  // EFECTO: Precarga de disponibilidad a 7 días.
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    const cargarDisponibilidad = async () => {
+      setCargandoDisponibilidad(true);
+      try {
+        const basePath = 'artifacts/motoescuela-pro-v1/public/data';
+        const today = getTodayStr();
+        const semana = new Date();
+        semana.setDate(semana.getDate() + 7);
+        const semanaStr = semana.toISOString().split('T')[0];
+
+        const locksRef = collection(db, 'locks');
+        const locksQ = query(locksRef, where('fecha', '>=', today), where('fecha', '<=', semanaStr));
+        const locksSnap = await getDocs(locksQ);
+        
+        const reservasRef = collection(db, basePath, 'reservas');
+        const reservasQ = query(reservasRef, where('fecha', '>=', today), where('fecha', '<=', semanaStr));
+        const reservasSnap = await getDocs(reservasQ);
+
+        const cache = {};
+        
+        locksSnap.docs.forEach(doc => {
+          const lock = doc.data();
+          if (lock.fecha && lock.horaId) {
+            cache[`${lock.fecha}_${lock.horaId}`] = true;
+          }
+        });
+
+        reservasSnap.docs.forEach(doc => {
+          const res = doc.data();
+          if (res.estadoPago === 'Pendiente' || res.estadoPago === 'Aprobado') {
+            if (res.fecha && res.horaId) {
+              cache[`${res.fecha}_${res.horaId}`] = true;
+            }
+            if (res.fecha2 && res.horaId) {
+              cache[`${res.fecha2}_${res.horaId}`] = true;
+            }
+          }
+        });
+
+        cacheDisponibilidad.current = cache;
+      } catch (e) {
+        console.error('Error precargando disponibilidad:', e);
+        cacheDisponibilidad.current = {};
+      }
+      setCargandoDisponibilidad(false);
+    };
+
+    if (authReady) {
+      cargarDisponibilidad();
+    }
+  }, [authReady, getTodayStr]);
+
+  // -----------------------------------------------------------------
+  // EFECTO: Suscripción a locks de la fecha seleccionada.
+  // -----------------------------------------------------------------
   useEffect(() => {
     let unsubscribe;
     if (form.fecha1) unsubscribe = suscribirLocks(form.fecha1);
     return () => { if (unsubscribe) unsubscribe(); };
   }, [form.fecha1, suscribirLocks]);
 
+  // -----------------------------------------------------------------
+  // EFECTO: Cálculo de bloques (con dependencias completas).
+  // -----------------------------------------------------------------
   useEffect(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) { setBloques([]); return; }
+    // Si los recursos esenciales no están listos, no calcular.
+    if (!instructores?.length || !motos?.length) return;
+    
     const todayStr = getTodayStr();
     const hor = (horarios||[]).filter(h => h.activo).sort((a,b) => a.id.localeCompare(b.id));
     const blocks = hor.map(b => {
@@ -116,12 +221,22 @@ export const InscripcionView = () => {
         return { ...b, disponible: false, reason: 'CERRADO' };
       }
       const res = findAvailableResources({ fecha1: form.fecha1, fecha2: fecha2Calc, horaId: b.id, sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto, activeLockIds: activeLocks.map(l => l.id) });
-      const estaOcupado = activeLocks.some(l => l.id.startsWith(`${form.fecha1}_${b.id}`) && l.id !== lockId);
+      const conflictoReserva = reservas.some(r => {
+        if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+        if (String(r.horaId) !== String(b.id)) return false;
+        return r.fecha === form.fecha1 || r.fecha === fecha2Calc || r.fecha2 === form.fecha1 || r.fecha2 === fecha2Calc;
+      });
+      const estaOcupadoPorLock = activeLocks.some(l => l.id.startsWith(`${form.fecha1}_${b.id}`) && l.id !== lockId);
+      const estaOcupado = estaOcupadoPorLock || conflictoReserva;
       return { ...b, disponible: !!res && !estaOcupado, instructorId: res?.instructorId, motoAsignar: res?.motoAsignadaId, ocupado: estaOcupado };
     });
     setBloques(blocks);
-  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, lockId, getTodayStr, reservas]);
+  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, lockId, getTodayStr, reservas, instructores, motos]);
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: handleSelectHorario
+  // Crea un lock para el bloque seleccionado.
+  // -----------------------------------------------------------------
   const handleSelectHorario = async (bloque) => {
     if (isSelectingHorario || !fbUser) return;
     setIsSelectingHorario(true);
@@ -142,6 +257,10 @@ export const InscripcionView = () => {
     setSelectingBlockId(null);
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: handlePinConfirmado
+  // Crea la reserva final y redirige al panel del estudiante.
+  // -----------------------------------------------------------------
   const handlePinConfirmado = async () => {
     if (!modalPIN || !lockId) { showLocalMsg('Error: No se encontró el bloqueo del horario. Selecciona de nuevo.', 'error'); setModalPIN(null); return; }
     setModalPIN(null);
@@ -157,6 +276,10 @@ export const InscripcionView = () => {
     }
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: getStepNumber
+  // Traduce el step a un número para la barra de progreso.
+  // -----------------------------------------------------------------
   const getStepNumber = (s) => {
     if (s === '1') return 1;
     if (s === '2') return 2;
@@ -165,10 +288,24 @@ export const InscripcionView = () => {
     return 1;
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: handleNext
+  // Controla el avance entre pasos con validaciones.
+  // [B62] Si fbUser ya existe (cuenta creada en primer avance), saltar
+  //       directamente al paso 2 sin reintentar crearEstudiante.
+  // -----------------------------------------------------------------
   const handleNext = async () => {
     if (step === '1') {
       if (!form.nombre || !form.cedula) { showLocalMsg('Completa los datos personales', 'error'); return; }
       if (!esMayorDeEdad()) { showLocalMsg('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
+
+      // [B62] Si el usuario ya está autenticado (cuenta creada en un avance anterior del paso 1),
+      // no se reintenta crearEstudiante. Se conserva el PIN generado previamente.
+      if (fbUser) {
+        setStep('2');
+        return;
+      }
+
       setIsSubmitting(true);
       const result = await AuthService.crearEstudiante(form.cedula);
       setIsSubmitting(false);
@@ -183,7 +320,23 @@ export const InscripcionView = () => {
         return;
       }
       if (!form.sedeId || !form.fecha1 || !form.tipoMoto) { showLocalMsg('Completa todos los campos', 'error'); return; }
-      if (bloques.length === 0) { showLocalMsg('No hay horarios disponibles para esta configuración', 'error'); return; }
+
+      if (cargandoDisponibilidad) {
+        showLocalMsg('Cargando disponibilidad. Espera un momento.', 'error');
+        return;
+      }
+
+      const hor = (horarios||[]).filter(h => h.activo);
+      const hayDisponible = hor.some(b => {
+        const key = `${form.fecha1}_${b.id}`;
+        return !cacheDisponibilidad.current[key] && !isPastBlock(form.fecha1, b.label, getTodayStr());
+      });
+
+      if (!hayDisponible) {
+        showLocalMsg('No hay horarios disponibles para esta fecha', 'error');
+        return;
+      }
+      
       setStep('3');
       return;
     }
@@ -247,8 +400,11 @@ export const InscripcionView = () => {
     </div>
   );
 
+  // Determinar si los recursos esenciales ya están cargados
+  const recursosListos = instructores?.length > 0 && motos?.length > 0;
+
   return (
-    <div className="bg-white min-h-dvh flex flex-col relative max-w-md mx-auto shadow-xl">
+    <div className="bg-white min-h-dvh flex flex-col relative max-w-md mx-auto shadow-xl overflow-x-hidden">
       {localMsg && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 w-[90%] max-w-md">
           <div className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-sm font-bold text-white ${localMsg.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
@@ -302,14 +458,6 @@ export const InscripcionView = () => {
                 {esMayorDeEdad() ? '✅ Mayor de edad' : '❌ Debes ser mayor de 18 años'}
               </p>
             )}
-            <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
-              <Select label="¿Sabe andar en bicicleta?" options={['Sí','No']} value={form.sabeBicicleta} onChange={e => setForm({...form, sabeBicicleta: e.target.value})} icon={Bike} />
-              {form.sabeBicicleta === 'No' && (
-                <p className="text-xs text-orange-700 font-bold mt-0.5">
-                  Recargo por instrucción especial: +${config.recargoSinBici || 0} USD
-                </p>
-              )}
-            </div>
           </div>
         )}
 
@@ -328,13 +476,33 @@ export const InscripcionView = () => {
                 </div>
               </div>
             )}
-            <Select label="Sede" options={(sedes||[]).filter(s=>s.activo)} value={form.sedeId} onChange={e => setForm({...form, sedeId: e.target.value})} icon={MapPin} />
-            <Input label="Fecha (Día 1)" type="date" value={form.fecha1} onChange={e => setForm({...form, fecha1: e.target.value})} min={getTodayStr()} icon={Calendar} />
-            {form.fecha1 && bloques.length === 0 && (
-              <p className="text-xs text-orange-700 font-bold">Sin horarios disponibles para esta fecha.</p>
-            )}
-            <Select label="¿Trae moto?" options={['No','Sí']} value={form.traeMoto} onChange={e => setForm({...form, traeMoto: e.target.value})} icon={Bike} />
-            <Select label="Tipo de Moto" options={['Automática','Sincrónica']} value={form.tipoMoto} onChange={e => setForm({...form, tipoMoto: e.target.value})} icon={Zap} />
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Sede" options={(sedes||[]).filter(s=>s.activo)} value={form.sedeId} onChange={e => setForm({...form, sedeId: e.target.value})} icon={MapPin} />
+              <Input label="Fecha (Día 1)" type="date" value={form.fecha1} onChange={e => setForm({...form, fecha1: e.target.value})} min={getTodayStr()} icon={Calendar} />
+            </div>
+            {form.fecha1 && !cargandoDisponibilidad && (() => {
+              const hor = (horarios||[]).filter(h => h.activo);
+              const hayDisponible = hor.some(b => {
+                const key = `${form.fecha1}_${b.id}`;
+                return !cacheDisponibilidad.current[key] && !isPastBlock(form.fecha1, b.label, getTodayStr());
+              });
+              if (!hayDisponible) {
+                return <p className="text-xs text-orange-700 font-bold -mt-1">Sin horarios disponibles para esta fecha.</p>;
+              }
+              return null;
+            })()}
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Tipo de Moto" options={['Automática','Sincrónica']} value={form.tipoMoto} onChange={e => setForm({...form, tipoMoto: e.target.value})} icon={Zap} />
+              <Select label="¿Trae moto?" options={['No','Sí']} value={form.traeMoto} onChange={e => setForm({...form, traeMoto: e.target.value})} icon={Bike} />
+            </div>
+            <div className="bg-amber-50 p-3 rounded-xl border border-amber-300">
+              <Select label="¿Sabe andar en bicicleta?" options={['Sí','No']} value={form.sabeBicicleta} onChange={e => setForm({...form, sabeBicicleta: e.target.value})} icon={Bike} />
+              {form.sabeBicicleta === 'No' && (
+                <p className="text-xs text-amber-800 font-bold mt-0.5">
+                  Recargo por instrucción especial: +${config.recargoSinBici || 0} USD
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -366,42 +534,50 @@ export const InscripcionView = () => {
               </div>
             </div>
 
-            <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2"><Clock size={20} /> Selecciona tu Horario</h3>
-            <div className="grid gap-2 flex-1">
-              {bloques.map(b => {
-                const isSelectingThis = selectingBlockId === b.id;
-                return (
-                  <button key={b.id}
-                    disabled={!b.disponible || b.isLunch || isSelectingHorario}
-                    onClick={() => handleSelectHorario(b)}
-                    className={`w-full p-3 rounded-xl border-2 text-left transition-colors duration-200 ${
-                      isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                      b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
-                      b.ocupado ? 'bg-red-50 border-red-400 text-red-700' :
-                      !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
-                      form.horaId === b.id ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                      'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-sm">{b.label}</span>
-                      {isSelectingThis ? (
-                        <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">Procesando...</span>
-                      ) : (
-                        <>
-                          {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-1 rounded font-black">ALMUERZO</span>}
-                          {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">CERRADO</span>}
-                          {b.ocupado && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded font-black">OCUPADO</span>}
-                          {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">NO DISPONIBLE</span>}
-                          {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">SELECCIONADO</span>}
-                          {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded font-black">DISPONIBLE</span>}
-                        </>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            {!recursosListos ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Spinner message="Cargando instructores y motos..." />
+              </div>
+            ) : (
+              <>
+                <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2"><Clock size={20} /> Selecciona tu Horario</h3>
+                <div className="grid gap-2 flex-1">
+                  {bloques.map(b => {
+                    const isSelectingThis = selectingBlockId === b.id;
+                    return (
+                      <button key={b.id}
+                        disabled={!b.disponible || b.isLunch || isSelectingHorario}
+                        onClick={() => handleSelectHorario(b)}
+                        className={`w-full p-3 rounded-xl border-2 text-left transition-colors duration-200 ${
+                          isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                          b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
+                          b.ocupado ? 'bg-red-50 border-red-400 text-red-700' :
+                          !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
+                          form.horaId === b.id ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                          'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-sm">{b.label}</span>
+                          {isSelectingThis ? (
+                            <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">Procesando...</span>
+                          ) : (
+                            <>
+                              {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-1 rounded font-black">ALMUERZO</span>}
+                              {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">CERRADO</span>}
+                              {b.ocupado && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded font-black">OCUPADO</span>}
+                              {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">NO DISPONIBLE</span>}
+                              {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">SELECCIONADO</span>}
+                              {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded font-black">DISPONIBLE</span>}
+                            </>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -445,8 +621,8 @@ export const InscripcionView = () => {
       </div>
 
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t p-4 z-20">
-        <Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting}>
-          {isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? 'Continuar a Horario' : 'Continuar'}
+        <Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '2' && cargandoDisponibilidad)}>
+          {isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? (cargandoDisponibilidad ? 'Cargando disponibilidad...' : 'Continuar a Horario') : 'Continuar'}
         </Button>
       </div>
       {modalPIN && <ModalPIN pin={modalPIN.pin} onConfirm={handlePinConfirmado} />}
