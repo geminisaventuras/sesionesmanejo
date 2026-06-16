@@ -1,0 +1,58 @@
+import { doc, setDoc, onSnapshot, query, collection, where, Timestamp, deleteDoc, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
+
+const MAX_LIMPIEZA = 10;
+
+export const LockService = {
+  async crearLock(lockId, userId, metadata = {}) {
+    if (!lockId || !userId)
+      return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del lock' } };
+    const lockRef = doc(db, 'locks', lockId);
+    try {
+      await setDoc(lockRef, {
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
+        userId,
+        ...metadata,
+      });
+      return { success: true, data: { lockId } };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  async liberarLock(lockId) {
+    if (!lockId)
+      return { success: false, error: { code: 'missing-fields', message: 'Falta el ID del lock' } };
+    try {
+      await deleteDoc(doc(db, 'locks', lockId));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  async limpiarLocksExpirados(fecha) {
+    try {
+      const locksRef = collection(db, 'locks');
+      const q = query(locksRef, where('fecha', '==', fecha), where('expiresAt', '<=', Timestamp.now()));
+      const snapshot = await getDocs(q);
+      const expirados = snapshot.docs.slice(0, MAX_LIMPIEZA);
+      const batch = [];
+      expirados.forEach(doc => batch.push(deleteDoc(doc.ref).catch(() => {})));
+      await Promise.all(batch);
+      return { success: true, data: { eliminados: expirados.length } };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  escucharLocks(fecha, callback) {
+    this.limpiarLocksExpirados(fecha).catch(() => {});
+    const locksRef = collection(db, 'locks');
+    const q = query(locksRef, where('fecha', '==', fecha), where('expiresAt', '>', Timestamp.now()));
+    return onSnapshot(q, (snapshot) => {
+      const locks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(locks);
+    });
+  }
+};
