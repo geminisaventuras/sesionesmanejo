@@ -16,9 +16,9 @@ export const LoginView = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const assignRole = (userEmail, displayName) => {
+  const assignRole = (userEmail, displayName,uid) => {
     if (userEmail === 'armandoaventurasve@gmail.com') {
-      setUser({ role: 'admin', data: { nombre: displayName, email: userEmail } });
+      setUser({ role: 'admin', data: { nombre: displayName, email: userEmail }, uid });
       navigate('/dashboard');
       showToast(`¡Bienvenido al panel, ${displayName}!`, 'success');
       return;
@@ -26,16 +26,16 @@ export const LoginView = () => {
     const inst = (instructores || []).find(i => i.email?.toLowerCase() === userEmail);
     if (inst) {
       if (!inst.activo) { showToast('Tu cuenta de instructor está inactiva', 'error'); return; }
-      setUser({ role: 'instructor', data: inst });
-      navigate('/dashboard');
+      setUser({ role: 'instructor', data: inst, uid });
+      navigate('/instructor');
       showToast(`Bienvenido, Instructor ${inst.nombre}`, 'success');
       return;
     }
     const prov = (proveedores || []).find(p => p.email?.toLowerCase() === userEmail);
     if (prov) {
       if (!prov.activo) { showToast('Tu cuenta de proveedor está inactiva', 'error'); return; }
-      setUser({ role: 'proveedor', data: prov });
-      navigate('/dashboard');
+      setUser({ role: 'proveedor', data: prov, uid });
+      navigate('/proveedor');
       showToast(`Bienvenido, ${prov.nombre}`, 'success');
       return;
     }
@@ -48,7 +48,7 @@ export const LoginView = () => {
       const result = await loginWithGoogle();
       if (result.success) {
         const userEmail = result.data.user.email.toLowerCase();
-        assignRole(userEmail, result.data.user.displayName);
+        assignRole(userEmail, result.data.user.displayName, result.data.user.uid);
       } else {
         showToast(result.error.message, 'error');
       }
@@ -64,7 +64,7 @@ export const LoginView = () => {
     try {
       const result = await loginWithEmail(email, password);
       if (result.success) {
-        assignRole(email.toLowerCase(), email);
+        assignRole(email.toLowerCase(), email, result.data.user.uid);
       } else {
         showToast(result.error.message, 'error');
       }

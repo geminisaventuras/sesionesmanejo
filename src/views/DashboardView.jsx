@@ -1,12 +1,16 @@
-// @build: 2026-06-18.00-30-00 | id: B15 | desc: Refactorizado para usar AppShell con barra inferior fija
+// @build: 2026-06-19.05-00-00 | id: AJUSTES-FINAL | desc: Acordeones, selectores moneda, grid reglas, toggle descuento
 import { useContext, useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Input, Select } from '../components/UI';
 import AppShell from '../modules/shared/components/AppShell';
-import { ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings, Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle, BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut } from 'lucide-react';
+import { ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings, Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle, BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut, ChevronDown, ChevronUp, CreditCard } from 'lucide-react';
 import InstructorPanel from '../admin/InstructorPanel';
 import ProveedorPanel from '../admin/ProveedorPanel';
 
+// -------------------------------------------------------------------
+// COMPONENTE: TarjetaResumen
+// Tarjeta grande con color de fondo dinámico.
+// -------------------------------------------------------------------
 const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
   <div onClick={onClick} className={`${color} text-white p-6 rounded-[2rem] shadow-[0_10px_40px_rgba(29,78,216,0.4)] cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
     <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full blur-3xl transform translate-x-10 -translate-y-10"></div>
@@ -15,6 +19,10 @@ const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
   </div>
 ));
 
+// -------------------------------------------------------------------
+// COMPONENTE: CursoCompletado
+// Muestra un estudiante que aprobó un curso.
+// -------------------------------------------------------------------
 const CursoCompletado = memo(({ reserva, instructorNombre }) => (
   <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
     <div><p className="font-bold text-sm text-gray-900">{reserva.nombre} {reserva.apellido}</p><p className="text-xs text-gray-500">Inst: {instructorNombre}</p></div>
@@ -22,6 +30,10 @@ const CursoCompletado = memo(({ reserva, instructorNombre }) => (
   </div>
 ));
 
+// -------------------------------------------------------------------
+// COMPONENTE: DeudaItem
+// Muestra una deuda pendiente a instructor o proveedor.
+// -------------------------------------------------------------------
 const DeudaItem = memo(({ item, moneda, onPagar }) => (
   <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center mb-2">
     <div><p className="font-bold text-sm">{item.nombre} {item.apellido || ''}</p><p className="text-orange-600 font-black">{moneda} {item.deuda}</p></div>
@@ -29,6 +41,10 @@ const DeudaItem = memo(({ item, moneda, onPagar }) => (
   </div>
 ));
 
+// -------------------------------------------------------------------
+// COMPONENTE: AdminResumen
+// Dashboard principal: reservas pendientes y últimos cursos completados.
+// -------------------------------------------------------------------
 const AdminResumen = memo(({ setTab }) => {
   const { reservas, instructores, sedes, cleanExpiredLocks, seedDatabase } = useContext(AppContext);
   const res = reservas || [];
@@ -56,6 +72,10 @@ const AdminResumen = memo(({ setTab }) => {
   );
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: AdminFinanzas
+// Módulo de finanzas: ganancias, deudas y pagos a staff.
+// -------------------------------------------------------------------
 const AdminFinanzas = memo(() => {
   const { reservas, instructores, proveedores, motos, config, saveReserva, saveMovimiento, showToast } = useContext(AppContext);
   const res = reservas || [];
@@ -96,6 +116,10 @@ const AdminFinanzas = memo(() => {
   );
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: AdminReservas
+// Gestión de reservas: listado, aprobar, rechazar y reasignar.
+// -------------------------------------------------------------------
 const AdminReservas = memo(({ setTab }) => {
   const { reservas, saveReserva, saveMovimiento, showToast, instructores, isReservaActiva, user } = useContext(AppContext);
   const [selectedInstructorByRes, setSelectedInstructorByRes] = useState({});
@@ -135,6 +159,10 @@ const AdminReservas = memo(({ setTab }) => {
   );
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: AdminConfigHub
+// Menú de configuración con accesos directos.
+// -------------------------------------------------------------------
 const AdminConfigHub = memo(({ setTab }) => (
   <div className="space-y-6">
     <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest px-1">Configuración</h2>
@@ -150,22 +178,102 @@ const AdminConfigHub = memo(({ setTab }) => (
   </div>
 ));
 
+// -------------------------------------------------------------------
+// COMPONENTE: AdminAjustes
+// Formulario de configuración con acordeones por sección.
+// Selectores de moneda para clientes (USD, EUR, VES, USDT) y staff (USD, EUR, VES, USDT).
+// -------------------------------------------------------------------
 const AdminAjustes = memo(({ setTab }) => {
   const { config, saveConfig, showToast } = useContext(AppContext);
-  const [localCfg, setLocalCfg] = useState(config || { monedaPagoStaff: 'USD', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5, recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10, autoTasas: true, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' } });
+  const [localCfg, setLocalCfg] = useState(config || { monedaPagoStaff: 'USD', monedaCobroClientes: 'EUR', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5, recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10, autoTasas: true, promocionActiva: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' } });
+  const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false });
+  const toggleSeccion = (sec) => setSecciones(prev => ({ ...prev, [sec]: !prev[sec] }));
   const doSave = useCallback(async () => { await saveConfig(localCfg); setTab('config'); showToast('Ajustes guardados'); }, [localCfg, saveConfig, setTab, showToast]);
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2 items-center mb-6"><button type="button" onClick={() => setTab('config')} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h2 className="text-xl font-black text-gray-900 uppercase">Ajustes Generales</h2></div>
-      <div className="bg-white p-5 rounded-2xl border space-y-3"><h3 className="font-bold text-gray-700 border-b pb-2 mb-4">Tasas de Cambio</h3><Input label="Tasa Dólar (USD)" type="number" step="0.01" value={localCfg.tasaUSD || ''} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} /><Input label="Tasa Euro (EUR BCV)" type="number" step="0.01" value={localCfg.tasaEUR || ''} onChange={e => setLocalCfg({ ...localCfg, tasaEUR: e.target.value })} icon={Activity} /></div>
-      <div className="bg-white p-5 rounded-2xl border space-y-3"><h3 className="font-bold text-gray-700 border-b pb-2 mb-4">Reglas de Negocio (Base USD)</h3><Input label="Precio Base Curso" type="number" value={localCfg.precioBase || ''} onChange={e => setLocalCfg({ ...localCfg, precioBase: e.target.value })} icon={DollarSign} /><Input label="Recargo Sede Guarenas" type="number" value={localCfg.recargoGuarenas || ''} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} /><Input label="Recargo sin Bici" type="number" value={localCfg.recargoSinBici || ''} onChange={e => setLocalCfg({ ...localCfg, recargoSinBici: e.target.value })} /><Input label="Desc. Trae Moto" type="number" value={localCfg.descuentoMotoPropia || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoMotoPropia: e.target.value })} /><Input label="Desc. Promocional" type="number" value={localCfg.descuentoPromo || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoPromo: e.target.value })} /></div>
-      <div className="bg-white p-5 rounded-2xl border space-y-3"><h3 className="font-bold text-gray-700 border-b pb-2 mb-4">Comisiones Fijas</h3><Input label={`Pago a Instructor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoInstructor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoInstructor: e.target.value })} /><Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} /></div>
-      <div className="bg-white p-5 rounded-2xl border space-y-3"><h3 className="font-bold text-gray-700 border-b pb-2 mb-4">Pago Móvil Escuela</h3><Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={localCfg.pagoMovilEscuela?.banco || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, banco: e.target.value } })} /><Input label="Teléfono" value={localCfg.pagoMovilEscuela?.telefono || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, telefono: e.target.value } })} /><Input label="Cédula / RIF" value={localCfg.pagoMovilEscuela?.cedula || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, cedula: e.target.value } })} /></div>
+
+      {/* TASAS DE CAMBIO */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button onClick={() => toggleSeccion('tasas')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-2"><Activity size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Tasas de Cambio</h3></div>
+          {secciones.tasas ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+        {secciones.tasas && (
+          <div className="px-4 pb-4 space-y-3">
+            <Input label="Tasa Dólar (USD)" type="number" step="0.01" value={localCfg.tasaUSD || ''} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} />
+            <Input label="Tasa Euro (EUR BCV)" type="number" step="0.01" value={localCfg.tasaEUR || ''} onChange={e => setLocalCfg({ ...localCfg, tasaEUR: e.target.value })} icon={Activity} />
+            <Select label="Moneda de Cobro a Clientes" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaCobroClientes || 'EUR'} onChange={e => setLocalCfg({ ...localCfg, monedaCobroClientes: e.target.value })} />
+          </div>
+        )}
+      </div>
+
+      {/* REGLAS DE NEGOCIO */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button onClick={() => toggleSeccion('reglas')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-2"><DollarSign size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Reglas de Negocio (Base USD)</h3></div>
+          {secciones.reglas ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+        {secciones.reglas && (
+          <div className="px-4 pb-4 space-y-3">
+            <Input label="Precio Base Curso" type="number" value={localCfg.precioBase || ''} onChange={e => setLocalCfg({ ...localCfg, precioBase: e.target.value })} icon={DollarSign} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Recargo Sede Guarenas" type="number" value={localCfg.recargoGuarenas || ''} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} />
+              <Input label="Recargo sin Bici" type="number" value={localCfg.recargoSinBici || ''} onChange={e => setLocalCfg({ ...localCfg, recargoSinBici: e.target.value })} />
+              <Input label="Desc. Trae Moto" type="number" value={localCfg.descuentoMotoPropia || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoMotoPropia: e.target.value })} />
+              <Input label="Desc. Promocional" type="number" value={localCfg.descuentoPromo || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoPromo: e.target.value })} disabled={!localCfg.promocionActiva} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* COMISIONES FIJAS */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button onClick={() => toggleSeccion('comisiones')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-2"><Wallet size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Comisiones Fijas</h3></div>
+          {secciones.comisiones ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+        {secciones.comisiones && (
+          <div className="px-4 pb-4 space-y-3">
+            <Select label="Moneda de Pago a Staff" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaPagoStaff || 'USD'} onChange={e => setLocalCfg({ ...localCfg, monedaPagoStaff: e.target.value })} />
+            <Input label={`Pago a Instructor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoInstructor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoInstructor: e.target.value })} />
+            <Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} />
+          </div>
+        )}
+      </div>
+
+      {/* PAGO MÓVIL ESCUELA */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button onClick={() => toggleSeccion('pagoMovil')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-2"><CreditCard size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Pago Móvil Escuela</h3></div>
+          {secciones.pagoMovil ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+        {secciones.pagoMovil && (
+          <div className="px-4 pb-4 space-y-3">
+            <Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={localCfg.pagoMovilEscuela?.banco || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, banco: e.target.value } })} />
+            <Input label="Teléfono" value={localCfg.pagoMovilEscuela?.telefono || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, telefono: e.target.value } })} />
+            <Input label="Cédula / RIF" value={localCfg.pagoMovilEscuela?.cedula || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, cedula: e.target.value } })} />
+          </div>
+        )}
+      </div>
+
       <Button type="button" onClick={doSave} variant="success" icon={Check}>Guardar Ajustes</Button>
     </div>
   );
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: CRUDView
+// Vista genérica de listado y edición para entidades.
+// Parámetros:
+//   titulo    - nombre de la sección
+//   items     - array de objetos a listar
+//   saveFn    - función para guardar un item
+//   formComponent - componente de formulario para crear/editar
+//   setTab    - función para cambiar de pestaña
+//   rol       - rol del staff ('instructor', 'proveedor')
+// -------------------------------------------------------------------
 const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, setTab, rol }) => {
   const { showToast, instructores, saveInstructor, proveedores, saveProveedor, createStaffUser, user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
@@ -188,7 +296,7 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
         return (
           <div key={item.id} className={`bg-white p-4 rounded-2xl shadow-sm border mb-3 flex items-center justify-between ${item.activo ? 'border-gray-100' : 'border-red-100 opacity-60'}`}>
             <div className="flex-1 pr-2"><h4 className="font-bold text-gray-900 text-sm">{itemTitle} {item.apellido || ''}</h4>{item.direccion && <p className="text-xs text-gray-500 mt-1">{item.direccion}</p>}<div className="flex gap-1 flex-wrap mt-1">{!item.activo && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">Inactivo</span>}{item.esPrincipal && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black uppercase">Principal</span>}</div></div>
-            {isAdmin && (<div className="flex gap-2"><button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button><button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiato'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button></div>)}
+            {isAdmin && (<div className="flex gap-2"><button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button><button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiado'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button></div>)}
           </div>
         );
       })}
@@ -196,11 +304,20 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
   );
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: FormCursos
+// Formulario para crear/editar un curso con sus módulos.
+// -------------------------------------------------------------------
 const FormCursos = memo(({ item, onSave, onCancel }) => {
   const [form, setForm] = useState(item.id ? item : { nombre: '', modulos: [''] });
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} Curso</h3></div><Input label="Nombre del Curso" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><label className="block text-sm font-bold text-gray-700 mb-2">Módulos</label>{form.modulos.map((m, i) => <div key={i} className="flex gap-2 mb-2"><input className="flex-1 bg-white border-2 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" value={m} onChange={e => setForm({ ...form, modulos: form.modulos.map((md, idx) => idx === i ? e.target.value : md) })} /></div>)}<Button type="button" onClick={() => setForm({ ...form, modulos: [...form.modulos, ''] })} variant="outline" className="!py-2 text-sm mt-2 bg-white" icon={Plus}>Añadir Tema</Button></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Curso</Button></div>);
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: FormPersonal
+// Formulario para crear/editar instructores y proveedores.
+// Parámetro 'rol': 'instructor' o 'proveedor'.
+// -------------------------------------------------------------------
 const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
   const { sedes } = useContext(AppContext);
   const isInst = rol === 'instructor';
@@ -208,27 +325,43 @@ const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} {rol}</h3></div><Input label="Nombre" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />{isInst && <Input label="Apellido" value={form.apellido} onChange={e => setForm({ ...form, apellido: e.target.value })} />}<Input label="Cédula / RIF" value={form.cedula} onChange={e => setForm({ ...form, cedula: e.target.value })} /><Input label="Teléfono" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-2">Acceso Sistema</h4><Input label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /><Input label="Contraseña" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div><div className="bg-blue-50 p-4 rounded-xl border border-blue-100"><h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4><Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} /><Input label="Teléfono Pago Móvil" value={form.pagoTelefono} onChange={e => setForm({ ...form, pagoTelefono: e.target.value })} /><Input label="Cédula Pago Móvil" value={form.pagoCedula} onChange={e => setForm({ ...form, pagoCedula: e.target.value })} /></div><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes Asignadas</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div>{isInst && <div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.esPrincipal} onChange={e => setForm({ ...form, esPrincipal: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Definir como Instructor Principal</label></div>}<Button type="button" onClick={() => onSave(form)} variant="dark">Guardar</Button></div>);
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: FormSede
+// Formulario para crear/editar una sede.
+// -------------------------------------------------------------------
 const FormSede = memo(({ item, onSave, onCancel }) => {
   const [form, setForm] = useState(item.id ? item : { nombre: '', direccion: '' });
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Sede</h3></div><Input label="Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /><Input label="Dirección / Ubicación" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} /><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Sede</Button></div>);
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: FormHorario
+// Formulario para crear/editar un bloque de horario.
+// -------------------------------------------------------------------
 const FormHorario = memo(({ item, onSave, onCancel }) => {
   const [form, setForm] = useState(item.id ? item : { label: '', isLunch: false });
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} Horario</h3></div><Input label="Rango (Ej: 08:00 AM - 10:00 AM)" value={form.label} onChange={e => setForm({ ...form, label: e.target.value })} /><div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.isLunch} onChange={e => setForm({ ...form, isLunch: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Es bloque de almuerzo (No reservable)</label></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Horario</Button></div>);
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: FormMoto
+// Formulario para crear/editar una moto.
+// -------------------------------------------------------------------
 const FormMoto = memo(({ item, onSave, onCancel }) => {
   const { proveedores, sedes } = useContext(AppContext);
   const [form, setForm] = useState(item.id ? item : { marca: '', modelo: '', cilindrada: '', tipo: '', proveedorId: '', sedes: [] });
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Moto</h3></div><Select label="Proveedor Dueño" options={proveedores || []} value={form.proveedorId} onChange={e => setForm({ ...form, proveedorId: e.target.value })} /><Input label="Marca" value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })} /><Input label="Modelo" value={form.modelo} onChange={e => setForm({ ...form, modelo: e.target.value })} /><Input label="Cilindrada (ej. 150cc)" value={form.cilindrada} onChange={e => setForm({ ...form, cilindrada: e.target.value })} /><Select label="Tipo" options={['Automática', 'Sincrónica']} value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} /><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes donde estará disponible</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Moto</Button></div>);
 });
 
+// -------------------------------------------------------------------
+// COMPONENTE: DashboardView
+// Panel de administración principal con navegación por pestañas.
+// Usa AppShell para la estructura base y la barra inferior fija.
+// -------------------------------------------------------------------
 export const DashboardView = () => {
   const { user, setUser, setView, logoutUser, motos, cursos, sedes, horarios, instructores, proveedores, saveMoto, saveCurso, saveSede, saveHorario, saveProveedor, handleSaveInstructorSeguro } = useContext(AppContext);
   const [tab, setTab] = useState('inicio');
   if (!user) { setView('login'); return null; }
-  if (user.role === 'instructor') return <InstructorPanel />;
   if (user.role === 'proveedor') return <ProveedorPanel />;
   const handleLogout = useCallback(() => { if (logoutUser) logoutUser(); else { setUser(null); setView('home'); } }, [logoutUser, setUser, setView]);
 

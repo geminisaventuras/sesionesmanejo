@@ -55,3 +55,28 @@
 - `vite.config.js` (anti-caché)
 
 **Reglas a futuro:** Ningún archivo de memoria o bitácora se reemplaza. Siempre se añade al final.
+
+---
+### SESIÓN 19/06/2026 – Correcciones finales en inscripción y mejoras en dashboard (v1.7.8)
+
+**Decisiones clave:**
+- **Corrección de validación de recursos:** `handleSelectHorario` ahora permite `traeMoto === 'Sí'` sin `motoAsignadaId`.
+- **Extensión de lock al avanzar al paso 4:** `handleNext` renueva el lock 10 minutos antes de ir al paso 4.
+- **Protección del useEffect de cambio de fecha:** No borra el lock si el usuario ya está en el paso 4.
+- **Formato de fecha natural:** Nueva función `formatearFechaNatural` para sugerencias legibles ("viernes 20 de junio").
+- **Dashboard:** Implementados acordeones colapsables en Ajustes Generales (cerrados por defecto), selectores de moneda para clientes y staff (USD, EUR, VES, USDT), grid de 2 columnas en Reglas de Negocio, y toggle de descuento promocional.
+
+**Bugs cerrados:** Bloque sin recursos para traeMoto=Sí, error "no se encontró el bloqueo" tras confirmar PIN, sugerencia de fecha errática.
+
+**Pendiente:** Corrección de `buscarProximaFechaDisponible` para buscar siempre hacia adelante desde la fecha seleccionada.
+
+---
+### SESIÓN 17/06/2026 – Cierre de inscripción (v1.7.9)
+
+**Decisiones clave:**
+- **Diseño Seamless restaurado:** Contenedor unificado con `overflow-hidden` en el paso 4.
+- **Captcha reorganizado:** "Escriba el resultado" a la izquierda, operación + input a la derecha.
+- **Correcciones de lógica:** Recursos para `traeMoto === 'Sí'`, bloque de almuerzo no disponible, búsqueda de fechas hacia adelante, extensión de lock al avanzar al paso 4.
+- **Prohibición de `sed` para JSX:** Todos los cambios HTML/JSX se harán con `cat` (archivo completo) o edición manual.
+
+**Deuda técnica nueva:** B82 (color del reloj SVG).

@@ -50,3 +50,34 @@
 
 **Para el Futuro:**
 > Mantener la separación de capas (servicios, componentes, contexto). Usar siempre `AppShell` para nuevas vistas. No almacenar lógica de negocio en componentes de UI. Nunca reemplazar archivos de memoria; solo añadir al final.
+
+#### [ARQUITECTO] – 2026-06-19 – Correcciones finales y mejoras en dashboard
+**Decisión/Lección Clave:**
+> La validación de recursos debe contemplar el caso de `traeMoto === 'Sí'` (sin moto asignada). Extender el lock al avanzar al paso 4 previene que expire durante el pago. Los acordeones en el dashboard reducen la fatiga de scroll y mejoran la experiencia del administrador.
+
+**Contexto:**
+> Tras implementar el diseño Seamless y los selectores de moneda, surgieron bugs en el flujo de inscripción (bloque sin recursos, lock expirado al confirmar PIN, sugerencia de fecha errática). Además, el dashboard necesitaba mejoras visuales para la gestión de configuración.
+
+**Alternativas Consideradas:**
+> - Parchar cada bug por separado con `sed` → Alto riesgo de romper el archivo.
+> - Regenerar el archivo completo con todas las correcciones → Elegido por seguridad y consistencia.
+
+**Impacto y Deuda:**
+> Se cerraron 3 bugs críticos. El dashboard ahora tiene acordeones funcionales. Pendiente: corregir la dirección de búsqueda en `buscarProximaFechaDisponible`.
+
+**Para el Futuro:**
+> Siempre regenerar archivos completos en lugar de parchar con `sed` cuando hay múltiples cambios. Documentar cada función con su propósito.
+
+#### [ARQUITECTO] – 2026-06-17 – Cierre de la página de inscripción
+**Decisión/Lección Clave:**
+> El uso de `sed` para modificar JSX es extremadamente frágil y causó múltiples roturas de archivo. Se estableció la regla de solo usar `cat` para archivos completos o edición manual con `nano`. El protocolo Base64 es la forma más segura de transferir archivos extensos.
+
+**Contexto:**
+> Tras múltiples intentos fallidos de corregir el captcha y el diseño Seamless con `sed`, se decidió regenerar el archivo completo con `cat`, incluyendo todas las mejoras. Esto resolvió los bugs de una vez y dejó el sistema funcional.
+
+**Alternativas Consideradas:**
+> - Seguir usando `sed` → Provocaba errores de sintaxis y archivos rotos.
+> - Regenerar con `cat` (elegida) → Seguro, rápido y confiable.
+
+**Impacto y Deuda:**
+> Inscripción cerrada con todas las funcionalidades operativas. Nueva deuda: B82 (color del reloj).

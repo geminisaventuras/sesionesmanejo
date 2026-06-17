@@ -53,10 +53,6 @@ export const AppProvider = ({ children }) => {
         setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
         return;
       }
-// Si no es staff, asumir que es estudiante
-const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
-setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
-      
     } catch (e) { console.error('Error restaurando rol:', e); }
   };
 
@@ -141,13 +137,13 @@ setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUs
 
   const isAdmin = user?.role === 'admin';
   const [config, saveConfig] = useFirebaseConfig();
-  const [sedes, saveSede] = useFirebaseCollection('sedes', [], true, null, true);
-  const [horarios, saveHorario] = useFirebaseCollection('horarios', [], true, null, true);
-  const [cursos, saveCurso] = useFirebaseCollection('cursos', [], true, null, true);
-  const [instructores, saveInstructor] = useFirebaseCollection('instructores', [], true, null, true);
-  const [proveedores, saveProveedor] = useFirebaseCollection('proveedores', [], true, null, true);
-  const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, true);
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
+  const [sedes, saveSede] = useFirebaseCollection('sedes', [], true, null, false);
+  const [horarios, saveHorario] = useFirebaseCollection('horarios', [], true, null, false);
+  const [cursos, saveCurso] = useFirebaseCollection('cursos', [], true, null, false);
+  const [instructores, saveInstructor] = useFirebaseCollection('instructores', [], true, null, false);
+  const [proveedores, saveProveedor] = useFirebaseCollection('proveedores', [], true, null, false);
+  const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, false);
+  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, false);
   const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
 

@@ -100,3 +100,22 @@
 - Parpadeo de bloques: Corregido con snapshot de locks durante selección.
 - Reloj SVG con anillo de progreso y expiración automática.
 - Placeholders con mejor contraste.
+
+---
+### Sesión 19/06/2026 – Correcciones finales y mejoras (v1.7.8)
+
+**Inscripción:**
+- Corregida validación de recursos para permitir `traeMoto === 'Sí'`.
+- Lock extendido 10 minutos al avanzar al paso 4.
+- Protegido `useEffect` de cambio de fecha para no borrar lock en paso 4.
+- Agregada función `formatearFechaNatural` para sugerencias de fecha legibles.
+- Formato de toast: "No hay horarios para el viernes 20 de junio. La próxima fecha disponible es el lunes 23 de junio."
+
+**Dashboard:**
+- Acordeones colapsables en Ajustes Generales (cerrados por defecto).
+- Selectores de moneda para clientes (USD, EUR, VES, USDT) y staff (USD, EUR, VES, USDT).
+- Grid de 2 columnas en Reglas de Negocio.
+- Toggle de descuento promocional (campo `promocionActiva`).
+
+**Pendiente:**
+- `buscarProximaFechaDisponible` debe buscar siempre hacia adelante desde la fecha seleccionada.

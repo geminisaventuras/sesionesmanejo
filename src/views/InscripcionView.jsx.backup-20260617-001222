@@ -1,4 +1,4 @@
-// @build: 2026-06-17.03-00-00 | id: FINAL | desc: Diseño Seamless + captcha reorganizado + todas las mejoras
+// @build: 2026-06-19.07-00-00 | id: CORRECCIONES-FINALES-V2 | desc: 5 correcciones: disponibilidad traeMoto, reloj solo paso4, boton deshabilitado, tarjetas acopladas, linea azul no desbordada
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -9,13 +9,19 @@ import ModalPIN from '../components/ModalPIN';
 import { Button, Input, Select, Spinner } from '../components/UI';
 import { useToast } from '../modules/shared/components/ToastProvider';
 import AppShell from '../modules/shared/components/AppShell';
-import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditCard, Check, ArrowRight, AlertCircle, Calendar, Clock, Hash, X, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditCard, Check, ArrowRight, AlertCircle, Calendar, Clock, Hash, X, ChevronDown, ChevronUp, Eye, EyeOff, Building2 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
-const MAX_DIAS_RESERVA = 30;
+// -------------------------------------------------------------------
+// CONSTANTES DE CONFIGURACIÓN
+// -------------------------------------------------------------------
+const MAX_DIAS_RESERVA = 15;
 const LOCK_DURATION = 10 * 60 * 1000;
 
+// -------------------------------------------------------------------
+// LISTAS ESTÁTICAS PARA SELECTS
+// -------------------------------------------------------------------
 const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
 const BANCOS = [
   'Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro',
@@ -24,12 +30,20 @@ const BANCOS = [
 ];
 const SEXOS = ['Masculino', 'Femenino'];
 
+// -------------------------------------------------------------------
+// VALORES POR DEFECTO DEL FORMULARIO
+// -------------------------------------------------------------------
 const DEFAULT_FORM = {
   cursoId: '', sedeId: '', tipoMoto: '', horaId: '', fecha1: '', fecha2: '',
   nombre: '', apellido: '', cedula: '', diaNac: '', mesNac: '', anoNac: '',
   sexo: '', estado: '', zona: '', telefono: '', sabeBicicleta: '', traeMoto: 'No',
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: ''
 };
+
+// -------------------------------------------------------------------
+// FUNCIÓN AUXILIAR: formatearFechaNatural
+// Convierte '2026-06-20' en 'viernes 20 de junio'
+// -------------------------------------------------------------------
 const formatearFechaNatural = (fechaStr) => {
   if (!fechaStr) return '';
   const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -38,6 +52,11 @@ const formatearFechaNatural = (fechaStr) => {
   const fecha = new Date(anio, parseInt(mes)-1, dia);
   return dias[fecha.getDay()] + ' ' + parseInt(dia) + ' de ' + meses[parseInt(mes)-1];
 };
+
+// -------------------------------------------------------------------
+// FUNCIÓN AUXILIAR: isPastBlock
+// Determina si un bloque de horario ya venció en el día actual.
+// -------------------------------------------------------------------
 const isPastBlock = (fecha, label, todayStr) => {
   if (fecha !== todayStr || !label) return false;
   try {
@@ -53,13 +72,22 @@ const isPastBlock = (fecha, label, todayStr) => {
   } catch { return false; }
 };
 
+// -------------------------------------------------------------------
+// COMPONENTE PRINCIPAL: InscripcionView
+// -------------------------------------------------------------------
 export const InscripcionView = () => {
+  // -----------------------------------------------------------------
+  // CONTEXTO GLOBAL (AppContext)
+  // -----------------------------------------------------------------
   const { config, cursos, sedes, horarios, fbUser, authReady, setUser,
           getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks, 
           suscribirLocks, reservas, instructores, motos } = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
   
+  // -----------------------------------------------------------------
+  // ESTADO LOCAL – Persistencia con sessionStorage (B27)
+  // -----------------------------------------------------------------
   const [step, setStep] = useState(() => {
     const saved = sessionStorage.getItem('inscripcion_step');
     return saved || '1';
@@ -72,18 +100,20 @@ export const InscripcionView = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lockId, setLockId] = useState(() => sessionStorage.getItem('inscripcion_lockId') || null);
   const generatedPinRef = useRef(null);
-const [generatedPin, setGeneratedPin] = useState(() => {
-  const saved = sessionStorage.getItem('inscripcion_generatedPin');
-  if (saved) generatedPinRef.current = saved;
-  return saved || null;
-});
-useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+  const [generatedPin, setGeneratedPin] = useState(() => {
+    const saved = sessionStorage.getItem('inscripcion_generatedPin');
+    if (saved) generatedPinRef.current = saved;
+    return saved || null;
+  });
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [captchaValue, setCaptchaValue] = useState('');
   const [captchaA, setCaptchaA] = useState(() => Math.floor(Math.random() * 8) + 1);
   const [captchaB, setCaptchaB] = useState(() => Math.floor(Math.random() * 8) + 1);
 
+  // -----------------------------------------------------------------
+  // ESTADO LOCAL – Contador de tiempo del lock (B42a)
+  // -----------------------------------------------------------------
   const [lockExpiresAt, setLockExpiresAt] = useState(() => {
     const saved = sessionStorage.getItem('inscripcion_lockExpiresAt');
     return saved ? parseInt(saved) : null;
@@ -92,8 +122,14 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
   const [renovacionUsada, setRenovacionUsada] = useState(false);
   const [mostrarDetallesPago, setMostrarDetallesPago] = useState(false);
 
+  // -----------------------------------------------------------------
+  // REFERENCIAS
+  // -----------------------------------------------------------------
   const locksSnapshotRef = useRef(activeLocks);
 
+  // -----------------------------------------------------------------
+  // VALORES DERIVADOS
+  // -----------------------------------------------------------------
   const maxDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
@@ -111,6 +147,9 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     ? `${form.anoNac}-${String(form.mesNac).padStart(2, '0')}-${String(form.diaNac).padStart(2, '0')}` 
     : '';
 
+  // -----------------------------------------------------------------
+  // FUNCIONES DE VALIDACIÓN
+  // -----------------------------------------------------------------
   const esMayorDeEdad = () => {
     if (!form.diaNac || !form.mesNac || !form.anoNac) return false;
     const hoy = new Date();
@@ -143,12 +182,18 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     setCaptchaValue('');
   };
 
+  // -----------------------------------------------------------------
+  // EFECTOS SECUNDARIOS
+  // -----------------------------------------------------------------
+
+  // Inicializar cursoId si hay cursos disponibles
   useEffect(() => {
     if (cursos && cursos.length > 0 && !form.cursoId) {
       setForm(prev => ({ ...prev, cursoId: cursos[0].id }));
     }
   }, [cursos]);
 
+  // Persistir estado en sessionStorage
   useEffect(() => {
     sessionStorage.setItem('inscripcion_step', step);
     sessionStorage.setItem('inscripcion_form', JSON.stringify(form));
@@ -160,6 +205,12 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     else sessionStorage.removeItem('inscripcion_lockExpiresAt');
   }, [step, form, lockId, generatedPin, lockExpiresAt]);
 
+  // Sincronizar ref del PIN con el estado
+  useEffect(() => {
+    if (generatedPin) generatedPinRef.current = generatedPin;
+  }, [generatedPin]);
+
+  // Limpiar sessionStorage al completar o cancelar
   const limpiarSesionInscripcion = useCallback(() => {
     sessionStorage.removeItem('inscripcion_step');
     sessionStorage.removeItem('inscripcion_form');
@@ -168,6 +219,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     sessionStorage.removeItem('inscripcion_lockExpiresAt');
   }, []);
 
+  // Liberar lock y limpiar selección al cambiar de fecha (PROTEGIDO: no se ejecuta en paso 4)
   useEffect(() => {
     if (lockId && form.horaId && step !== '4') {
       LockService.liberarLock(lockId).catch(() => {});
@@ -178,6 +230,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     }
   }, [form.fecha1]);
 
+  // Contador regresivo del lock con expiración automática
   useEffect(() => {
     if (!lockExpiresAt) { setTiempoRestante(null); return; }
     const actualizarContador = () => {
@@ -201,12 +254,17 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     return () => clearInterval(interval);
   }, [lockExpiresAt]);
 
+  // Suscripción a locks de la fecha seleccionada
   useEffect(() => {
     let unsubscribe;
     if (form.fecha1) unsubscribe = suscribirLocks(form.fecha1);
     return () => { if (unsubscribe) unsubscribe(); };
   }, [form.fecha1, suscribirLocks]);
 
+  // -----------------------------------------------------------------
+  // CÁLCULO DE BLOQUES EN TIEMPO REAL (useMemo)
+  // [CORREGIDO] Cambio 2: disponibilidad para traeMoto === 'Sí'
+  // -----------------------------------------------------------------
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
     if (!instructores?.length || !motos?.length) return [];
@@ -216,11 +274,20 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     const todayStr = getTodayStr();
     const hor = (horarios||[]).filter(h => h.activo).sort((a,b) => a.id.localeCompare(b.id));
     const blocks = hor.map(b => {
-      if (b.id === selectingBlockId) return { ...b, disponible: true, ocupado: false, seleccionando: true };
-      if (lockId && form.horaId === b.id) return { ...b, disponible: true, ocupado: false, restaurado: true };
-      if (b.isLunch) return { ...b, disponible: false, reason: 'ALMUERZO' };
-      if (form.fecha1 < todayStr || isPastBlock(form.fecha1, b.label, todayStr)) return { ...b, disponible: false, reason: 'CERRADO' };
+      if (b.id === selectingBlockId) {
+        return { ...b, disponible: true, ocupado: false, seleccionando: true };
+      }
       
+      if (lockId && form.horaId === b.id) {
+        return { ...b, disponible: true, ocupado: false, restaurado: true };
+      }
+      
+          if (b.isLunch) {
+            return { ...b, disponible: false, reason: 'ALMUERZO' };
+          }
+      if (form.fecha1 < todayStr || isPastBlock(form.fecha1, b.label, todayStr)) {
+        return { ...b, disponible: false, reason: 'CERRADO' };
+      }
       const res = findAvailableResources({ 
         fecha1: form.fecha1, fecha2: fecha2Calc, horaId: b.id, 
         sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto, 
@@ -233,6 +300,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       });
       const estaOcupadoPorLock = locksSource.some(l => l.id.startsWith(`${form.fecha1}_${b.id}`) && l.id !== lockId);
       const estaOcupado = estaOcupadoPorLock || conflictoReserva;
+      // [CAMBIO 2] Si trae su propia moto y hay instructor, el bloque está disponible aunque no haya moto asignada
       const tieneRecursos = !!res && !estaOcupado;
       const disponibilidadFinal = tieneRecursos || (form.traeMoto === 'Sí' && res?.instructorId && !estaOcupado);
       return { ...b, disponible: disponibilidadFinal, instructorId: res?.instructorId, motoAsignar: res?.motoAsignadaId, ocupado: estaOcupado };
@@ -240,6 +308,11 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     return blocks;
   }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, lockId, form.horaId, getTodayStr, reservas, instructores, motos, horarios, fecha2Calc, findAvailableResources, selectingBlockId, isSelectingHorario]);
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: buscarProximaFechaDisponible
+  // Busca la próxima fecha con horarios disponibles en los próximos 15 días.
+  // Siempre hacia adelante desde la fecha seleccionada.
+  // -----------------------------------------------------------------
   const buscarProximaFechaDisponible = async () => {
     try {
       const basePath = 'artifacts/motoescuela-pro-v1/public/data';
@@ -294,11 +367,20 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     }
   };
 
+  // -----------------------------------------------------------------
+  // HANDLERS DE ACCIÓN
+  // -----------------------------------------------------------------
+
+  // [CORREGIDO] Validación de recursos: permite traeMoto === 'Sí' sin moto asignada
   const handleSelectHorario = async (bloque) => {
     if (isSelectingHorario) return;
-    if (!fbUser) { showToast('Espera un momento, estamos preparando todo...', 'error'); return; }
+    if (!fbUser) {
+      showToast('Espera un momento, estamos preparando todo...', 'error');
+      return;
+    }
     if (!bloque.instructorId || (form.traeMoto !== 'Sí' && !bloque.motoAsignar)) {
-      showToast('Este bloque no tiene recursos asignados. Intenta con otro horario.', 'error'); return;
+      showToast('Este bloque no tiene recursos asignados. Intenta con otro horario.', 'error');
+      return;
     }
     locksSnapshotRef.current = activeLocks;
     setIsSelectingHorario(true);
@@ -308,11 +390,12 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     const instructorId = bloque.instructorId || 'sininst';
     const nuevoLockId = `${form.fecha1}_${bloque.id}_${instructorId}_${motoId}`;
     const result = await LockService.crearLock(nuevoLockId, fbUser.uid, { 
-      fecha: form.fecha1, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar 
+      fecha: form.fecha1, horaId: bloque.id, 
+      instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar 
     });
     if (result.success) { 
       setLockId(nuevoLockId); 
-      setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar }));
+      setForm(prev => ({ ...prev, horaId: bloque.id }));
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       setRenovacionUsada(false);
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success'); 
@@ -323,13 +406,16 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     setSelectingBlockId(null);
   };
 
+  // Renovar el lock una sola vez
   const handleRenovarLock = async () => {
     if (!lockId || renovacionUsada) return;
     setRenovacionUsada(true);
     locksSnapshotRef.current = activeLocks;
     setIsSelectingHorario(true);
     setSelectingBlockId(form.horaId);
-    const result = await LockService.crearLock(lockId, fbUser.uid, { fecha: form.fecha1, horaId: form.horaId });
+    const result = await LockService.crearLock(lockId, fbUser.uid, { 
+      fecha: form.fecha1, horaId: form.horaId
+    });
     if (result.success) { 
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       showToast('Tiempo renovado. Tienes 10 minutos adicionales.', 'success'); 
@@ -340,14 +426,17 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     setSelectingBlockId(null);
   };
 
+  // Confirmar PIN y crear reserva
   const handlePinConfirmado = async () => {
     if (!modalPIN || !lockId) { 
-      showToast('Error: No se encontró el bloqueo del horario.', 'error'); setModalPIN(null); return; 
+      showToast('Error: No se encontró el bloqueo del horario.', 'error'); 
+      setModalPIN(null); return; 
     }
     setModalPIN(null);
     setIsSubmitting(true);
     const result = await ReservaService.crearReserva(
-      { ...form, userId: fbUser.uid, fecha: form.fecha1, fecha2: fecha2Calc, fechaNacimiento }, lockId
+      { ...form, userId: fbUser.uid, fecha: form.fecha1, fecha2: fecha2Calc, fechaNacimiento }, 
+      lockId
     );
     setIsSubmitting(false);
     if (result.success) {
@@ -360,31 +449,40 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     }
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: handleNext
+  // Controla el avance entre pasos con validaciones.
+  // [CORREGIDO] Al avanzar al paso 4, extiende el lock 10 minutos.
+  // [CORREGIDO] Sugerencia de fecha usa formato natural.
+  // -----------------------------------------------------------------
   const handleNext = async () => {
     if (step === '1') {
       if (!form.nombre || !form.cedula) { showToast('Completa los datos personales', 'error'); return; }
       if (!esMayorDeEdad()) { showToast('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
-      if (fbUser && generatedPinRef.current) { setStep('2'); return; }
-if (fbUser && !generatedPinRef.current) {
-  await AuthService.logout();
-  setGeneratedPin(null);
-  generatedPinRef.current = null;
-  showToast('Se ha reiniciado tu sesión. Por favor, ingresa tus datos de nuevo.', 'error');
-  return;
-}
+      if (fbUser) { setStep('2'); return; }
       setIsSubmitting(true);
       const result = await AuthService.crearEstudiante(form.cedula);
       setIsSubmitting(false);
       if (!result.success) { showToast(result.error.message, 'error'); return; }
       generatedPinRef.current = result.data.pin;
       setGeneratedPin(result.data.pin);
-      setStep('2'); return;
+      setStep('2');
+      return;
     }
     if (step === '2') {
-      if (!form.cursoId || !(cursos||[]).some(c => String(c.id) === String(form.cursoId))) { showToast('Selecciona un curso válido', 'error'); return; }
-      if (!form.sedeId || !form.fecha1 || !form.tipoMoto) { showToast('Completa todos los campos', 'error'); return; }
-      if (!form.sabeBicicleta) { showToast('Indica si sabes andar en bicicleta', 'error'); return; }
-      if (!fbUser) { showToast('Preparando disponibilidad...', 'error'); return; }
+      if (!form.cursoId || !(cursos||[]).some(c => String(c.id) === String(form.cursoId))) {
+        showToast('Selecciona un curso válido de la lista', 'error'); return;
+      }
+      if (!form.sedeId || !form.fecha1 || !form.tipoMoto) { 
+        showToast('Completa todos los campos', 'error'); return; 
+      }
+      if (!form.sabeBicicleta) { 
+        showToast('Indica si sabes andar en bicicleta', 'error'); return; 
+      }
+      if (!fbUser) {
+        showToast('Preparando disponibilidad...', 'error');
+        return;
+      }
       const hayDisponible = bloques.some(b => b.disponible && !b.isLunch);
       if (!hayDisponible) {
         const proximaFecha = await buscarProximaFechaDisponible();
@@ -395,15 +493,21 @@ if (fbUser && !generatedPinRef.current) {
         }
         return;
       }
-      setStep('3'); return;
+      setStep('3');
+      return;
     }
     if (step === '3') {
-      if (!fbUser) { showToast('Preparando todo...', 'error'); return; }
+      if (!fbUser) {
+        showToast('Espera un momento, estamos preparando todo...', 'error');
+        return;
+      }
       if (!form.horaId || !lockId) { showToast('Selecciona un horario primero', 'error'); return; }
       if (!lockId.startsWith(form.fecha1 + '_')) {
         showToast('El horario seleccionado no corresponde a esta fecha.', 'error');
-        setLockId(null); setLockExpiresAt(null); setForm(prev => ({ ...prev, horaId: '' })); return;
+        setLockId(null); setLockExpiresAt(null);
+        setForm(prev => ({ ...prev, horaId: '' })); return;
       }
+      // [CORREGIDO] Extender el lock 10 minutos frescos al avanzar al paso 4
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       setStep('4'); return;
     }
@@ -419,12 +523,18 @@ if (fbUser && !generatedPinRef.current) {
     }
   };
 
+  // -----------------------------------------------------------------
+  // FUNCIÓN: handleBack
+  // Controla el retroceso entre pasos.
+  // -----------------------------------------------------------------
   const handleBack = () => {
     if (step === '2') { setStep('1'); }
     else if (step === '3') {
       if (lockId) {
         LockService.liberarLock(lockId).catch(() => {});
-        setLockId(null); setLockExpiresAt(null); setTiempoRestante(null);
+        setLockId(null);
+        setLockExpiresAt(null);
+        setTiempoRestante(null);
         setForm(prev => ({ ...prev, horaId: '' }));
       }
       setStep('2');
@@ -435,11 +545,18 @@ if (fbUser && !generatedPinRef.current) {
 
   if (!authReady) return <Spinner message="Cargando..." />;
 
+  // -----------------------------------------------------------------
+  // RENDER
+  // -----------------------------------------------------------------
   const cursoActual = (cursos||[]).find(c => c.id === form.cursoId);
   const sedeActual = (sedes||[]).find(s => String(s.id) === String(form.sedeId));
   const stepNum = (step === '1') ? 1 : (step === '2') ? 2 : (step === '3') ? 3 : 4;
   const recursosListos = instructores?.length > 0 && motos?.length > 0;
 
+  // -----------------------------------------------------------------
+  // COMPONENTE INTERNO: LockTimerFlotante
+  // Reloj SVG con anillo de progreso. Solo visible en paso 4.
+  // -----------------------------------------------------------------
   const LockTimerFlotante = () => {
     if (tiempoRestante === null) return null;
     const isExpired = tiempoRestante <= 0;
@@ -507,6 +624,7 @@ if (fbUser && !generatedPinRef.current) {
         </div>
       </div>
       <div className="px-5 pb-4 [&_.mb-4]:mb-2">
+        {/* PASO 1: DATOS PERSONALES */}
         {step === '1' && (
           <div className="space-y-2">
             <h3 className="font-bold text-gray-900 text-lg">Datos Personales</h3>
@@ -538,6 +656,7 @@ if (fbUser && !generatedPinRef.current) {
           </div>
         )}
 
+        {/* PASO 2: CONFIGURAR CLASE */}
         {step === '2' && (
           <div className="space-y-3">
             <h3 className="font-bold text-gray-900 text-lg">Configurar Clase</h3>
@@ -570,6 +689,7 @@ if (fbUser && !generatedPinRef.current) {
           </div>
         )}
 
+        {/* PASO 3: SELECCIÓN DE HORARIO */}
         {step === '3' && (
           <div className="flex flex-col h-full">
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-2xl border border-blue-100 mb-4">
@@ -631,63 +751,72 @@ if (fbUser && !generatedPinRef.current) {
           </div>
         )}
 
+        {/* PASO 4: PAGO */}
         {step === '4' && (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 relative">
             <h3 className="font-bold text-gray-900 text-base flex items-center gap-2"><CreditCard size={18} /> Realizar Pago</h3>
 
-            {/* Contenedor Unificado (Tarjeta + Acordeón) */}
-            <div className="rounded-xl border border-blue-100 shadow-sm overflow-hidden flex flex-col mt-2">
-              
-              {/* Parte Superior: Tarjeta Azul */}
-              <div className="bg-blue-600 text-white p-4 flex gap-4">
-                
-                {/* Lado Izquierdo: Total */}
-                <div className="flex-1 border-r border-blue-400/50 pr-4">
-                  <p className="text-[10px] text-blue-100 uppercase tracking-wider mb-1">Total a Cancelar</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-bold">Bs.</span>
-                    <span className="text-3xl font-bold">{precioFinalVES}</span>
-                  </div>
-                  <div className="text-[10px] text-blue-100 mt-2">
-                    <p>Base: USD {baseUSD}</p>
-                    <p>Tasa {config.monedaCobroClientes || 'EUR'}: {config.monedaCobroClientes === 'USD' ? config.tasaUSD : config.tasaEUR}</p>
-                  </div>
-                </div>
-                
-                {/* Lado Derecho: Desglose */}
-                <div className="flex-1 text-[10px] text-blue-100 flex flex-col justify-center">
-                  <p className="text-white font-medium mb-1 uppercase">Desglose</p>
-                  {desglosePrecio().map((linea, i) => (
-                    <p key={i} className="leading-tight">{linea}</p>
-                  ))}
-                </div>
+            {/* Tarjeta azul con diseño factura */}
+            <div className="bg-blue-600 text-white p-3 rounded-t-xl flex items-stretch shadow-xl shadow-blue-600/20">
+              <div className="flex-1 flex flex-col justify-center">
+                <p className="text-[10px] opacity-80 uppercase font-bold">Total a Cancelar</p>
+                <p className="text-2xl font-black">Bs. {precioFinalVES}</p>
+                <p className="text-[10px] opacity-80 mt-1">Base: USD {baseUSD}</p>
+                <p className="text-[10px] opacity-80">Tasa {config.monedaCobroClientes || 'EUR'}: {config.monedaCobroClientes === 'USD' ? config.tasaUSD : config.tasaEUR}</p>
               </div>
-
-              {/* Parte Inferior: Botón de Acordeón */}
-              <button 
-                onClick={() => setMostrarDetallesPago(!mostrarDetallesPago)}
-                className="bg-blue-50/50 w-full px-4 py-2.5 flex items-center justify-between text-blue-700 text-xs font-medium border-t border-blue-100 transition-colors hover:bg-blue-50"
-              >
-                <div className="flex items-center gap-2">
-                  {mostrarDetallesPago ? <EyeOff size={16} /> : <Eye size={16} />}
-                  {mostrarDetallesPago ? 'Ocultar Datos de Pago Móvil' : 'Ver Datos de Pago Móvil'}
-                </div>
-                {mostrarDetallesPago ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-              </button>
-
-              {/* Contenido Expandible del Acordeón */}
-              {mostrarDetallesPago && (
-                <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600">
-                  <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p>
-                  <p>Banco: {config?.pagoMovilEscuela?.banco || '—'}</p>
-                  <p>Telf: {config?.pagoMovilEscuela?.telefono || '—'}</p>
-                  <p>CI: {config?.pagoMovilEscuela?.cedula || '—'}</p>
-                </div>
-              )}
+              <div className="w-px bg-blue-400/50 mx-3" />
+              <div className="flex-1 flex flex-col justify-center">
+                <p className="text-[10px] opacity-80 uppercase font-bold mb-1">Desglose</p>
+                {desglosePrecio().map((linea, i) => (
+                  <p key={i} className="text-[10px] text-blue-100 leading-tight">{linea}</p>
+                ))}
+              </div>
             </div>
 
+            {/* Botón acordeón pegado a la tarjeta azul (SEAMLESS) */}
+            <button
+              onClick={() => setMostrarDetallesPago(!mostrarDetallesPago)}
+              className="w-full flex items-center justify-between bg-blue-50 p-2 rounded-b-lg shadow-sm rounded-t-none border-t border-blue-200 -mt-[1px] text-xs font-bold text-blue-700 -mt-[1px]"
+            >
+              <span className="flex items-center gap-2">
+                {mostrarDetallesPago ? <EyeOff size={16} /> : <Eye size={16} />}
+                {mostrarDetallesPago ? 'Ocultar Datos de Pago Móvil' : 'Ver Datos de Pago Móvil'}
+              </span>
+              {mostrarDetallesPago ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+            </button>
+
+            {/* Panel desplegable flotante */}
+            {mostrarDetallesPago && (
+              <div className="absolute left-0 right-0 z-20 bg-white rounded-b-xl rounded-t-none border border-blue-100 shadow-xl p-3 transition-all duration-300 ease-in-out">
+                <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Datos Pago Móvil</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Building2 size={18} className="text-blue-600" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Banco</p>
+                      <p className="text-sm font-bold text-gray-900">{config?.pagoMovilEscuela?.banco || '—'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Phone size={18} className="text-blue-600" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Teléfono</p>
+                      <p className="text-sm font-bold text-gray-900">{config?.pagoMovilEscuela?.telefono || '—'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Contact size={18} className="text-blue-600" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Cédula</p>
+                      <p className="text-sm font-bold text-gray-900">{config?.pagoMovilEscuela?.cedula || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Banco Emisor en fila completa */}
-            <div className="w-full mt-2">
+            <div className="w-full">
               <Select label="Banco Emisor" options={BANCOS} value={form.pagoBanco} onChange={e => setForm({...form, pagoBanco: e.target.value})} icon={CreditCard} />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -696,7 +825,7 @@ if (fbUser && !generatedPinRef.current) {
             </div>
             <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" />
 
-            {/* Captcha reorganizado */}
+            {/* Captcha en línea */}
             <div className="flex items-center justify-end gap-2 bg-blue-50 p-2 rounded-lg border border-blue-200">
               <p className="text-xs font-bold text-blue-700 whitespace-nowrap">Escriba el resultado</p>
               <div className="flex items-center gap-1">

@@ -1,4 +1,4 @@
-// @build: 2026-06-17.03-00-00 | id: FINAL | desc: Diseño Seamless + captcha reorganizado + todas las mejoras
+// @build: 2026-06-17.06-00-00 | id: INSCRIPCION-COMPLETO | desc: Archivo completo con todas las mejoras (Seamless, recursos, almuerzo, búsqueda adelante, lock paso4)
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -13,7 +13,7 @@ import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditC
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
-const MAX_DIAS_RESERVA = 30;
+const MAX_DIAS_RESERVA = 15;
 const LOCK_DURATION = 10 * 60 * 1000;
 
 const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
@@ -30,14 +30,7 @@ const DEFAULT_FORM = {
   sexo: '', estado: '', zona: '', telefono: '', sabeBicicleta: '', traeMoto: 'No',
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: ''
 };
-const formatearFechaNatural = (fechaStr) => {
-  if (!fechaStr) return '';
-  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  const dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-  const [anio, mes, dia] = fechaStr.split('-');
-  const fecha = new Date(anio, parseInt(mes)-1, dia);
-  return dias[fecha.getDay()] + ' ' + parseInt(dia) + ' de ' + meses[parseInt(mes)-1];
-};
+
 const isPastBlock = (fecha, label, todayStr) => {
   if (fecha !== todayStr || !label) return false;
   try {
@@ -72,12 +65,12 @@ export const InscripcionView = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lockId, setLockId] = useState(() => sessionStorage.getItem('inscripcion_lockId') || null);
   const generatedPinRef = useRef(null);
-const [generatedPin, setGeneratedPin] = useState(() => {
-  const saved = sessionStorage.getItem('inscripcion_generatedPin');
-  if (saved) generatedPinRef.current = saved;
-  return saved || null;
-});
-useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+  const [generatedPin, setGeneratedPin] = useState(() => {
+    const saved = sessionStorage.getItem('inscripcion_generatedPin');
+    if (saved) generatedPinRef.current = saved;
+    return saved || null;
+  });
+  useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [captchaValue, setCaptchaValue] = useState('');
@@ -312,7 +305,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     });
     if (result.success) { 
       setLockId(nuevoLockId); 
-      setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar }));
+      setForm(prev => ({ ...prev, horaId: bloque.id }));
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       setRenovacionUsada(false);
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success'); 
@@ -364,14 +357,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     if (step === '1') {
       if (!form.nombre || !form.cedula) { showToast('Completa los datos personales', 'error'); return; }
       if (!esMayorDeEdad()) { showToast('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
-      if (fbUser && generatedPinRef.current) { setStep('2'); return; }
-if (fbUser && !generatedPinRef.current) {
-  await AuthService.logout();
-  setGeneratedPin(null);
-  generatedPinRef.current = null;
-  showToast('Se ha reiniciado tu sesión. Por favor, ingresa tus datos de nuevo.', 'error');
-  return;
-}
+      if (fbUser) { setStep('2'); return; }
       setIsSubmitting(true);
       const result = await AuthService.crearEstudiante(form.cedula);
       setIsSubmitting(false);
@@ -389,7 +375,7 @@ if (fbUser && !generatedPinRef.current) {
       if (!hayDisponible) {
         const proximaFecha = await buscarProximaFechaDisponible();
         if (proximaFecha) {
-          showToast(`No hay horarios para el ${formatearFechaNatural(form.fecha1)}. La próxima fecha disponible es el ${formatearFechaNatural(proximaFecha)}. Selecciona esa fecha en el calendario para continuar.`, 'error');
+          showToast(`No hay horarios para el ${form.fecha1}. La próxima fecha disponible es ${proximaFecha}.`, 'error');
         } else {
           showToast(`No hay horarios disponibles en los próximos ${MAX_DIAS_RESERVA} días.`, 'error');
         }
@@ -696,19 +682,18 @@ if (fbUser && !generatedPinRef.current) {
             </div>
             <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" />
 
-            {/* Captcha reorganizado */}
-            <div className="flex items-center justify-end gap-2 bg-blue-50 p-2 rounded-lg border border-blue-200">
-              <p className="text-xs font-bold text-blue-700 whitespace-nowrap">Escriba el resultado</p>
-              <div className="flex items-center gap-1">
-                <p className="text-xs font-bold text-blue-700">{captchaA} + {captchaB} =</p>
-                <input
-                  type="tel"
-                  value={captchaValue}
-                  onChange={e => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))}
-                  placeholder="?"
-                  className="w-12 bg-white border border-blue-200 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
+            {/* Captcha en línea */}
+            <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-lg border border-blue-200">
+              <p className="text-xs font-bold text-blue-700 whitespace-nowrap">
+                ¿{captchaA} + {captchaB}?
+              </p>
+              <input
+                type="tel"
+                value={captchaValue}
+                onChange={e => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                placeholder="= ?"
+                className="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
             </div>
           </div>
         )}

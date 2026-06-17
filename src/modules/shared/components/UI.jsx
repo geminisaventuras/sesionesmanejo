@@ -22,7 +22,7 @@ export const Input = ({ label, icon: Icon, helperText, ...props }) => (
     <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">{label}</label>
     <div className="relative">
       {Icon && <div className="absolute left-3.5 top-3.5 text-gray-400"><Icon size={20} /></div>}
-      <input className={`w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 ${Icon ? 'pl-11' : ''} outline-none transition-colors duration-200`} {...props} />
+      <input className={`w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 placeholder:text-gray-500 ${Icon ? 'pl-11' : ''} outline-none transition-colors duration-200`} {...props} />
     </div>
     {helperText && <p className="text-xs text-gray-500 mt-1 ml-1">{helperText}</p>}
   </div>
@@ -33,7 +33,7 @@ export const Select = ({ label, options, icon: Icon, helperText, ...props }) => 
     <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">{label}</label>
     <div className="relative">
       {Icon && <div className="absolute left-3.5 top-3.5 text-gray-400"><Icon size={20} /></div>}
-      <select className={`w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 ${Icon ? 'pl-11' : ''} outline-none transition-colors duration-200`} {...props}>
+      <select className={`w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 placeholder:text-gray-500 ${Icon ? 'pl-11' : ''} outline-none transition-colors duration-200`} {...props}>
         <option value="">Seleccione...</option>
         {options.map(opt => <option key={opt.id || opt} value={opt.id || opt}>{opt.nombre || opt.label || opt}</option>)}
       </select>

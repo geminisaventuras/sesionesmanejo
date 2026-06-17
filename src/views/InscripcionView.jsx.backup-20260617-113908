@@ -312,7 +312,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     });
     if (result.success) { 
       setLockId(nuevoLockId); 
-      setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar }));
+      setForm(prev => ({ ...prev, horaId: bloque.id }));
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       setRenovacionUsada(false);
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success'); 

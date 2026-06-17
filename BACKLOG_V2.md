@@ -63,3 +63,22 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - **[MEDIA] B78** – Calendario personalizado con fechas "FULL".
 - **[MEDIA] B79** – Fecha de nacimiento con calendario desplegable en paso 1.
 - **[MEDIA] B80** – Permitir seleccionar solo la sede Guarenas si el estudiante vive en Guarenas.
+
+---
+### Actualización 19/06/2026 – Correcciones post-refactorización v1.7.8
+
+**Bugs cerrados en esta sesión:**
+- ✅ Bloque "sin recursos asignados" para estudiantes que traen su propia moto.
+- ✅ Error "no se encontró el bloqueo del horario" al confirmar PIN (lock expirado).
+- ✅ Sugerencia de fecha con formato legible ("viernes 20 de junio").
+- ✅ Dashboard: acordeones colapsables en Ajustes Generales.
+- ✅ Dashboard: selectores de moneda para clientes y staff (USD, EUR, VES, USDT).
+
+**Bugs pendientes:**
+- ⬜ Corrección de `buscarProximaFechaDisponible` para buscar siempre hacia adelante.
+
+- **[BAJA] B82** – Color del reloj SVG: el número no se ve bien en amarillo. Evaluar cambiar a un color más contrastante (naranja oscuro o rojo) para mejorar la legibilidad.
+
+- **[MEDIA] B83** – Flujo de reinscripción: si un estudiante ya registrado entra a /inscripcion, precargar sus datos personales y saltar al paso 2 automáticamente. Evita el mensaje de "sesión reiniciada" y agiliza la compra de cursos adicionales.
+
+- **[MEDIA] B84** – Permitir al administrador restablecer la contraseña de instructores y proveedores desde el panel administrativo. Usar la REST API de Firebase Auth (`accounts:sendOobCode`) para enviar un enlace de restablecimiento al correo del instructor, sin necesidad de backend propio ni conocer la contraseña actual.

@@ -1,4 +1,4 @@
-// @build: 2026-06-18.02-00-00 | id: B15-SISTEMA | desc: Integrado ToastProvider y eliminado toast viejo del AppContext
+// @build: 2026-06-17.08-30-00 | id: APP-FIX | desc: Rutas corregidas con /instructor independiente
 import React, { useContext } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
@@ -9,9 +9,10 @@ import { InscripcionView } from './views/InscripcionView';
 import { PortalEstudiante } from './views/PortalEstudiante';
 import { EstudiantePanel } from './views/EstudiantePanel';
 import { TestBloquesView } from './views/TestBloquesView';
-import TestPagoView from './views/TestPagoView';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
+import InstructorPanel from './views/InstructorPanel';
+import TestPagoView from './views/TestPagoView';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useContext(AppContext);
@@ -45,8 +46,13 @@ function App() {
         <Route path="/test-bloques" element={<TestBloquesView />} />
         <Route path="/login" element={<LoginView />} />
         <Route path="/dashboard/*" element={
-          <ProtectedRoute allowedRoles={['admin', 'instructor', 'proveedor']}>
+          <ProtectedRoute allowedRoles={['admin']}>
             <DashboardView />
+          </ProtectedRoute>
+        } />
+        <Route path="/instructor" element={
+          <ProtectedRoute allowedRoles={['instructor']}>
+            <InstructorPanel />
           </ProtectedRoute>
         } />
         <Route path="/test-pago" element={<TestPagoView />} />
