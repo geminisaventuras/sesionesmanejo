@@ -82,3 +82,6 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - **[MEDIA] B83** – Flujo de reinscripción: si un estudiante ya registrado entra a /inscripcion, precargar sus datos personales y saltar al paso 2 automáticamente. Evita el mensaje de "sesión reiniciada" y agiliza la compra de cursos adicionales.
 
 - **[MEDIA] B84** – Permitir al administrador restablecer la contraseña de instructores y proveedores desde el panel administrativo. Usar la REST API de Firebase Auth (`accounts:sendOobCode`) para enviar un enlace de restablecimiento al correo del instructor, sin necesidad de backend propio ni conocer la contraseña actual.
+
+### Actualización 17/06/2026 – Saneamiento de archivo fantasma
+**Cerrado:** Archivo duplicado `src/admin/DashboardView.jsx` eliminado. Sin impacto.

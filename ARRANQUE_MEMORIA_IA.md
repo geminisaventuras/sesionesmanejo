@@ -80,3 +80,7 @@
 - **Prohibición de `sed` para JSX:** Todos los cambios HTML/JSX se harán con `cat` (archivo completo) o edición manual.
 
 **Deuda técnica nueva:** B82 (color del reloj SVG).
+
+### SESIÓN 17/06/2026 – Saneamiento de archivos fantasma
+- **Archivo eliminado:** `src/admin/DashboardView.jsx` (duplicado obsoleto sin acordeones).
+- **Confirmación:** `src/views/DashboardView.jsx` es la versión canónica con acordeones colapsables y barra inferior fija.

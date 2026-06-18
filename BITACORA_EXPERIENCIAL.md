@@ -81,3 +81,13 @@
 
 **Impacto y Deuda:**
 > Inscripción cerrada con todas las funcionalidades operativas. Nueva deuda: B82 (color del reloj).
+
+#### [ARQUITECTO] – 2026-06-17 – Saneamiento de archivo fantasma
+**Decisión/Lección Clave:**
+> `AdminPanelView.jsx` nunca existió en disco. El archivo con acordeones era el propio `DashboardView.jsx`. El verdadero duplicado obsoleto estaba en `src/admin/DashboardView.jsx` (sin acordeones). Eliminarlo resolvió la confusión sin afectar la app.
+
+**Contexto:**
+> Al cargar el contexto de la otra instancia, se recibió un archivo llamado `AdminPanelView.jsx` que en realidad era una copia de `DashboardView.jsx` renombrada para transferencia. Se interpretó erróneamente que eran dos archivos coexistentes. El `grep` reveló que `src/views/DashboardView.jsx` ya contenía los acordeones, y que el duplicado real era `src/admin/DashboardView.jsx`.
+
+**Impacto y Deuda:**
+> Eliminado `src/admin/DashboardView.jsx`. Ningún impacto funcional. La app compila correctamente.
