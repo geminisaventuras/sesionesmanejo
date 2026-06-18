@@ -85,3 +85,134 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 
 ### Actualización 17/06/2026 – Saneamiento de archivo fantasma
 **Cerrado:** Archivo duplicado `src/admin/DashboardView.jsx` eliminado. Sin impacto.
+
+### Actualización 18/06/2026 – Rediseño del InstructorPanel y saneamiento de archivos
+**Bugs cerrados:**
+- ✅ Archivo duplicado `src/admin/DashboardView.jsx` eliminado.
+- ✅ Header duplicado en InstructorPanel (fusionado en uno dinámico).
+- ✅ Checkbox nativo reemplazado por círculo con check en módulos.
+- ✅ Fondo de tarjeta interna cambiado a gris (`bg-gray-800/50`) para mejor contraste.
+- ✅ Texto de tarjeta interna reducido a `text-xs` para evitar desbordes de línea.
+
+**Nueva deuda técnica:**
+- **[MEDIA] B88** – Unificar el diseño del header en todas las vistas autenticadas (Dashboard, Instructor, Proveedor, Estudiante).
+
+### Actualización 18/06/2026 – Sugerencias del panel EdTech
+
+**Nueva deuda técnica:**
+
+- **[MEDIA] B89** – Calificación mutua: instructor ↔ estudiante con estrellas, anónima, colección separada en Firestore.
+- **[MEDIA] B90** – Sistema de logros por módulo y curso (cálculo en tiempo real desde Firestore).
+- **[MEDIA] B91** – Logros especiales persistentes: "Primer Curso", "Motoescuela Pro", "Calificación Perfecta", "Racha de 3".
+- **[MEDIA] B92** – Sala de chat efímera instructor-estudiante (se crea al confirmar pago, se destruye al completar).
+- **[BAJA] B93** – Registro de horas de práctica por módulo.
+- **[BAJA] B94** – Insignias gamificadas por competencias viales (nocturno, lluvia, estacionamiento).
+- **[BAJA] B95** – Modo de alto contraste y recursos offline.
+- **[BAJA] B96** – Condiciones climáticas en registro de práctica.
+- **[BAJA] B97** – Orden secuencial configurable por el administrador (libre/secuencial).
+- **[BAJA] B98** – Nota del instructor por módulo.
+- **[BAJA] B99** – Registro de instructorId en modulosEstado para auditoría.
+
+### Actualización 18/06/2026 – Sugerencias del panel EdTech
+
+**Nueva deuda técnica:**
+
+- **[MEDIA] B89** – Calificación mutua: instructor ↔ estudiante con estrellas, anónima, colección separada en Firestore.
+- **[MEDIA] B90** – Sistema de logros por módulo y curso (cálculo en tiempo real desde Firestore).
+- **[MEDIA] B91** – Logros especiales persistentes: "Primer Curso", "Motoescuela Pro", "Calificación Perfecta", "Racha de 3".
+- **[MEDIA] B92** – Sala de chat efímera instructor-estudiante (se crea al confirmar pago, se destruye al completar).
+- **[BAJA] B93** – Registro de horas de práctica por módulo.
+- **[BAJA] B94** – Insignias gamificadas por competencias viales (nocturno, lluvia, estacionamiento).
+- **[BAJA] B95** – Modo de alto contraste y recursos offline.
+- **[BAJA] B96** – Condiciones climáticas en registro de práctica.
+- **[BAJA] B97** – Orden secuencial configurable por el administrador (libre/secuencial).
+- **[BAJA] B98** – Nota del instructor por módulo.
+- **[BAJA] B99** – Registro de instructorId en modulosEstado para auditoría.
+
+### Actualización 18/06/2026 – Lógica de InstructorPanel y nuevas funcionalidades
+**Bugs cerrados / Mejoras:**
+- ✅ Teléfono del estudiante oculto al instructor.
+- ✅ Módulos con orden secuencial (siguiente bloqueado hasta completar anterior).
+- ✅ Confirmación para desmarcar módulo.
+- ✅ Módulos deshabilitados en cursos aprobados (solo lectura).
+- ✅ Botón "Completar Curso" oculto si ya está aprobado.
+
+**Nueva deuda técnica (panel EdTech):**
+- **[MEDIA] B89** – Calificación mutua instructor ↔ estudiante con estrellas.
+- **[MEDIA] B90** – Logros por módulo y curso (cálculo en tiempo real).
+- **[MEDIA] B91** – Logros especiales persistentes.
+- **[MEDIA] B92** – Sala de chat efímera instructor-estudiante.
+- **[BAJA] B93** – Registro de horas de práctica.
+- **[BAJA] B94** – Insignias gamificadas por competencias viales.
+- **[BAJA] B95** – Modo de alto contraste y recursos offline.
+- **[BAJA] B96** – Condiciones climáticas en práctica.
+- **[BAJA] B97** – Orden secuencial configurable (libre/secuencial).
+- **[BAJA] B98** – Nota del instructor por módulo.
+- **[BAJA] B99** – Registro de instructorId en modulosEstado.
+
+### Actualización 18/06/2026 – Auditoría del Centinela
+
+**Hallazgos del Centinela analizados y convertidos en deuda:**
+- **[MEDIA] B100** – Crear `ClaseService.js` para desacoplar la lógica de finalización de curso del componente UI.
+- **[BAJA] B101** – Implementar trazabilidad W3C Trace Context (`traceparent`) si la arquitectura escala a microservicios.
+- **[BAJA] B102** – Reemplazar inputs de fecha de nacimiento (día/mes/año) por `<input type="date">` nativo para cumplir WCAG 3.3.7.
+
+**Hallazgos rechazados (Veto Supremo del Operador):**
+- ❌ CRÍTICO 1 (Idempotencia): Ya cubierta por `lockId` + `runTransaction` + botones anti-pánico.
+- ❌ CRÍTICO 2 (ClaseService): Aceptado como deuda B100, no como bloqueante. El sistema actual es funcional y seguro.
+
+### Actualización 18/06/2026 – Módulo de Servicios
+
+**Nueva deuda técnica:**
+- **[MEDIA] B103** – Crear módulo de Servicios para que estudiantes y público puedan contratar servicios adicionales:
+  - Mecánica de motos
+  - Motolavado
+  - Mandados / Delivery
+  - Otros servicios de la escuela
+
+### Actualización 18/06/2026 – Consolidación de deudas técnicas (B85-B107)
+
+**Deudas registradas en sesiones anteriores:**
+- **[ALTA] B85** – Implementar sistema de evaluaciones teóricas (quizzes, banco de preguntas, calificación).
+- **[MEDIA] B86** – Crear sección de Recursos: leyes de tránsito, señales, documentales, blog.
+- **[MEDIA] B87** – Crear sección de Cursos disponibles para re-inscripción desde el panel del estudiante.
+- **[MEDIA] B88** – Unificar header de todas las vistas autenticadas.
+- **[MEDIA] B89** – Calificación mutua instructor ↔ estudiante con estrellas.
+- **[MEDIA] B90** – Sistema de logros por módulo y curso.
+- **[MEDIA] B91** – Logros especiales persistentes.
+- **[MEDIA] B92** – Sala de chat efímera instructor-estudiante.
+- **[BAJA] B93** – Registro de horas de práctica por módulo.
+- **[BAJA] B94** – Insignias gamificadas por competencias viales.
+- **[BAJA] B95** – Modo de alto contraste y recursos offline.
+- **[BAJA] B96** – Condiciones climáticas en registro de práctica.
+- **[BAJA] B97** – Orden secuencial configurable (libre/secuencial).
+- **[BAJA] B98** – Nota del instructor por módulo.
+- **[BAJA] B99** – Registro de instructorId en modulosEstado.
+- **[MEDIA] B100** – Crear ClaseService.js.
+- **[BAJA] B101** – Trazabilidad W3C Trace Context.
+- **[BAJA] B102** – Reemplazar inputs de fecha nacimiento por <input type="date">.
+- **[MEDIA] B103** – Módulo de Servicios (mecánica, motolavado, delivery).
+
+**Nuevas deudas (sesión 18/06/2026):**
+- **[MEDIA] B104** – En paso 2 de inscripción, preguntar si prefiere curso en 1 día (4h) o 2 días (2h+2h).
+- **[MEDIA] B105** – Pausar reloj general y temporizadores al llegar al límite del día 1.
+- **[MEDIA] B106** – Reloj general debe reflejar división en sesiones (Día 1 de 2 / Día 2 de 2).
+- **[BAJA] B107** – Módulo de fotos y videos con álbumes en servicio externo gratuito.
+
+### Actualización 19/06/2026 – Posposición y Cancelación de Cursos
+
+**Nuevas reglas de negocio y deuda técnica:**
+
+- **[MEDIA] B108** – Implementar el flujo de "Posponer curso" en el panel del estudiante. El estudiante solo puede posponer el curso una vez. Debe seleccionar una nueva fecha disponible dentro de los próximos 15 días.
+- **[MEDIA] B109** – Implementar la lógica de cancelación de curso si el estudiante no asiste a la segunda fecha programada. Al cancelarse, el curso queda en estado "Cancelado" y el estudiante debe pagar el precio completo de un nuevo curso para reinscribirse.
+- **[MEDIA] B110** – Crear un registro de asistencia para que el instructor confirme la presencia del estudiante. Si el estudiante no se presenta, el instructor debe poder marcarlo como "No asistió" para iniciar el flujo de penalización.
+- **[BAJA] B111** – Crear una sección de "Términos y Condiciones" en el flujo de inscripción (Paso 4). El estudiante deberá aceptar las políticas de posposición, cancelación y no reembolso antes de confirmar el pago.
+- **[MEDIA] B112** – Implementar flujo completo de pago de tiempo extra: generación de cargo, pago por Pago Móvil desde EstudiantePanel, validación en AdminFinanzas y distribución porcentual automática a instructor, proveedor y escuela.
+- **[BAJA] B113** – Configurar división del tiempo de receso (mitad y final del módulo) como opción avanzada en el CRUD de cursos.
+
+### Actualización 19/06/2026 – Estética de diálogos de confirmación
+- **[MEDIA] B114** – Reemplazar `window.confirm` en InstructorPanel (desmarcar módulo, completar curso) y en cualquier otro componente que use el diálogo nativo del navegador. Diseñar un modal de confirmación personalizado con el mismo estilo que los `ToastProvider` (bordes redondeados, sombra, iconografía de Lucide, botones "Confirmar" y "Cancelar"). También aplica para la reversión de módulos.
+
+### Actualización 20/06/2026 – Refactorización y Aula Virtual
+- **[ALTA] B116** – Restringir reversión de módulos: si el módulo actual lleva más de 3 minutos, no se puede revertir el anterior. Solo el administrador puede revertir módulos en caso de falla.
+- **[MEDIA] B117** – Implementar clases virtuales online en el Aula Virtual para el módulo teórico. Permitir videollamadas o transmisiones en vivo sin requerir presencialidad.

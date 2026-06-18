@@ -1,16 +1,21 @@
-// @build: 2026-06-19.05-00-00 | id: AJUSTES-FINAL | desc: Acordeones, selectores moneda, grid reglas, toggle descuento
+// @build: 2026-06-18.10-00-00 | id: SGTA-FASE1 | desc: CRUD de cursos con gestión de tiempos por módulo
 import { useContext, useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Input, Select } from '../components/UI';
 import AppShell from '../modules/shared/components/AppShell';
-import { ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings, Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle, BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut, ChevronDown, ChevronUp, CreditCard } from 'lucide-react';
-import InstructorPanel from '../admin/InstructorPanel';
-import ProveedorPanel from '../admin/ProveedorPanel';
+import {
+  ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings,
+  Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle,
+  BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut, ChevronDown,
+  ChevronUp, CreditCard, Minus, Equal
+} from 'lucide-react';
+import InstructorPanel from '../views/InstructorPanel';
+import ProveedorPanel from './ProveedorPanel';
 
-// -------------------------------------------------------------------
-// COMPONENTE: TarjetaResumen
-// Tarjeta grande con color de fondo dinámico.
-// -------------------------------------------------------------------
+// ================================================================
+// COMPONENTES INTERNOS DEL DASHBOARD
+// ================================================================
+
 const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
   <div onClick={onClick} className={`${color} text-white p-6 rounded-[2rem] shadow-[0_10px_40px_rgba(29,78,216,0.4)] cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
     <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full blur-3xl transform translate-x-10 -translate-y-10"></div>
@@ -19,10 +24,6 @@ const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
   </div>
 ));
 
-// -------------------------------------------------------------------
-// COMPONENTE: CursoCompletado
-// Muestra un estudiante que aprobó un curso.
-// -------------------------------------------------------------------
 const CursoCompletado = memo(({ reserva, instructorNombre }) => (
   <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
     <div><p className="font-bold text-sm text-gray-900">{reserva.nombre} {reserva.apellido}</p><p className="text-xs text-gray-500">Inst: {instructorNombre}</p></div>
@@ -30,10 +31,6 @@ const CursoCompletado = memo(({ reserva, instructorNombre }) => (
   </div>
 ));
 
-// -------------------------------------------------------------------
-// COMPONENTE: DeudaItem
-// Muestra una deuda pendiente a instructor o proveedor.
-// -------------------------------------------------------------------
 const DeudaItem = memo(({ item, moneda, onPagar }) => (
   <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center mb-2">
     <div><p className="font-bold text-sm">{item.nombre} {item.apellido || ''}</p><p className="text-orange-600 font-black">{moneda} {item.deuda}</p></div>
@@ -41,10 +38,6 @@ const DeudaItem = memo(({ item, moneda, onPagar }) => (
   </div>
 ));
 
-// -------------------------------------------------------------------
-// COMPONENTE: AdminResumen
-// Dashboard principal: reservas pendientes y últimos cursos completados.
-// -------------------------------------------------------------------
 const AdminResumen = memo(({ setTab }) => {
   const { reservas, instructores, sedes, cleanExpiredLocks, seedDatabase } = useContext(AppContext);
   const res = reservas || [];
@@ -72,10 +65,6 @@ const AdminResumen = memo(({ setTab }) => {
   );
 });
 
-// -------------------------------------------------------------------
-// COMPONENTE: AdminFinanzas
-// Módulo de finanzas: ganancias, deudas y pagos a staff.
-// -------------------------------------------------------------------
 const AdminFinanzas = memo(() => {
   const { reservas, instructores, proveedores, motos, config, saveReserva, saveMovimiento, showToast } = useContext(AppContext);
   const res = reservas || [];
@@ -116,10 +105,6 @@ const AdminFinanzas = memo(() => {
   );
 });
 
-// -------------------------------------------------------------------
-// COMPONENTE: AdminReservas
-// Gestión de reservas: listado, aprobar, rechazar y reasignar.
-// -------------------------------------------------------------------
 const AdminReservas = memo(({ setTab }) => {
   const { reservas, saveReserva, saveMovimiento, showToast, instructores, isReservaActiva, user } = useContext(AppContext);
   const [selectedInstructorByRes, setSelectedInstructorByRes] = useState({});
@@ -159,10 +144,6 @@ const AdminReservas = memo(({ setTab }) => {
   );
 });
 
-// -------------------------------------------------------------------
-// COMPONENTE: AdminConfigHub
-// Menú de configuración con accesos directos.
-// -------------------------------------------------------------------
 const AdminConfigHub = memo(({ setTab }) => (
   <div className="space-y-6">
     <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest px-1">Configuración</h2>
@@ -178,11 +159,6 @@ const AdminConfigHub = memo(({ setTab }) => (
   </div>
 ));
 
-// -------------------------------------------------------------------
-// COMPONENTE: AdminAjustes
-// Formulario de configuración con acordeones por sección.
-// Selectores de moneda para clientes (USD, EUR, VES, USDT) y staff (USD, EUR, VES, USDT).
-// -------------------------------------------------------------------
 const AdminAjustes = memo(({ setTab }) => {
   const { config, saveConfig, showToast } = useContext(AppContext);
   const [localCfg, setLocalCfg] = useState(config || { monedaPagoStaff: 'USD', monedaCobroClientes: 'EUR', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5, recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10, autoTasas: true, promocionActiva: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' } });
@@ -263,17 +239,207 @@ const AdminAjustes = memo(({ setTab }) => {
   );
 });
 
-// -------------------------------------------------------------------
-// COMPONENTE: CRUDView
-// Vista genérica de listado y edición para entidades.
-// Parámetros:
-//   titulo    - nombre de la sección
-//   items     - array de objetos a listar
-//   saveFn    - función para guardar un item
-//   formComponent - componente de formulario para crear/editar
-//   setTab    - función para cambiar de pestaña
-//   rol       - rol del staff ('instructor', 'proveedor')
-// -------------------------------------------------------------------
+// ================================================================
+// FORMULARIO DE CURSOS MEJORADO (SGTA FASE 1)
+// Soporta: duración total, duración por módulo, distribución equitativa
+// ================================================================
+const FormCursos = memo(({ item, onSave, onCancel }) => {
+  const inicializarModulos = (itemData) => {
+    // Convertir módulos antiguos (strings) a nuevo formato (objetos con duración)
+    const mods = itemData.modulos || [''];
+    if (mods.length > 0 && typeof mods[0] === 'string') {
+      return mods.map(nombre => ({ nombre, duracion: 0 }));
+    }
+    // Asegurar que cada módulo sea un objeto
+    return mods.map(m => typeof m === 'string' ? { nombre: m, duracion: 0 } : { ...m });
+  };
+
+  const [form, setForm] = useState({
+    nombre: item?.id ? item.nombre : '',
+    duracionTotal: item?.id ? (item.duracionTotal || 0) : 0,
+    modulos: inicializarModulos(item?.id ? item : { modulos: [''] })
+  });
+
+  // Calcular tiempo restante por asignar
+  const tiempoAsignado = form.modulos.reduce((acc, mod) => acc + (Number(mod.duracion) || 0), 0);
+  const tiempoRestante = (Number(form.duracionTotal) || 0) - tiempoAsignado;
+  const hayExcedente = tiempoRestante < 0;
+  const distribucionExacta = tiempoRestante === 0 && form.duracionTotal > 0;
+
+  // Manejadores
+  const handleDuracionTotalChange = (e) => {
+    setForm(prev => ({ ...prev, duracionTotal: Number(e.target.value) || 0 }));
+  };
+
+  const handleModuloNombreChange = (idx, nombre) => {
+    setForm(prev => ({
+      ...prev,
+      modulos: prev.modulos.map((m, i) => i === idx ? { ...m, nombre } : m)
+    }));
+  };
+
+  const handleModuloDuracionChange = (idx, duracion) => {
+    setForm(prev => ({
+      ...prev,
+      modulos: prev.modulos.map((m, i) => i === idx ? { ...m, duracion: Number(duracion) || 0 } : m)
+    }));
+  };
+
+  const agregarModulo = () => {
+    setForm(prev => ({ ...prev, modulos: [...prev.modulos, { nombre: '', duracion: 0 }] }));
+  };
+
+  const eliminarModulo = (idx) => {
+    setForm(prev => ({
+      ...prev,
+      modulos: prev.modulos.filter((_, i) => i !== idx)
+    }));
+  };
+
+  const distribuirEquitativamente = () => {
+    const total = Number(form.duracionTotal) || 0;
+    const cant = form.modulos.length;
+    if (total <= 0 || cant <= 0) return;
+    const porModulo = Math.floor(total / cant);
+    const sobrante = total - porModulo * cant;
+    setForm(prev => ({
+      ...prev,
+      modulos: prev.modulos.map((m, i) => ({
+        ...m,
+        duracion: porModulo + (i === 0 ? sobrante : 0)
+      }))
+    }));
+  };
+
+  const handleSave = () => {
+    // Validar que no haya excedente
+    if (hayExcedente) {
+      alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`);
+      return;
+    }
+    // Validar que todos los módulos tengan nombre
+    if (form.modulos.some(m => !m.nombre.trim())) {
+      alert('Todos los módulos deben tener un nombre.');
+      return;
+    }
+    // Guardar
+    onSave({
+      ...form,
+      modulos: form.modulos.filter(m => m.nombre.trim() !== '')
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 items-center mb-4">
+        <button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button>
+        <h3 className="font-bold text-lg">{item?.id ? 'Editar' : 'Nuevo'} Curso</h3>
+      </div>
+
+      <Input label="Nombre del Curso" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+
+      <Input
+        label="Duración Total del Curso (minutos)"
+        type="number"
+        value={form.duracionTotal || ''}
+        onChange={handleDuracionTotalChange}
+        icon={Clock}
+      />
+
+      {/* Módulos con duración */}
+      <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-sm font-bold text-gray-700">Módulos</label>
+          <button
+            type="button"
+            onClick={distribuirEquitativamente}
+            disabled={!form.duracionTotal || form.modulos.length === 0}
+            className="text-xs font-bold text-blue-600 flex items-center gap-1 disabled:opacity-40"
+          >
+            <Equal size={14} /> Distribuir equitativamente
+          </button>
+        </div>
+
+        {form.modulos.map((mod, i) => (
+          <div key={i} className="flex gap-2 mb-2 items-start">
+            <input
+              className="flex-1 bg-white border-2 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
+              placeholder={`Módulo ${i + 1}`}
+              value={mod.nombre}
+              onChange={e => handleModuloNombreChange(i, e.target.value)}
+            />
+            <input
+              type="number"
+              className="w-20 bg-white border-2 rounded-lg px-2 py-2 text-sm outline-none focus:border-blue-500 text-center"
+              placeholder="Min"
+              value={mod.duracion || ''}
+              onChange={e => handleModuloDuracionChange(i, e.target.value)}
+            />
+            {form.modulos.length > 1 && (
+              <button
+                type="button"
+                onClick={() => eliminarModulo(i)}
+                className="p-2 text-red-400 hover:text-red-600"
+              >
+                <Minus size={16} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        <Button type="button" onClick={agregarModulo} variant="outline" className="!py-2 text-sm mt-2 bg-white" icon={Plus}>Añadir Módulo</Button>
+
+        {/* Indicador de tiempo restante */}
+        {form.duracionTotal > 0 && (
+          <div className={`mt-3 p-3 rounded-xl text-center text-sm font-bold ${
+            hayExcedente ? 'bg-red-50 text-red-700 border border-red-200' :
+            distribucionExacta ? 'bg-green-50 text-green-700 border border-green-200' :
+            'bg-blue-50 text-blue-700 border border-blue-200'
+          }`}>
+            {hayExcedente
+              ? `⚠️ Excedente: ${Math.abs(tiempoRestante)} min de más`
+              : distribucionExacta
+                ? '✅ Tiempo perfectamente distribuido'
+                : `⏳ Te quedan ${tiempoRestante} min por asignar`
+            }
+          </div>
+        )}
+      </div>
+
+      <Button type="button" onClick={handleSave} variant="dark">Guardar Curso</Button>
+    </div>
+  );
+});
+
+// ================================================================
+// RESTO DE FORMULARIOS (SIN CAMBIOS)
+// ================================================================
+const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
+  const { sedes } = useContext(AppContext);
+  const isInst = rol === 'instructor';
+  const [form, setForm] = useState(item.id ? item : { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false, activo: true });
+  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} {rol}</h3></div><Input label="Nombre" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />{isInst && <Input label="Apellido" value={form.apellido} onChange={e => setForm({ ...form, apellido: e.target.value })} />}<Input label="Cédula / RIF" value={form.cedula} onChange={e => setForm({ ...form, cedula: e.target.value })} /><Input label="Teléfono" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-2">Acceso Sistema</h4><Input label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /><Input label="Contraseña" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div><div className="bg-blue-50 p-4 rounded-xl border border-blue-100"><h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4><Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} /><Input label="Teléfono Pago Móvil" value={form.pagoTelefono} onChange={e => setForm({ ...form, pagoTelefono: e.target.value })} /><Input label="Cédula Pago Móvil" value={form.pagoCedula} onChange={e => setForm({ ...form, pagoCedula: e.target.value })} /></div><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes Asignadas</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div>{isInst && <div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.esPrincipal} onChange={e => setForm({ ...form, esPrincipal: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Definir como Instructor Principal</label></div>}<Button type="button" onClick={() => onSave(form)} variant="dark">Guardar</Button></div>);
+});
+
+const FormSede = memo(({ item, onSave, onCancel }) => {
+  const [form, setForm] = useState(item.id ? item : { nombre: '', direccion: '' });
+  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Sede</h3></div><Input label="Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /><Input label="Dirección / Ubicación" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} /><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Sede</Button></div>);
+});
+
+const FormHorario = memo(({ item, onSave, onCancel }) => {
+  const [form, setForm] = useState(item.id ? item : { label: '', isLunch: false });
+  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} Horario</h3></div><Input label="Rango (Ej: 08:00 AM - 10:00 AM)" value={form.label} onChange={e => setForm({ ...form, label: e.target.value })} /><div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.isLunch} onChange={e => setForm({ ...form, isLunch: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Es bloque de almuerzo (No reservable)</label></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Horario</Button></div>);
+});
+
+const FormMoto = memo(({ item, onSave, onCancel }) => {
+  const { proveedores, sedes } = useContext(AppContext);
+  const [form, setForm] = useState(item.id ? item : { marca: '', modelo: '', cilindrada: '', tipo: '', proveedorId: '', sedes: [] });
+  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Moto</h3></div><Select label="Proveedor Dueño" options={proveedores || []} value={form.proveedorId} onChange={e => setForm({ ...form, proveedorId: e.target.value })} /><Input label="Marca" value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })} /><Input label="Modelo" value={form.modelo} onChange={e => setForm({ ...form, modelo: e.target.value })} /><Input label="Cilindrada (ej. 150cc)" value={form.cilindrada} onChange={e => setForm({ ...form, cilindrada: e.target.value })} /><Select label="Tipo" options={['Automática', 'Sincrónica']} value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} /><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes donde estará disponible</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Moto</Button></div>);
+});
+
+// ================================================================
+// VISTA CRUD GENÉRICA (SIN CAMBIOS)
+// ================================================================
 const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, setTab, rol }) => {
   const { showToast, instructores, saveInstructor, proveedores, saveProveedor, createStaffUser, user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
@@ -304,60 +470,9 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
   );
 });
 
-// -------------------------------------------------------------------
-// COMPONENTE: FormCursos
-// Formulario para crear/editar un curso con sus módulos.
-// -------------------------------------------------------------------
-const FormCursos = memo(({ item, onSave, onCancel }) => {
-  const [form, setForm] = useState(item.id ? item : { nombre: '', modulos: [''] });
-  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} Curso</h3></div><Input label="Nombre del Curso" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><label className="block text-sm font-bold text-gray-700 mb-2">Módulos</label>{form.modulos.map((m, i) => <div key={i} className="flex gap-2 mb-2"><input className="flex-1 bg-white border-2 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" value={m} onChange={e => setForm({ ...form, modulos: form.modulos.map((md, idx) => idx === i ? e.target.value : md) })} /></div>)}<Button type="button" onClick={() => setForm({ ...form, modulos: [...form.modulos, ''] })} variant="outline" className="!py-2 text-sm mt-2 bg-white" icon={Plus}>Añadir Tema</Button></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Curso</Button></div>);
-});
-
-// -------------------------------------------------------------------
-// COMPONENTE: FormPersonal
-// Formulario para crear/editar instructores y proveedores.
-// Parámetro 'rol': 'instructor' o 'proveedor'.
-// -------------------------------------------------------------------
-const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
-  const { sedes } = useContext(AppContext);
-  const isInst = rol === 'instructor';
-  const [form, setForm] = useState(item.id ? item : { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false, activo: true });
-  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} {rol}</h3></div><Input label="Nombre" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />{isInst && <Input label="Apellido" value={form.apellido} onChange={e => setForm({ ...form, apellido: e.target.value })} />}<Input label="Cédula / RIF" value={form.cedula} onChange={e => setForm({ ...form, cedula: e.target.value })} /><Input label="Teléfono" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} /><div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-2">Acceso Sistema</h4><Input label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /><Input label="Contraseña" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div><div className="bg-blue-50 p-4 rounded-xl border border-blue-100"><h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4><Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} /><Input label="Teléfono Pago Móvil" value={form.pagoTelefono} onChange={e => setForm({ ...form, pagoTelefono: e.target.value })} /><Input label="Cédula Pago Móvil" value={form.pagoCedula} onChange={e => setForm({ ...form, pagoCedula: e.target.value })} /></div><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes Asignadas</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div>{isInst && <div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.esPrincipal} onChange={e => setForm({ ...form, esPrincipal: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Definir como Instructor Principal</label></div>}<Button type="button" onClick={() => onSave(form)} variant="dark">Guardar</Button></div>);
-});
-
-// -------------------------------------------------------------------
-// COMPONENTE: FormSede
-// Formulario para crear/editar una sede.
-// -------------------------------------------------------------------
-const FormSede = memo(({ item, onSave, onCancel }) => {
-  const [form, setForm] = useState(item.id ? item : { nombre: '', direccion: '' });
-  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Sede</h3></div><Input label="Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /><Input label="Dirección / Ubicación" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} /><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Sede</Button></div>);
-});
-
-// -------------------------------------------------------------------
-// COMPONENTE: FormHorario
-// Formulario para crear/editar un bloque de horario.
-// -------------------------------------------------------------------
-const FormHorario = memo(({ item, onSave, onCancel }) => {
-  const [form, setForm] = useState(item.id ? item : { label: '', isLunch: false });
-  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nuevo'} Horario</h3></div><Input label="Rango (Ej: 08:00 AM - 10:00 AM)" value={form.label} onChange={e => setForm({ ...form, label: e.target.value })} /><div className="flex items-center gap-2 p-4 bg-gray-50 border rounded-xl"><input type="checkbox" checked={form.isLunch} onChange={e => setForm({ ...form, isLunch: e.target.checked })} className="w-5 h-5" /><label className="font-bold text-sm text-gray-700">Es bloque de almuerzo (No reservable)</label></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Horario</Button></div>);
-});
-
-// -------------------------------------------------------------------
-// COMPONENTE: FormMoto
-// Formulario para crear/editar una moto.
-// -------------------------------------------------------------------
-const FormMoto = memo(({ item, onSave, onCancel }) => {
-  const { proveedores, sedes } = useContext(AppContext);
-  const [form, setForm] = useState(item.id ? item : { marca: '', modelo: '', cilindrada: '', tipo: '', proveedorId: '', sedes: [] });
-  return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Moto</h3></div><Select label="Proveedor Dueño" options={proveedores || []} value={form.proveedorId} onChange={e => setForm({ ...form, proveedorId: e.target.value })} /><Input label="Marca" value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })} /><Input label="Modelo" value={form.modelo} onChange={e => setForm({ ...form, modelo: e.target.value })} /><Input label="Cilindrada (ej. 150cc)" value={form.cilindrada} onChange={e => setForm({ ...form, cilindrada: e.target.value })} /><Select label="Tipo" options={['Automática', 'Sincrónica']} value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} /><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes donde estará disponible</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Moto</Button></div>);
-});
-
-// -------------------------------------------------------------------
-// COMPONENTE: DashboardView
-// Panel de administración principal con navegación por pestañas.
-// Usa AppShell para la estructura base y la barra inferior fija.
-// -------------------------------------------------------------------
+// ================================================================
+// COMPONENTE PRINCIPAL DEL DASHBOARD
+// ================================================================
 export const DashboardView = () => {
   const { user, setUser, setView, logoutUser, motos, cursos, sedes, horarios, instructores, proveedores, saveMoto, saveCurso, saveSede, saveHorario, saveProveedor, handleSaveInstructorSeguro } = useContext(AppContext);
   const [tab, setTab] = useState('inicio');

@@ -91,3 +91,58 @@
 
 **Impacto y Deuda:**
 > Eliminado `src/admin/DashboardView.jsx`. Ningún impacto funcional. La app compila correctamente.
+
+#### [ARQUITECTO] – 2026-06-17/18 – Saneamiento de archivo fantasma y rediseño del InstructorPanel
+**Decisión/Lección Clave:**
+> La coexistencia de archivos obsoletos por falta de trazabilidad entre instancias de IA generó confusión. Se eliminó código muerto y se rediseñó la interfaz del instructor con un header unificado y una tarjeta de detalle optimizada para no usar scroll.
+
+**Contexto:**
+> Al cargar el contexto de la instancia anterior, se detectó que `AdminPanelView.jsx` nunca existió en disco; era una copia de `DashboardView.jsx` renombrada para transferencia. El verdadero duplicado obsoleto era `src/admin/DashboardView.jsx`. Paralelamente, el InstructorPanel requería compactar su vista de detalle para que los módulos cupieran en pantalla sin necesidad de hacer scroll.
+
+**Alternativas Consideradas:**
+> - Aplicar los ajustes de la otra instancia con `sed` → Alto riesgo de rotura de JSX, prohibido por lecciones anteriores.
+> - Rediseño completo con `cat` → Elegido por seguridad y consistencia. Se unificó el header, se añadió un sello mes/año, se compactó la tarjeta interna con fuente `text-xs` y fondo gris, y se eliminaron los checkboxes reemplazándolos por círculos con check.
+
+**Impacto y Deuda:**
+> Eliminado `src/admin/DashboardView.jsx`. InstructorPanel completamente funcional con diseño responsive. Nueva deuda: B88 (unificar headers en todas las vistas).
+
+**Para el Futuro:**
+> Nunca asumir la estructura de archivos por el nombre con que otra IA los envía. Siempre verificar con `grep` contra el sistema de archivos real.
+
+#### [ARQUITECTO] – 2026-06-18 – Lógica de privacidad y avance secuencial en InstructorPanel
+**Decisión/Lección Clave:**
+> El instructor no debe ver el teléfono del estudiante en ningún estado. La comunicación debe ser interna. El avance secuencial de módulos y la confirmación para desmarcar previenen errores operativos.
+
+**Contexto:**
+> El Operador pidió ocultar el teléfono, deshabilitar módulos en cursos aprobados y evitar cambios accidentales. El panel de expertos EdTech recomendó orden secuencial, calificación mutua y logros.
+
+**Alternativas Consideradas:**
+> - Mostrar teléfono solo en estado Aprobado → Rechazado por privacidad.
+> - Permitir saltar módulos → Rechazado por integridad académica.
+> - Confirmación con toast → Rechazado por complejidad; se usó window.confirm nativo.
+
+**Impacto y Deuda:**
+> InstructorPanel v1.7.15 con lógica de privacidad y avance. Registrada deuda B89-B99 (calificación, logros, chat, insignias, etc.).
+#### [ARQUITECTO] – 2026-06-19 – Observación sobre diálogos nativos
+**Decisión/Lección Clave:**
+> Los diálogos `window.confirm` nativos del navegador se ven anticuados y rompen la experiencia visual. Deben ser reemplazados por un componente ModalConfirm personalizado que use el mismo lenguaje de diseño que los Toast.
+
+**Contexto:**
+> Mientras se implementaba el SGTA, el Operador notó que el mensaje de confirmación para desmarcar módulos o completar cursos usaba el `window.confirm` estándar del navegador. Esto desentona con el diseño cuidado del resto de la app.
+
+**Para el Futuro:**
+> Crear un `ModalConfirm.jsx` en `src/modules/shared/components/` que reciba mensaje, onConfirm, onCancel y se renderice con el estilo de la aplicación (overlay oscuro, tarjeta blanca redondeada, iconos de Lucide, botones con variantes). Reemplazar todos los `window.confirm` por este componente.
+
+#### [ARQUITECTO] – 2026-06-20 – Refactorización Mayor, Aula Virtual y Restauración del SGTA
+**Decisión/Lección Clave:**
+> La creación del Aula Virtual como página independiente y la fusión del panel del estudiante con ella resolvió los problemas de duplicación de código, parpadeo del reloj y desincronización de datos. Extraer los componentes compartidos a `src/modules/` fue esencial para cumplir con el Marco de Trabajo V6.3 y el Manual del Arquitecto V2.1.
+
+**Contexto:**
+> El proyecto presentaba duplicación masiva entre InstructorPanel y EstudiantePanel, el temporizador causaba re-renderizados completos de la página cada segundo, y la migración a una arquitectura modular había dejado funcionalidades críticas sin restaurar. Se dedicó una sesión completa a reestructurar el sistema.
+
+**Alternativas Consideradas:**
+> - Parchear los bugs uno por uno → Rechazado por no resolver la raíz del problema.
+> - Refactorización completa con componentes compartidos y Aula Virtual independiente → Elegida y ejecutada.
+
+**Impacto y Deuda:**
+> Se restauraron todas las funcionalidades del SGTA (temporizador, pausas, receso automático, input "Otro", regla anti-fantasma). Se registró deuda B116 (restricción de reversión de módulos) y B117 (clases virtuales online).

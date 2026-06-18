@@ -192,3 +192,14 @@ FIN DEL DOCUMENTO
    `git push -u origin main`  
    (usar el token como contraseña cuando la pida).
 8. Para futuros respaldos, solo ejecutar `git add . && git commit -m "backup" && git push`.
+
+### XII. PROTOCOLO DE BACKUP PRE-ENTREGA (Formalizado 19/06/2026)
+
+1.  **Backup obligatorio:** Antes de sobrescribir cualquier archivo con `cat >`, se debe ejecutar un comando de respaldo con marca de tiempo.
+    ```bash
+    mkdir -p ~/motoescuela-app/backup/$(dirname RUTA_DEL_ARCHIVO)
+    cp RUTA_DEL_ARCHIVO backup/RUTA_DEL_ARCHIVO.backup-$(date +%Y%m%d-%H%M%S)
+    ```
+2.  **Trazabilidad en el código:** Cada archivo generado debe incluir en su primera línea un comentario con el formato:
+    `// @build: YYYY-MM-DD.HH-MM-SS | id: BXX-BYY | backup: NombreDelArchivo.backup-YYYYMMDD-HHMMSS | desc: Breve descripción del cambio`
+3.  **Restauración:** Para restaurar un respaldo, copiar el archivo desde la carpeta `backup/` a su ubicación original.

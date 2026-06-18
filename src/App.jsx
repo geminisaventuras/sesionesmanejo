@@ -1,4 +1,3 @@
-// @build: 2026-06-17.08-30-00 | id: APP-FIX | desc: Rutas corregidas con /instructor independiente
 import React, { useContext } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
@@ -12,7 +11,7 @@ import { TestBloquesView } from './views/TestBloquesView';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import InstructorPanel from './views/InstructorPanel';
-import TestPagoView from './views/TestPagoView';
+import AulaVirtualView from './views/AulaVirtualView';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useContext(AppContext);
@@ -55,7 +54,11 @@ function App() {
             <InstructorPanel />
           </ProtectedRoute>
         } />
-        <Route path="/test-pago" element={<TestPagoView />} />
+        <Route path="/aula/:reservaId" element={
+          <ProtectedRoute allowedRoles={['instructor', 'estudiante']}>
+            <AulaVirtualView />
+          </ProtectedRoute>
+        } />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ToastProvider>

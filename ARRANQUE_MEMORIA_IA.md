@@ -84,3 +84,61 @@
 ### SESIÓN 17/06/2026 – Saneamiento de archivos fantasma
 - **Archivo eliminado:** `src/admin/DashboardView.jsx` (duplicado obsoleto sin acordeones).
 - **Confirmación:** `src/views/DashboardView.jsx` es la versión canónica con acordeones colapsables y barra inferior fija.
+
+### SESIÓN 17-18/06/2026 – Saneamiento y rediseño del InstructorPanel (v1.7.14)
+
+**Decisiones clave:**
+- **Archivo fantasma:** `AdminPanelView.jsx` nunca existió. El duplicado real era `src/admin/DashboardView.jsx`. Eliminado.
+- **Header unificado:** El AppShell ahora gestiona un header dinámico que muestra navegación (volver + título) en sub-vistas y solo el nombre en resumen.
+- **Tarjeta de detalle optimizada:** Sello mes/año en esquina superior derecha. Tarjeta interna con texto `xs`, fondo gris `bg-gray-800/50` y grid de 2 columnas.
+- **Módulos sin checkbox:** Reemplazados por círculo verde con check blanco al completar.
+- **Footer condicional:** Oculto en vistas de detalle para maximizar espacio vertical.
+
+**Archivos modificados:**
+- `src/views/InstructorPanel.jsx` – Rediseño completo.
+- `src/admin/DashboardView.jsx` – Eliminado.
+
+### SESIÓN 18/06/2026 – Lógica del InstructorPanel (v1.7.15)
+
+**Decisiones clave:**
+- **Privacidad:** El instructor nunca ve el teléfono del estudiante. Eliminado de TarjetaSimple y VistaDetalleCurso.
+- **Avance secuencial:** Cada módulo se habilita solo si el anterior está completado. Módulos bloqueados muestran candado 🔒.
+- **Confirmación al desmarcar:** `window.confirm` antes de quitar un módulo completado. Marcar no requiere confirmación.
+- **Cursos aprobados en solo lectura:** Todos los módulos deshabilitados, botón "Completar Curso" oculto.
+- **Deuda registrada:** B89-B99 (calificación mutua, logros, chat, insignias, accesibilidad).
+
+**Archivos modificados:**
+- `src/views/InstructorPanel.jsx` – Lógica de privacidad y avance secuencial.
+
+### Regla de Backup Obligatorio (18/06/2026)
+Antes de sobrescribir cualquier archivo con cat, se debe ejecutar primero una copia de seguridad:
+  mkdir -p backup/$(dirname RUTA_DEL_ARCHIVO)
+  cp RUTA_DEL_ARCHIVO backup/RUTA_DEL_ARCHIVO.backup-$(date +%Y%m%d-%H%M%S)
+Esto garantiza un punto de restauracion antes de cada modificacion.
+
+### SESIÓN 19/06/2026 – Formalización del Protocolo de Backup
+
+**Regla formalizada:**
+- Antes de cada `cat >`, se ejecuta un backup con timestamp.
+- El comentario `@build` ahora incluye `@backup` con el nombre exacto del archivo de respaldo.
+- Esta regla queda registrada en el Manual del Arquitecto (Sección XII) y en este Arranque de Memoria.
+### SESIÓN 19/06/2026 – Deuda estética B114
+- **B114:** Reemplazar `window.confirm` nativo por modal personalizado con estilo de la app.
+
+### SESIÓN 19-20/06/2026 – Refactorización definitiva y Aula Virtual
+
+**Decisiones clave:**
+- **Aula Virtual:** Creada como página independiente (`/aula/:reservaId`), reutilizable por instructor y estudiante.
+- **Componentes compartidos:** `RelojSesion`, `FilaTiempo`, `BannerPausa`, `ModuloItem`, `CarruselModulos`, `DashboardHeader`, `DashboardFooter`.
+- **Hook de temporizador:** `useSessionTimer` encapsula toda la lógica del SGTA.
+- **InstructorPanel:** Simplificado a dashboard puro con redirección al Aula Virtual.
+- **EstudiantePanel:** Restaurado con tick local, lista de cursos, detalle de completados y redirección al Aula Virtual.
+
+**Deuda técnica registrada:**
+- B116: Restricción de reversión de módulos.
+- B117: Clases virtuales online para módulo teórico.
+
+**Reglas de oro recordadas:**
+- Prohibido usar `sed` para JSX (solo cambios triviales).
+- Siempre hacer backup antes de modificar archivos.
+- Cero escrituras innecesarias en Firestore (respetar el plan Spark).
