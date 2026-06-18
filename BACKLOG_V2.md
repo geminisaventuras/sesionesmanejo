@@ -216,3 +216,16 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 ### Actualización 20/06/2026 – Refactorización y Aula Virtual
 - **[ALTA] B116** – Restringir reversión de módulos: si el módulo actual lleva más de 3 minutos, no se puede revertir el anterior. Solo el administrador puede revertir módulos en caso de falla.
 - **[MEDIA] B117** – Implementar clases virtuales online en el Aula Virtual para el módulo teórico. Permitir videollamadas o transmisiones en vivo sin requerir presencialidad.
+
+### Actualización 20/06/2026 – Dashboard del estudiante y nuevas deudas
+- **[BAJA] B115** – Convertir botón "Material" del Aula Virtual en una página independiente con soporte para PDFs, libros, notas y miniforo de comentarios.
+- **[ALTA] B116** – Restringir reversión de módulos: si el módulo actual lleva más de 3 minutos, no se puede revertir el anterior. Solo el administrador puede revertir módulos en caso de falla.
+- **[MEDIA] B117** – Implementar clases virtuales online en el Aula Virtual para el módulo teórico (videollamadas o transmisiones en vivo).
+
+### Deudas previas restauradas (se perdieron en refactorización, ya reimplementadas)
+- ✅ Checkpoint al 50% del módulo.
+- ✅ Extensión de tiempo con validación de disponibilidad.
+- ✅ División en dos días (sesión 1 / sesión 2).
+- ✅ Degradación elegante ("Reconectando..." en el reloj).
+- ✅ Regla de seguridad anti-sesión fantasma.
+- ✅ Confirmación al desmarcar módulo con diálogo de honestidad.

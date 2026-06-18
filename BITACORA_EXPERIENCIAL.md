@@ -146,3 +146,10 @@
 
 **Impacto y Deuda:**
 > Se restauraron todas las funcionalidades del SGTA (temporizador, pausas, receso automático, input "Otro", regla anti-fantasma). Se registró deuda B116 (restricción de reversión de módulos) y B117 (clases virtuales online).
+
+#### [ARQUITECTO] – 2026-06-20 – Dashboard del estudiante y rediseño del botón de sesión activa
+**Decisión/Lección Clave:**
+> El estudiante no debe aterrizar en el Aula Virtual si reservó con antelación. La página principal debe ser un dashboard con un botón prominente de "Sesión Activa" cuando corresponda, y ofertas de cursos/servicios cuando no.
+
+**Contexto:**
+> Tras analizar la experiencia del usuario, se determinó que redirigir automáticamente al Aula Virtual cuando la reserva es para una fecha futura dejaba al estudiante en una página vacía. Se diseñó un dashboard que prioriza visualmente el acceso al aula cuando hay una sesión activa.

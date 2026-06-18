@@ -142,3 +142,10 @@ Esto garantiza un punto de restauracion antes de cada modificacion.
 - Prohibido usar `sed` para JSX (solo cambios triviales).
 - Siempre hacer backup antes de modificar archivos.
 - Cero escrituras innecesarias en Firestore (respetar el plan Spark).
+
+### SESIÓN 20/06/2026 – Dashboard del estudiante con botón de sesión activa
+
+**Decisiones clave:**
+- **Botón "Sesión Activa":** Diseñado con fondo azul, sombra, indicador verde pulsante y datos mínimos debajo. Reemplaza la tarjeta azul redundante en el panel del estudiante.
+- **Deudas registradas:** B115 (Material), B116 (restricción de reversión), B117 (clases virtuales online).
+- **Documentación actualizada:** BITACORA, BACKLOG y ARRANQUE_MEMORIA.
