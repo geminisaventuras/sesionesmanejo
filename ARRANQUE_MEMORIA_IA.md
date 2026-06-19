@@ -153,3 +153,17 @@ Esto garantiza un punto de restauracion antes de cada modificacion.
 - **useSessionTimer.js**: Suscripción directa a Firestore, cálculo derivado desde timestamps, tick local.
 - **AulaVirtualView.jsx**: Consume el hook unificado. Misma vista para instructor y estudiante.
 - **Resultado**: Ambos roles ven exactamente el mismo tiempo, incluso al recargar o entrar en momentos diferentes.
+
+### SESIÓN 20/06/2026 – Triple reloj y gestión de excedentes
+
+**Decisiones clave:**
+- **Reloj grande (4h):** Se detiene al llegar a 240 minutos. El tiempo de pausa acumulado se ofrece como reserva opcional.
+- **Indicador D1/D2:** Cambia automáticamente al iniciar la sesión en la segunda fecha programada.
+- **Círculo naranja de reserva:** Aparece en la parte inferior izquierda del reloj grande solo cuando este llega a 4h y existe pausa acumulada.
+
+**Deuda técnica registrada:**
+- B118: Flujo de reserva de tiempo.
+- B119: Cambio automático D1 → D2.
+- B120: Registro de tiempo excedente de sesión.
+
+**Documentación actualizada:** BITACORA, BACKLOG y ARRANQUE_MEMORIA.

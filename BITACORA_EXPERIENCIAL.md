@@ -159,3 +159,17 @@
 
 **Contexto:**
 > La sincronización de tiempos entre roles fallaba por race conditions al recargar. Se intentó con suscripción directa en AulaVirtualView, pero competía con el AppContext. La solución final fue mover la suscripción al hook y eliminar la dependencia del contexto para la reserva.
+
+#### [ARQUITECTO] – 2026-06-20 – Sistema de triple reloj y gestión de excedentes
+**Decisión/Lección Clave:**
+> El reloj general de sesión no debe depender del módulo activo. Se introduce `sesionDiariaInicio` como fuente de verdad independiente para el reloj diario, y `sesionTotalInicio` para el reloj de 4 horas. La pausa acumulada se ofrece como reserva opcional al llegar al límite.
+
+**Contexto:**
+> Al completar un módulo, el reloj general se reiniciaba porque dependía de `moduloEnProgreso.inicio`. Se detectó que el tiempo de pausa acumulado podía servir como reserva para el instructor al agotarse el tiempo reglamentario.
+
+**Alternativas Consideradas:**
+> - Usar `moduloEnProgreso.inicio` como fuente del reloj general → Descartado por reinicios al completar módulos.
+> - Extensión automática del tiempo extra → Descartada por el Operador, quien prefiere decisión manual del instructor.
+
+**Impacto y Deuda:**
+> Se diseñó el sistema de triple reloj (grande 4h, diario 2h, pausa acumulada). Se registró deuda B118 para la implementación completa del flujo de reserva.

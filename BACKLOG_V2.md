@@ -229,3 +229,8 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - ✅ Degradación elegante ("Reconectando..." en el reloj).
 - ✅ Regla de seguridad anti-sesión fantasma.
 - ✅ Confirmación al desmarcar módulo con diálogo de honestidad.
+
+### Actualización 20/06/2026 – Sistema de triple reloj y reserva de tiempo
+- **[ALTA] B118** – Completar el flujo de reserva de tiempo: botón "Usar reserva", descuento del tiempo usado de `pausaTotalAcumulada`, persistencia en Firestore.
+- **[MEDIA] B119** – Implementar el cambio automático de D1 a D2 al iniciar la sesión en la segunda fecha programada del curso.
+- **[MEDIA] B120** – Registrar el tiempo excedente de sesión (`tiempoExtraSesionAcumulado`) cuando el reloj grande supera las 4 horas, para auditoría futura.
