@@ -1,4 +1,4 @@
-// @build: 2026-06-20.21-00-00 | id: TIMER-ACUMULADOR-REAL | desc: pausaTotalAcumulada refleja pausa actual en tiempo real durante la pausa
+// @build: 2026-06-20.22-00-00 | id: TIMER-SESION-INICIADA | desc: Relojes solo corren si se ha iniciado un módulo (sesionIniciada = true)
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
@@ -9,7 +9,14 @@ const APP_ID = 'motoescuela-pro-v1';
 
 export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast) {
   const [reserva, setReserva] = useState(null);
-  const [sgta, setSgta] = useState({ ...SGTA_DEFAULTS, _moduloExcedido: false, reservaActiva: false, reservaRestante: 0, pausaAlIniciarReserva: null });
+  const [sgta, setSgta] = useState(() => ({
+    ...SGTA_DEFAULTS,
+    _moduloExcedido: false,
+    reservaActiva: false,
+    reservaRestante: 0,
+    pausaAlIniciarReserva: null,
+    sesionIniciada: !!reserva?.sesionDiariaInicio
+  }));
   const sgtaRef = useRef(sgta);
   useEffect(() => { sgtaRef.current = sgta; }, [sgta]);
 
@@ -71,11 +78,12 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast)
       generalActivo: tieneSesionDiaria && !pausaActiva && !diarioCompletado,
       moduloActivo, pausaActiva,
       pausaMotivo: reserva.pausaActiva?.motivo || '', pausaInicio: reserva.pausaActiva?.inicio || null,
-      diaActual: reserva.diaActual || 1, diarioCompletado, totalCompletado, limiteDiario, limiteTotal
+      diaActual: reserva.diaActual || 1, diarioCompletado, totalCompletado, limiteDiario, limiteTotal,
+      sesionIniciada: tieneSesionDiaria
     }));
   }, [reserva?.moduloEnProgreso?.inicio, reserva?.moduloEnProgreso?.modulo, reserva?.pausaActiva?.inicio, reserva?.pausaActiva?.motivo, reserva?.sesionDiariaInicio, reserva?.sesionTotalInicio, reserva?.sesionDiariaCompletada, reserva?.sesionTotalCompletada]);
 
-  // Tick: RELOJES NUNCA SE DETIENEN EN PAUSAS, acumulador en tiempo real
+  // Tick: RELOJES SOLO CORREN SI sesionIniciada ES TRUE
   useEffect(() => {
     if (!reserva) return;
     const interval = setInterval(() => {
@@ -83,12 +91,14 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast)
         const nuevo = { ...prev };
         const ahora = Date.now();
         
-        if (!prev.totalCompletado) {
+        // Reloj general: solo corre si la sesión fue iniciada
+        if (prev.sesionIniciada && !prev.totalCompletado) {
           nuevo.generalSegundos = (prev.generalSegundos || 0) + 1;
           if (nuevo.generalSegundos >= (prev.limiteTotal || 240) * 60) { nuevo.generalSegundos = (prev.limiteTotal || 240) * 60; nuevo.totalCompletado = true; }
         }
         
-        if (!prev.diarioCompletado) {
+        // Reloj diario: solo corre si la sesión fue iniciada
+        if (prev.sesionIniciada && !prev.diarioCompletado) {
           nuevo.diarioSegundos = (prev.diarioSegundos || 0) + 1;
           if (nuevo.diarioSegundos >= (prev.limiteDiario || 120) * 60) { nuevo.diarioSegundos = (prev.limiteDiario || 120) * 60; nuevo.diarioCompletado = true; }
         }
@@ -99,14 +109,12 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast)
           if (nuevo.moduloSegundos >= 3600 && !prev._moduloExcedido) { alertas.limiteModulo(); showToast(`⏰ Tiempo agotado. El módulo "${prev.moduloEnProgreso}" alcanzó su límite de 60 min.`, 'error'); nuevo._moduloExcedido = true; nuevo.moduloActivo = false; }
         }
         
-        // Pausa actual siempre se calcula desde el timestamp (tiempo real)
         if (prev.pausaActiva && prev.pausaInicio) {
           nuevo.pausaSegundos = Math.floor((ahora - prev.pausaInicio) / 1000);
         } else {
           nuevo.pausaSegundos = 0;
         }
         
-        // Reserva
         if (prev.reservaActiva && prev.reservaRestante > 0) {
           nuevo.reservaRestante = prev.reservaRestante - 1;
           nuevo.generalSegundos = (prev.generalSegundos || 0) + 1;
@@ -143,7 +151,7 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast)
     if (!reserva.sesionDiariaInicio) { campos.sesionDiariaInicio = Date.now(); campos.sesionDiariaLimite = 120; campos.diaActual = reserva.diaActual || 1; }
     if (!reserva.sesionTotalInicio) { campos.sesionTotalInicio = Date.now(); campos.sesionTotalLimite = 240; }
     alertas.inicioModulo();
-    setSgta(prev => ({ ...prev, moduloEnProgreso: nombre, moduloSegundos: segundosIniciales, moduloActivo: true, generalActivo: true, _recesoAlerta: false, _moduloExcedido: segundosIniciales >= 3600 }));
+    setSgta(prev => ({ ...prev, moduloEnProgreso: nombre, moduloSegundos: segundosIniciales, moduloActivo: true, generalActivo: true, _recesoAlerta: false, _moduloExcedido: segundosIniciales >= 3600, sesionIniciada: true }));
     await actualizar(campos);
   }, [reserva]);
 

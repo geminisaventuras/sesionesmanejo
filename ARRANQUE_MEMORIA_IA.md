@@ -167,3 +167,6 @@ Esto garantiza un punto de restauracion antes de cada modificacion.
 - B120: Registro de tiempo excedente de sesión.
 
 **Documentación actualizada:** BITACORA, BACKLOG y ARRANQUE_MEMORIA.
+
+### SESIÓN 21/06/2026 – Control administrativo de contadores
+- **B121:** Permitir al administrador resetear `sesionDiariaInicio` y `sesionTotalInicio` desde el panel de administración si un instructor inició un módulo por error.

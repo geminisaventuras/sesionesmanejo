@@ -187,3 +187,13 @@
 
 **Impacto y Deuda:**
 > Se implementó el acumulador en tiempo real, el tiempo efectivo, el reloj naranja de reserva y los botones de control de reserva. Se registró deuda B118-B120.
+
+#### [ARQUITECTO] – 2026-06-21 – Control administrativo de contadores
+**Decisión/Lección Clave:**
+> Si un instructor inicia un módulo por error, los contadores de sesión no deben detenerse. Solo el administrador debe tener la capacidad de resetearlos manualmente.
+
+**Contexto:**
+> El Operador detectó que, una vez iniciado el primer módulo, los relojes corren sin pausa hasta el final de la sesión. Si el inicio fue accidental, no hay forma de detenerlos. Se requiere un mecanismo administrativo para corregir esta situación.
+
+**Impacto y Deuda:**
+> Registrada deuda B121 para implementar el reseteo administrativo de contadores de sesión.
