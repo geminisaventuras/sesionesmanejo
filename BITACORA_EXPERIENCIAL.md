@@ -173,3 +173,17 @@
 
 **Impacto y Deuda:**
 > Se diseñó el sistema de triple reloj (grande 4h, diario 2h, pausa acumulada). Se registró deuda B118 para la implementación completa del flujo de reserva.
+
+#### [ARQUITECTO] – 2026-06-20 – Relojes autónomos, pausa en tiempo real y sistema de reserva
+**Decisión/Lección Clave:**
+> Los relojes de sesión (general y diario) no deben detenerse durante las pausas. El tiempo de pausa se acumula como dato de auditoría y puede usarse opcionalmente como reserva al final del día o del curso.
+
+**Contexto:**
+> El diseño anterior detenía los relojes durante las pausas, lo que impedía al instructor ver cuánto faltaba para terminar el bloque horario contratado. Se rediseñó el sistema para que los relojes sean autónomos y la pausa sea solo un contador de tiempo perdido.
+
+**Alternativas Consideradas:**
+> - Mantener relojes detenidos durante pausas → Rechazado por pérdida de referencia horaria.
+> - Extensión automática del tiempo extra → Rechazada por el Operador.
+
+**Impacto y Deuda:**
+> Se implementó el acumulador en tiempo real, el tiempo efectivo, el reloj naranja de reserva y los botones de control de reserva. Se registró deuda B118-B120.
