@@ -149,3 +149,7 @@ Esto garantiza un punto de restauracion antes de cada modificacion.
 - **Botón "Sesión Activa":** Diseñado con fondo azul, sombra, indicador verde pulsante y datos mínimos debajo. Reemplaza la tarjeta azul redundante en el panel del estudiante.
 - **Deudas registradas:** B115 (Material), B116 (restricción de reversión), B117 (clases virtuales online).
 - **Documentación actualizada:** BITACORA, BACKLOG y ARRANQUE_MEMORIA.
+### SESIÓN 20/06/2026 – Temporizador unificado y sincronización total
+- **useSessionTimer.js**: Suscripción directa a Firestore, cálculo derivado desde timestamps, tick local.
+- **AulaVirtualView.jsx**: Consume el hook unificado. Misma vista para instructor y estudiante.
+- **Resultado**: Ambos roles ven exactamente el mismo tiempo, incluso al recargar o entrar en momentos diferentes.

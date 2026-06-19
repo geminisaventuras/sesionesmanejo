@@ -153,3 +153,9 @@
 
 **Contexto:**
 > Tras analizar la experiencia del usuario, se determinó que redirigir automáticamente al Aula Virtual cuando la reserva es para una fecha futura dejaba al estudiante en una página vacía. Se diseñó un dashboard que prioriza visualmente el acceso al aula cuando hay una sesión activa.
+#### [ARQUITECTO] – 2026-06-20 – Unificación final del temporizador
+**Decisión/Lección Clave:**
+> Eliminar los hooks separados (useTimerLectura/useTimerEscritura) y consolidar todo en useSessionTimer con suscripción directa a Firestore solucionó definitivamente la sincronización entre instructor y estudiante. El cálculo derivado desde timestamps garantiza que los contadores sobrevivan a recargas.
+
+**Contexto:**
+> La sincronización de tiempos entre roles fallaba por race conditions al recargar. Se intentó con suscripción directa en AulaVirtualView, pero competía con el AppContext. La solución final fue mover la suscripción al hook y eliminar la dependencia del contexto para la reserva.

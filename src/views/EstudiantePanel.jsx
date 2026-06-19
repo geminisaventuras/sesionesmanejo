@@ -1,5 +1,5 @@
-// @build: 2026-06-20.03-00-00 | id: ESTUDIANTE-RESTAURADO | desc: Tick local, redirección al Aula, lista de cursos, detalle completado, barras de progreso, banner de pausa
-import { useContext, useState, useEffect, useCallback, useMemo } from 'react';
+// @build: 2026-06-20.04-00-00 | id: ESTUDIANTE-DASHBOARD | desc: Dashboard del estudiante con botón prominente de Sesión Activa
+import { useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Spinner } from '../components/UI';
@@ -9,12 +9,9 @@ import DashboardHeader from '../modules/shared/components/DashboardHeader';
 import DashboardFooter from '../modules/shared/components/DashboardFooter';
 import RelojSesion from '../modules/shared/components/RelojSesion';
 import FilaTiempo from '../modules/shared/components/FilaTiempo';
-import BannerPausa from '../modules/shared/components/BannerPausa';
-import ModuloItem from '../modules/shared/components/ModuloItem';
-import CarruselModulos from '../modules/shared/components/CarruselModulos';
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
-  User, Lock, Check, AlertCircle, RefreshCw, ChevronLeft, Share2
+  User, AlertCircle, RefreshCw, ChevronLeft, Share2, Zap
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -41,13 +38,6 @@ const obtenerMesCortoYAnio = (fechaStr) => {
   return { mes: MESES_CORTOS[parseInt(partes[1])-1] || '', anio: partes[0] || '' };
 };
 
-const formatoTiempo = (segundos) => {
-  const s = Number(segundos) || 0;
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-};
-
 export function EstudiantePanel() {
   const { reservas, cursos, horarios, instructores, sedes, user, fbUser, saveReserva, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
@@ -61,7 +51,7 @@ export function EstudiantePanel() {
   const [conexionPerdida, setConexionPerdida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
 
-  // Tick local para animar el reloj (igual que antes)
+  // Tick local para el reloj del dashboard
   const [tick, setTick] = useState(0);
   useEffect(() => { const interval = setInterval(() => setTick(t => t + 1), 1000); return () => clearInterval(interval); }, []);
 
@@ -103,7 +93,6 @@ export function EstudiantePanel() {
   useEffect(() => { buscarCurso(); }, [buscarCurso]);
 
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
-
   const compartirCurso = () => {
     const texto = `¡Completé el curso "${cursoDetalle?.cursoNombre || 'MotoEscuela'}" en MotoEscuela App! 🏍️`;
     if (navigator.share) navigator.share({ title: 'MotoEscuela App', text: texto, url: window.location.origin }).catch(() => {});
@@ -119,10 +108,6 @@ export function EstudiantePanel() {
     activeTab={tab} onTabChange={(t) => { setTab(t); setCursoDetalle(null); }}
   />;
 
-  if (!reservaActual && tab === 'miCurso') {
-    return <AppShell header={header} footer={footer} bgColor="bg-gray-50"><div className="flex flex-col items-center justify-center min-h-full p-6"><Award size={48} className="text-gray-400 mb-4" /><h2 className="text-xl font-black text-gray-900 mb-2">Sin reservas activas</h2><Button onClick={handleLogout} variant="outline">Volver al inicio</Button></div></AppShell>;
-  }
-
   const cursoAsignado = cursoDirecto || cursos.find(c => String(c.id) === String(reservaActual?.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 };
   const hor = horarios.find(h => String(h.id) === String(reservaActual?.horaId));
   const inst = instructores.find(i => String(i.id) === String(reservaActual?.instructorId));
@@ -134,70 +119,117 @@ export function EstudiantePanel() {
   const horaFin = hor?.label ? hor.label.split('-')[1]?.trim() : '--:--';
   const sello = obtenerMesCortoYAnio(reservaActual?.fecha);
   const pagoAprobado = reservaActual?.estadoPago === 'Aprobado';
-  const pausaActiva = reservaActual?.pausaActiva;
-  const pausaEsHoy = pausaActiva?.inicio && new Date(pausaActiva.inicio).toISOString().split('T')[0] === new Date().toISOString().split('T')[0];
-  const tiempoMaximoCurso = cursoAsignado.duracionTotal || 240;
-  const tiempoConsumido = Object.values(reservaActual?.modulosEstado || {}).reduce((acc, mod) => acc + (mod.duracion || 0) + (mod.duracionExtra || 0), 0);
-  const moduloEnProgreso = reservaActual?.moduloEnProgreso;
-  const pausas = reservaActual?.pausas || [];
 
-  // Cálculos de tiempo (actualizados con el tick)
-  const generalSegundos = (moduloEnProgreso?.inicio && pausaEsHoy) 
-    ? Math.max(0, Math.floor((Date.now() - moduloEnProgreso.inicio) / 1000) - (pausaActiva ? Math.floor((Date.now() - pausaActiva.inicio) / 1000) : 0))
-    : 0;
-  const pausaTotal = pausas.reduce((acc, p) => acc + (p.duracion || 0) * 60, 0) + (pausaActiva && pausaEsHoy ? Math.floor((Date.now() - pausaActiva.inicio) / 1000) : 0);
-
-  // Ir al Aula Virtual
   const irAlAula = () => {
     if (reservaActual?.id) navigate(`/aula/${reservaActual.id}`);
   };
 
-  // Vista Mi Curso
-  const VistaMiCurso = () => (
-    <div className="space-y-3">
-      <div className="rounded-xl shadow-xl shadow-blue-600/20 overflow-hidden">
-        <div className="bg-blue-600 text-white p-3 relative">
-          <div className="flex items-center gap-2 mb-2"><Bike size={18} className="text-blue-200" /><p className="text-sm font-bold uppercase tracking-widest flex-1">{cursoAsignado.nombre || 'Curso'}</p></div>
-          <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {sedeActual?.nombre || 'N/A'}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">Inst: {inst ? inst.nombre : 'Asignando'}</span></div></div>
-          <div className="absolute top-2 right-2 bg-white/20 rounded-lg px-2 py-1 text-center"><p className="text-lg font-black leading-none">{sello.mes}</p><p className="text-[10px] font-bold leading-none">{sello.anio}</p></div>
-          <div className="bg-gray-800/50 p-3 rounded-xl text-xs">
-            <div className="flex items-start gap-3">
-              <div className="flex-1 space-y-1.5">
-                <div className="flex items-center gap-2"><Calendar size={12} className="text-blue-300" /><span className="font-bold">Días: {formatearRangoCorto(reservaActual.fecha, reservaActual.fecha2)}</span></div>
-                <div className="flex items-center gap-2"><Clock size={12} className="text-blue-300" /><span className="font-bold">Hora: {horaInicio} - {horaFin}</span></div>
-                <div className="flex items-center gap-2"><Bike size={12} className="text-blue-300" /><span className="font-bold">{reservaActual.traeMoto === 'Sí' ? 'Propia' : 'Escuela'} · {reservaActual.tipoMoto}</span></div>
-                <FilaTiempo diaActual={1} generalSegundos={generalSegundos} pausaTotal={pausaTotal} tiempoExtra={0} />
-              </div>
-              <RelojSesion generalSegundos={generalSegundos} pausaActiva={pausaActiva && pausaEsHoy ? pausaActiva : null} pausaMotivo={pausaActiva?.motivo} tiempoMaximoCurso={tiempoMaximoCurso} tiempoConsumido={tiempoConsumido} conexionPerdida={conexionPerdida} />
+  // Vista Mi Curso (NUEVO DASHBOARD)
+  const VistaMiCurso = () => {
+    if (!reservaActual) {
+      return (
+        <div className="space-y-4">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+            <Award size={48} className="text-gray-400 mb-4 mx-auto" />
+            <h2 className="text-xl font-black text-gray-900 mb-2">Sin reservas activas</h2>
+            <p className="text-sm text-gray-500 mb-4">No tienes ninguna reserva activa en este momento.</p>
+          </div>
+          {/* Placeholder de próximos cursos y ofertas */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos</h3>
+            <p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3>
+            <p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {/* BOTÓN DE SESIÓN ACTIVA */}
+        <div className="bg-white rounded-3xl shadow-xl border border-blue-100 overflow-hidden">
+          <div className="p-6 text-center">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              <span className="text-xs font-bold text-green-600 uppercase tracking-widest">Sesión Activa</span>
+            </div>
+            
+            <button
+              onClick={irAlAula}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl shadow-xl shadow-blue-600/30 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+            >
+              <Bike size={28} className="text-blue-200" />
+              <span className="text-xl font-black uppercase tracking-widest">Entrar al Aula Virtual</span>
+              <Zap size={24} className="text-yellow-300 animate-pulse" />
+            </button>
+            
+            <div className="mt-4 space-y-1 text-xs text-gray-500">
+              <p className="flex items-center justify-center gap-1.5">
+                <Calendar size={12} />
+                <span className="font-bold">{formatearRangoCorto(reservaActual.fecha, reservaActual.fecha2)}</span>
+                <span className="mx-1">·</span>
+                <Clock size={12} />
+                <span className="font-bold">{horaInicio} - {horaFin}</span>
+              </p>
+              <p className="flex items-center justify-center gap-1.5">
+                <MapPin size={12} />
+                <span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
+                <span className="mx-1">·</span>
+                <User size={12} />
+                <span className="font-bold">Inst: {inst ? inst.nombre : 'Asignando'}</span>
+              </p>
+              {pagoAprobado && modulosFaltantes > 0 && (
+                <p className="text-[10px] text-blue-600 font-bold mt-2">
+                  Te {modulosFaltantes === 1 ? 'falta' : 'faltan'} {modulosFaltantes} {modulosFaltantes === 1 ? 'módulo' : 'módulos'} para tu certificado
+                </p>
+              )}
             </div>
           </div>
-          {pausaActiva && pausaEsHoy && <BannerPausa motivo={pausaActiva.motivo} tiempo={Math.floor((Date.now() - pausaActiva.inicio) / 1000)} soloLectura />}
-          {!pausaActiva && pagoAprobado && (
-            <div className="bg-gray-100 -mx-3 -mb-3 px-3 py-2.5 mt-2 border-t border-blue-400/30">
-              <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-700">Avance Académico</span><span className="text-xs font-bold text-gray-700">{cantCompletados}/{totalModulos}</span></div>
-              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div className="h-2 rounded-full transition-all duration-500" style={{ width: totalModulos > 0 ? `${(cantCompletados / totalModulos) * 100}%` : '0%', background: 'repeating-linear-gradient(-45deg, #4ade80, #4ade80 6px, #22c55e 6px, #22c55e 12px)', animation: 'progress-stripes 1s linear infinite' }}></div></div>
-              {modulosFaltantes > 0 && <p className="text-[10px] text-gray-500 mt-2 text-center">Te {modulosFaltantes === 1 ? 'falta' : 'faltan'} {modulosFaltantes} {modulosFaltantes === 1 ? 'módulo' : 'módulos'} para tu certificado</p>}
-            </div>
-          )}
-          {!pausaActiva && !pagoAprobado && (
-            <div className={`-mx-3 -mb-3 px-3 py-2.5 mt-2 border-t border-blue-400/30 ${reservaActual.estadoPago === 'Rechazado' ? 'bg-red-50' : 'bg-orange-50'}`}>
-              <div className="flex items-center gap-2">{reservaActual.estadoPago === 'Rechazado' ? (<AlertCircle size={14} className="text-red-600" />) : (<Clock size={14} className="text-orange-600" />)}<div className="flex-1"><p className={`text-xs font-bold ${reservaActual.estadoPago === 'Rechazado' ? 'text-red-700' : 'text-orange-700'}`}>{reservaActual.estadoPago === 'Rechazado' ? 'Pago Rechazado' : 'Pago Pendiente'}</p><p className="text-[10px] text-gray-600">{reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef + ' · Estamos validando tu pago'}</p></div>{reservaActual.estadoPago === 'Rechazado' && (<div className="flex gap-1"><input type="number" placeholder="Ref" className="w-14 p-1 rounded-lg border border-red-200 text-xs outline-none bg-white font-bold text-center" id="nuevaRef" maxLength="4" /><Button type="button" variant="dark" className="!py-1 !px-2 !text-[10px]" onClick={async () => { const ref = document.getElementById('nuevaRef')?.value; if (!ref || ref.length !== 4) return showToast('Debe tener 4 dígitos', 'error'); await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' }); showToast('Referencia enviada', 'success'); }}>OK</Button></div>)}</div>
+          
+          {/* Estado del pago */}
+          {!pagoAprobado && (
+            <div className={`px-4 py-3 border-t ${reservaActual.estadoPago === 'Rechazado' ? 'bg-red-50' : 'bg-orange-50'}`}>
+              <div className="flex items-center gap-2">
+                {reservaActual.estadoPago === 'Rechazado' ? <AlertCircle size={14} className="text-red-600" /> : <Clock size={14} className="text-orange-600" />}
+                <div className="flex-1">
+                  <p className={`text-xs font-bold ${reservaActual.estadoPago === 'Rechazado' ? 'text-red-700' : 'text-orange-700'}`}>
+                    {reservaActual.estadoPago === 'Rechazado' ? 'Pago Rechazado' : 'Pago Pendiente'}
+                  </p>
+                  <p className="text-[10px] text-gray-600">
+                    {reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef}
+                  </p>
+                </div>
+                {reservaActual.estadoPago === 'Rechazado' && (
+                  <div className="flex gap-1">
+                    <input type="number" placeholder="Ref" className="w-14 p-1 rounded-lg border border-red-200 text-xs outline-none bg-white font-bold text-center" id="nuevaRef" maxLength="4" />
+                    <Button type="button" variant="dark" className="!py-1 !px-2 !text-[10px]" onClick={async () => {
+                      const ref = document.getElementById('nuevaRef')?.value;
+                      if (!ref || ref.length !== 4) return showToast('Debe tener 4 dígitos', 'error');
+                      await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' });
+                      showToast('Referencia enviada', 'success');
+                    }}>OK</Button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
+
+        {/* Sección de próximos cursos y ofertas */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos y Ofertas</h3>
+          <p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3>
+          <p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p>
+        </div>
       </div>
-      {/* Botón para ir al Aula Virtual */}
-      <Button type="button" onClick={irAlAula} variant="primary" className="mt-2" icon={BookOpen}>Ir al Aula Virtual</Button>
-      {/* Carrusel de completados y zona activa */}
-      <CarruselModulos modulos={cursoAsignado.modulos.filter(m => (reservaActual?.modulosEstado||{})[m]?.fecha).map(m => ({ nombre: m }))} />
-      <div className="space-y-1.5">
-        {cursoAsignado.modulos.filter(m => !(reservaActual?.modulosEstado||{})[m]?.fecha).map((mod, i) => {
-          const esModuloActivo = moduloEnProgreso?.modulo === mod;
-          return <ModuloItem key={i} nombre={mod} estado={esModuloActivo ? 'activo' : 'pendiente'} disabled mostrarBarra={esModuloActivo} progreso={esModuloActivo ? Math.min(100, (generalSegundos / 3600) * 100) : 0} tiempoActual={esModuloActivo ? generalSegundos : 0} />;
-        })}
-      </div>
-    </div>
-  );
+    );
+  };
 
   // Vista Cursos (lista + detalle)
   const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
@@ -225,12 +257,13 @@ export function EstudiantePanel() {
             </div>
           </div>
           {cur.modulos.map((mod, i) => {
-            const nombreMod = typeof mod === 'string' ? mod : mod.nombre;
-            const completado = (cursoDetalle.reserva.modulosEstado || {})[nombreMod];
+            const completado = (cursoDetalle.reserva.modulosEstado || {})[mod];
             return (
               <div key={i} className={`bg-white p-3 rounded-xl shadow-sm border flex items-center gap-2 ${completado?.fecha ? 'border-green-200 bg-green-50' : 'border-gray-100'}`}>
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center ${completado?.fecha ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-300'}`}>{completado?.fecha ? <Check size={12} strokeWidth={3} /> : <Clock size={12} />}</div>
-                <div className="flex-1"><span className={`font-bold text-xs ${completado?.fecha ? 'text-green-900' : 'text-gray-800'}`}>{nombreMod}</span>{completado?.fecha && <p className="text-[10px] font-bold text-green-700">{completado.fecha} · {completado.duracion || 0} min</p>}</div>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center ${completado?.fecha ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-300'}`}>
+                  {completado?.fecha ? <Check size={12} strokeWidth={3} /> : <Clock size={12} />}
+                </div>
+                <div className="flex-1"><span className={`font-bold text-xs ${completado?.fecha ? 'text-green-900' : 'text-gray-800'}`}>{mod}</span>{completado?.fecha && <p className="text-[10px] font-bold text-green-700">{completado.fecha} · {completado.duracion || 0} min</p>}</div>
                 <span className={`text-[10px] font-black uppercase ${completado?.fecha ? 'text-green-600' : 'text-gray-400'}`}>{completado?.fecha ? 'Superado' : 'Pendiente'}</span>
               </div>
             );
