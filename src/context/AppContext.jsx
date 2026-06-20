@@ -8,6 +8,7 @@ import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'fire
 // ✅ CORRECCIÓN: Importación correcta desde la raíz del proyecto
 import { db } from '../firebase';
 
+
 const INITIAL_CONFIG = {
   monedaPagoStaff: 'USD', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5,
   recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10,

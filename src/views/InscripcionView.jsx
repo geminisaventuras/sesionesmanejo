@@ -1,4 +1,4 @@
-// @build: 2026-06-20 | id: FINAL | desc: Stepper 3D + DateSelector unificado + Calendario con lógica de negocio + ajustes visuales finales
+// @build: 2026-06-20 | id: FINAL | desc: Stepper 3D + DateSelector unificado + Selector de fecha de nacimiento con diseño glow, flechas y separadores
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -15,6 +15,187 @@ import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditC
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
+/* ---------------------------------------------------------------
+ * COMPONENTE AUXILIAR: Columna del selector de fecha
+ * ---------------------------------------------------------------
+ * Versión funcional con ResizeObserver, medición real, glow, flechas y cristal.
+ */
+const ITEM_HEIGHT = 48;
+
+const SelectorColumna = ({ items, selected, onSelect }) => {
+  const containerRef = useRef(null);
+  const itemRefs = useRef([]);
+  const debounceRef = useRef(null);
+  const isProgrammaticScroll = useRef(false);
+  const isUserScrolling = useRef(false);
+  const [padding, setPadding] = useState(0);
+
+  // ResizeObserver para calcular el padding exacto
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver(entries => {
+      const height = entries[0].contentRect.height;
+      const p = Math.max(0, (height / 2) - (ITEM_HEIGHT / 2));
+      setPadding(p);
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
+
+  // Centrar un elemento midiendo su posición real
+  const centerItem = useCallback((idx) => {
+    const el = itemRefs.current[idx];
+    const container = containerRef.current;
+    if (el && container) {
+      isProgrammaticScroll.current = true;
+      
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      
+      const containerCenter = containerRect.top + containerRect.height / 2;
+      const elCenter = elRect.top + elRect.height / 2;
+      
+      const scrollDiff = elCenter - containerCenter;
+      const targetScroll = container.scrollTop + scrollDiff;
+      
+      container.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth'
+      });
+      
+      setTimeout(() => {
+        isProgrammaticScroll.current = false;
+      }, 400);
+    }
+  }, []);
+
+  // Sincronizar cuando la prop `selected` cambia externamente
+  useEffect(() => {
+    if (isProgrammaticScroll.current || isUserScrolling.current) return;
+    const idx = items.indexOf(selected);
+    if (idx >= 0) {
+      setTimeout(() => centerItem(idx), 50);
+    }
+  }, [selected, items, centerItem]);
+
+  // Detectar qué elemento está visualmente en el centro
+  const updateSelected = useCallback(() => {
+    if (isProgrammaticScroll.current) return;
+    
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const centerY = containerRect.top + containerRect.height / 2;
+    
+    let closestIndex = 0;
+    let minDistance = Infinity;
+    
+    itemRefs.current.forEach((el, idx) => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const elCenter = rect.top + rect.height / 2;
+      const distance = Math.abs(elCenter - centerY);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = idx;
+      }
+    });
+    
+    const selectedItem = items[closestIndex];
+    if (selectedItem !== selected) {
+      isUserScrolling.current = true;
+      onSelect(selectedItem);
+      setTimeout(() => {
+        isUserScrolling.current = false;
+      }, 100);
+    }
+  }, [items, selected, onSelect]);
+
+  const handleScroll = useCallback(() => {
+    if (isProgrammaticScroll.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(updateSelected, 100);
+  }, [updateSelected]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    
+    const handleScrollEnd = () => {
+      if (isProgrammaticScroll.current) return;
+      updateSelected();
+    };
+    
+    el.addEventListener('scrollend', handleScrollEnd);
+    return () => {
+      el.removeEventListener('scrollend', handleScrollEnd);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [updateSelected]);
+
+  const handleItemClick = (idx) => {
+    if (items[idx] !== selected) {
+      onSelect(items[idx]);
+      centerItem(idx);
+    }
+  };
+
+  return (
+    <div className="flex-1 relative h-full">
+      {/* Degradados para efecto rueda */}
+      <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-white via-white/80 to-transparent z-10 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white via-white/80 to-transparent z-10 pointer-events-none" />
+      {/* Línea central con efecto cristal y glow */}
+      <div className="absolute top-1/2 left-0 right-0 h-12 -translate-y-1/2 bg-blue-100/60 backdrop-blur-sm border-t border-b border-blue-300/50 shadow-[inset_0_0_12px_rgba(59,130,246,0.15)] z-0" />
+      
+      <div
+        ref={containerRef}
+        className="h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide"
+        onScroll={handleScroll}
+        onTouchEnd={() => setTimeout(updateSelected, 200)}
+      >
+        <div style={{ paddingTop: `${padding}px`, paddingBottom: `${padding}px` }}>
+          {items.map((item, idx) => {
+            const isCenter = item === selected;
+            return (
+              <div
+                key={idx}
+                ref={(el) => (itemRefs.current[idx] = el)}
+                className={`h-12 flex items-center justify-center snap-center cursor-pointer transition-all duration-200 ${
+                  isCenter
+                    ? 'scale-110'
+                    : 'text-gray-400 text-lg font-medium hover:text-gray-600'
+                }`}
+                onClick={() => handleItemClick(idx)}
+              >
+                {/* Flechas laterales + glow en el elemento central */}
+                {isCenter ? (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white/80 backdrop-blur-sm shadow-[0_0_18px_rgba(59,130,246,0.5)] border border-blue-200/60">
+                    <ChevronLeft size={14} className="text-blue-400" />
+                    <span className="text-blue-600 font-bold text-2xl">{item}</span>
+                    <ChevronRight size={14} className="text-blue-400" />
+                  </div>
+                ) : (
+                  <span>{item}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ---------------------------------------------------------------
+ * CONSTANTES Y FUNCIONES AUXILIARES
+ * ---------------------------------------------------------------
+ */
 const MAX_DIAS_RESERVA = 30;
 const LOCK_DURATION = 10 * 60 * 1000;
 
@@ -116,6 +297,13 @@ export const InscripcionView = () => {
     return new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   });
   const [modalLiberar, setModalLiberar] = useState(null);
+
+  const [mostrarCalendarioNacimiento, setMostrarCalendarioNacimiento] = useState(false);
+  const [mesCalendarioNacimiento, setMesCalendarioNacimiento] = useState(() => {
+    const hoy = new Date();
+    return new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  });
+  const [tempFechaNacimiento, setTempFechaNacimiento] = useState({ dia: '', mes: '', ano: '' });
 
   const locksSnapshotRef = useRef(activeLocks);
   const calendarioRef = useRef(null);
@@ -771,21 +959,21 @@ export const InscripcionView = () => {
               <Input label="Nombres" value={form.nombre} onChange={e => setForm({...form, nombre: e.target.value})} icon={User} />
               <Input label="Apellidos" value={form.apellido} onChange={e => setForm({...form, apellido: e.target.value})} icon={User} />
               <Input label="Cédula" type="tel" value={form.cedula} onChange={e => setForm({...form, cedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} />
-              <div className="mb-2">
-                <label className="block text-sm font-bold text-gray-700 mb-1 ml-1 flex items-center gap-1">
-                  <Calendar size={14} className="text-gray-500" /> Fecha de Nac.
-                </label>
-                <div className="grid grid-cols-3 gap-1">
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Día" maxLength="2"
-                    value={form.diaNac} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val > 31) val = '31'; setForm({ ...form, diaNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Mes" maxLength="2"
-                    value={form.mesNac} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val > 12) val = '12'; setForm({ ...form, mesNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Año" maxLength="4"
-                    value={form.anoNac} onChange={e => { const val = e.target.value.replace(/\D/g, '').slice(0, 4); setForm({ ...form, anoNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                </div>
+              <div onClick={() => {
+                setTempFechaNacimiento({ dia: form.diaNac || '01', mes: form.mesNac || String(new Date().getMonth() + 1).padStart(2, '0'), ano: form.anoNac || String(new Date().getFullYear()) });
+                setMostrarCalendarioNacimiento(true);
+              }} className="cursor-pointer">
+                <Input
+                  label="Fecha de Nac."
+                  value={
+                    form.diaNac && form.mesNac && form.anoNac
+                      ? `${String(form.diaNac).padStart(2, '0')}/${String(form.mesNac).padStart(2, '0')}/${form.anoNac}`
+                      : ''
+                  }
+                  readOnly
+                  icon={Calendar}
+                  placeholder="DD/MM/AA"
+                />
               </div>
               <Input label="Teléfono" type="tel" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value.replace(/\D/g,'').slice(0,11)})} icon={Phone} />
               <Select label="Sexo" options={SEXOS} value={form.sexo} onChange={e => setForm({...form, sexo: e.target.value})} />
@@ -823,116 +1011,115 @@ export const InscripcionView = () => {
             </div>
           </div>
         )}
-{step === '3' && (
-  <div className="flex flex-col h-full space-y-2">
-    {/* Bloque unificado: tarjeta + fechas + botón */}
-    <div className="bg-blue-600 text-white rounded-xl shadow-lg overflow-hidden">
-      {/* Datos del curso y sede */}
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center gap-2">
-            <BookOpen size={20} className="text-blue-200" />
-            <span className="font-bold">{cursoActual?.nombre || 'Curso'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <MapPin size={20} className="text-blue-200" />
-            <span className="font-bold truncate">{sedeActual?.nombre || 'Sede'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Zap size={20} className="text-blue-200" />
-            <span className="font-bold">{form.tipoMoto}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Bike size={20} className="text-blue-200" />
-            <span className="font-bold">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
-          </div>
-        </div>
 
-        {/* Etiqueta de fechas */}
-        <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
-  <Calendar size={16} className="text-blue-200" />
-  <span className="text-xs font-bold text-center">Fechas con Horas disponibles</span>
-</div>
-      </div>
-
-      {/* Cinta de fechas (sin separación) */}
-      <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
-        {fechasMostradas.map(({ fecha, label, disponible }) => {
-          const isSelected = form.fecha1 === fecha;
-          return (
-            <button
-              key={fecha}
-              onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))}
-              disabled={!disponible}
-              className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${
-                isSelected
-                  ? 'bg-white text-blue-600'
-                  : disponible
-                  ? 'bg-blue-500/30 text-white hover:bg-blue-400/40'
-                  : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed'
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Botón "Ver calendario completo" pegado */}
-      <button
-        onClick={() => setMostrarCalendario(true)}
-        className="w-full py-2 text-xs font-medium text-blue-100 bg-blue-700/60 hover:bg-blue-700/80 transition-colors border-t border-blue-400/30"
-      >
-        Ver calendario completo
-      </button>
-    </div>
-
-    {/* Bloques de horarios (sin cambios) */}
-    {!fbUser ? (
-      <div className="flex-1 flex items-center justify-center">
-        <Spinner message="Cargando horarios..." />
-      </div>
-    ) : !recursosListos ? (
-      <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
-    ) : (
-      <div className="flex-1 mt-2">
-        <div className="grid gap-1.5">
-          {bloques.map(b => {
-            const isSelectingThis = selectingBlockId === b.id;
-            return (
-              <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
-                onClick={() => handleSelectHorario(b)}
-                className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${
-                  isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                  b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
-                  b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' :
-                  !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
-                  form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' :
-                  'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
-                }`}>
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-xs">{b.label}</span>
-                  {isSelectingThis ? (
-                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span>
-                  ) : (
-                    <>
-                      {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
-                      {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
-                      {b.ocupado && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
-                      {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}
-                      {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}
-                      {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}
-                    </>
-                  )}
+        {step === '3' && (
+          <div className="flex flex-col h-full space-y-2">
+            {/* Bloque unificado: tarjeta + fechas + botón */}
+<div className="bg-blue-600 text-white rounded-xl shadow-lg shadow-[0_0_25px_rgba(59,130,246,0.5)] overflow-hidden">              <div className="p-4">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={20} className="text-blue-200" />
+                    <span className="font-bold">{cursoActual?.nombre || 'Curso'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin size={20} className="text-blue-200" />
+                    <span className="font-bold truncate">{sedeActual?.nombre || 'Sede'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Zap size={20} className="text-blue-200" />
+                    <span className="font-bold">{form.tipoMoto}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Bike size={20} className="text-blue-200" />
+                    <span className="font-bold">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
+                  </div>
                 </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    )}
-  </div>
-)}
+
+                {/* Etiqueta de fechas centrada */}
+                <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
+                  <Calendar size={16} className="text-blue-200" />
+                  <span className="text-xs font-bold text-center">Fechas con Horas disponibles</span>
+                </div>
+              </div>
+
+              {/* Cinta de fechas (sin separación entre celdas) */}
+              <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
+                {fechasMostradas.map(({ fecha, label, disponible }) => {
+                  const isSelected = form.fecha1 === fecha;
+                  return (
+                    <button
+                      key={fecha}
+                      onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))}
+                      disabled={!disponible}
+                      className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${
+                        isSelected
+                          ? 'bg-white text-blue-600'
+                          : disponible
+                          ? 'bg-blue-500/30 text-white hover:bg-blue-400/40'
+                          : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Botón "Ver calendario completo" pegado */}
+              <button
+  onClick={() => setMostrarCalendario(true)}
+  className="w-full py-3 text-sm font-bold text-white bg-gray-700 hover:bg-gray-800 transition-colors border-t border-blue-400/30"
+>
+  Ver calendario completo
+</button>
+            </div>
+
+            {/* Bloques de horarios */}
+            {!fbUser ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Spinner message="Cargando horarios..." />
+              </div>
+            ) : !recursosListos ? (
+              <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
+            ) : (
+              <div className="flex-1 mt-2">
+                <div className="grid gap-1.5">
+                  {bloques.map(b => {
+                    const isSelectingThis = selectingBlockId === b.id;
+                    return (
+                      <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
+                        onClick={() => handleSelectHorario(b)}
+                        className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${
+                          isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                          b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
+                          b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' :
+                          !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
+                          form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' :
+                          'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                        }`}>
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-xs">{b.label}</span>
+                          {isSelectingThis ? (
+                            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span>
+                          ) : (
+                            <>
+                              {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
+                              {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
+                              {b.ocupado && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
+                              {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}
+                              {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}
+                              {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}
+                            </>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {step === '4' && (
           <div className="space-y-1.5">
@@ -1002,6 +1189,93 @@ export const InscripcionView = () => {
       </div>
 
       {mostrarCalendario && <CalendarioFlotante />}
+
+      {/* Selector de fecha de nacimiento mejorado con glow, flechas y separadores */}
+      {mostrarCalendarioNacimiento && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          {/* Barra superior */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 shrink-0">
+            <h3 className="font-bold text-gray-900 text-lg">Fecha de Nacimiento</h3>
+            <button onClick={() => setMostrarCalendarioNacimiento(false)} className="p-2 bg-gray-100 rounded-full">
+              <X size={20} className="text-gray-600" />
+            </button>
+          </div>
+
+          {/* Títulos con subrayado */}
+          <div className="flex gap-0 px-4 pt-4 pb-2 shrink-0">
+            <div className="flex-1 flex flex-col items-center">
+              <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Día</span>
+              <div className="w-8 h-0.5 bg-blue-400 mt-1 rounded-full"></div>
+            </div>
+            {/* Separador vertical */}
+            <div className="w-px bg-gray-300 mx-1 self-stretch" />
+            <div className="flex-1 flex flex-col items-center">
+              <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Mes</span>
+              <div className="w-8 h-0.5 bg-blue-400 mt-1 rounded-full"></div>
+            </div>
+            {/* Separador vertical */}
+            <div className="w-px bg-gray-300 mx-1 self-stretch" />
+            <div className="flex-1 flex flex-col items-center">
+              <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Año</span>
+              <div className="w-8 h-0.5 bg-blue-400 mt-1 rounded-full"></div>
+            </div>
+          </div>
+
+          {/* Columnas con separadores */}
+          <div className="flex-1 flex gap-0 px-4 min-h-0">
+            <div className="flex-1 relative">
+              <SelectorColumna
+                items={Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'))}
+                selected={tempFechaNacimiento.dia || '01'}
+                onSelect={(val) => setTempFechaNacimiento(prev => ({ ...prev, dia: val }))}
+              />
+            </div>
+            {/* Separador vertical pronunciado */}
+            <div className="w-0.5 bg-gray-300/80 mx-1 my-4 rounded-full" />
+            <div className="flex-1 relative">
+              <SelectorColumna
+                items={['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']}
+                selected={tempFechaNacimiento.mes ? ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][parseInt(tempFechaNacimiento.mes)-1] : 'Ene'}
+                onSelect={(val) => {
+                  const idx = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].indexOf(val);
+                  setTempFechaNacimiento(prev => ({ ...prev, mes: String(idx + 1).padStart(2, '0') }));
+                }}
+              />
+            </div>
+            {/* Separador vertical pronunciado */}
+            <div className="w-0.5 bg-gray-300/80 mx-1 my-4 rounded-full" />
+            <div className="flex-1 relative">
+              <SelectorColumna
+                items={Array.from({ length: new Date().getFullYear() - 1919 }, (_, i) => String(new Date().getFullYear() - i))}
+                selected={tempFechaNacimiento.ano || String(new Date().getFullYear())}
+                onSelect={(val) => setTempFechaNacimiento(prev => ({ ...prev, ano: val }))}
+              />
+            </div>
+          </div>
+
+          {/* Botón Confirmar */}
+          <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+            <button
+              onClick={() => {
+                if (tempFechaNacimiento.dia && tempFechaNacimiento.mes && tempFechaNacimiento.ano) {
+                  setForm(prev => ({
+                    ...prev,
+                    diaNac: tempFechaNacimiento.dia,
+                    mesNac: tempFechaNacimiento.mes,
+                    anoNac: tempFechaNacimiento.ano
+                  }));
+                  setMostrarCalendarioNacimiento(false);
+                } else {
+                  showToast('Selecciona día, mes y año', 'error');
+                }
+              }}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl text-base font-bold shadow-lg shadow-blue-200"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      )}
 
       {modalLiberar && (
         <ModalConfirmacion

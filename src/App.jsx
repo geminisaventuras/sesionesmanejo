@@ -12,6 +12,7 @@ import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import InstructorPanel from './views/InstructorPanel';
 import AulaVirtualView from './views/AulaVirtualView';
+import TestDatePicker from './views/TestDatePicker';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useContext(AppContext);
@@ -60,8 +61,11 @@ function App() {
           </ProtectedRoute>
         } />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/test-datepicker" element={<TestDatePicker />} />
       </Routes>
     </ToastProvider>
+
+    
   );
 }
 
