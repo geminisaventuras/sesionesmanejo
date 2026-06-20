@@ -1,10 +1,11 @@
-// @build: 2026-06-18.07-30-00 | id: B51 | desc: Lógica de creación de staff centralizada en el contexto
+// @build: 2026-06-18.07-30-00 | id: B51 | desc: Lógica de creación de staff centralizada en el contexto + Corrección Timezone
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
 import { AppContext } from './AppContextValue';
 import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
+// ✅ CORRECCIÓN: Importación correcta desde la raíz del proyecto
 import { db } from '../firebase';
 
 const INITIAL_CONFIG = {
@@ -15,6 +16,7 @@ const INITIAL_CONFIG = {
 
 const APP_ID = 'motoescuela-pro-v1';
 
+// Se recomienda mover esto a variables de entorno .env
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@motoescuela.local';
 
 export const AppProvider = ({ children }) => {
@@ -55,9 +57,9 @@ export const AppProvider = ({ children }) => {
         setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
         return;
       }
-// Si no es staff, asumir que es estudiante
-const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
-setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
+      // Si no es staff, asumir que es estudiante
+      const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
+      setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
       
     } catch (e) {
       // Error restaurando rol
@@ -162,9 +164,24 @@ setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUs
     await saveMovimientoRaw(itemConUsuario);
   }, [fbUser, user, saveMovimientoRaw]);
 
+  // ✅ CORRECCIÓN CRÍTICA: Zona horaria de Venezuela (America/Caracas)
   const getTodayStr = useCallback(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const now = new Date();
+    const options = {
+      timeZone: 'America/Caracas',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    };
+    
+    // Formateamos manualmente a YYYY-MM-DD para evitar problemas de locale
+    const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(now);
+    const dateObj = {};
+    parts.forEach(({ type, value }) => {
+      if (type !== 'literal') dateObj[type] = value;
+    });
+    
+    return `${dateObj.year}-${dateObj.month}-${dateObj.day}`;
   }, []);
 
   const isReservaActiva = useCallback((r) => {

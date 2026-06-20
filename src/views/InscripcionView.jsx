@@ -1,4 +1,4 @@
-// @build: 2026-06-20 | id: FINAL | desc: Stepper 3D + DateSelector unificado + Calendario con lógica de negocio + ajustes visuales finales
+// @build: 2026-06-20 | id: FINAL | desc: Stepper 3D + DateSelector unificado + Calendario con lógica de negocio + Input fecha nacimiento con calendario flotante
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -117,6 +117,13 @@ export const InscripcionView = () => {
   });
   const [modalLiberar, setModalLiberar] = useState(null);
 
+  // ✅ NUEVO: Estados para el calendario de fecha de nacimiento
+  const [mostrarCalendarioNacimiento, setMostrarCalendarioNacimiento] = useState(false);
+  const [mesCalendarioNacimiento, setMesCalendarioNacimiento] = useState(() => {
+    const hoy = new Date();
+    return new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  });
+
   const locksSnapshotRef = useRef(activeLocks);
   const calendarioRef = useRef(null);
 
@@ -131,6 +138,19 @@ export const InscripcionView = () => {
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [mostrarCalendario]);
+
+  // Cerrar también el calendario de nacimiento al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (calendarioRef.current && !calendarioRef.current.contains(event.target)) {
+        setMostrarCalendarioNacimiento(false);
+      }
+    };
+    if (mostrarCalendarioNacimiento) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [mostrarCalendarioNacimiento]);
 
   const maxDate = useMemo(() => {
     const d = new Date();
@@ -771,21 +791,19 @@ export const InscripcionView = () => {
               <Input label="Nombres" value={form.nombre} onChange={e => setForm({...form, nombre: e.target.value})} icon={User} />
               <Input label="Apellidos" value={form.apellido} onChange={e => setForm({...form, apellido: e.target.value})} icon={User} />
               <Input label="Cédula" type="tel" value={form.cedula} onChange={e => setForm({...form, cedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} />
-              <div className="mb-2">
-                <label className="block text-sm font-bold text-gray-700 mb-1 ml-1 flex items-center gap-1">
-                  <Calendar size={14} className="text-gray-500" /> Fecha de Nac.
-                </label>
-                <div className="grid grid-cols-3 gap-1">
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Día" maxLength="2"
-                    value={form.diaNac} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val > 31) val = '31'; setForm({ ...form, diaNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Mes" maxLength="2"
-                    value={form.mesNac} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val > 12) val = '12'; setForm({ ...form, mesNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Año" maxLength="4"
-                    value={form.anoNac} onChange={e => { const val = e.target.value.replace(/\D/g, '').slice(0, 4); setForm({ ...form, anoNac: val }); }}
-                    className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-1 text-center text-sm outline-none" />
-                </div>
+              {/* Campo de fecha de nacimiento con Input de solo lectura y calendario flotante */}
+              <div onClick={() => setMostrarCalendarioNacimiento(true)} className="cursor-pointer">
+                <Input
+                  label="Fecha de Nac."
+                  value={
+                    form.diaNac && form.mesNac && form.anoNac
+                      ? `${String(form.diaNac).padStart(2, '0')}/${String(form.mesNac).padStart(2, '0')}/${form.anoNac}`
+                      : ''
+                  }
+                  readOnly
+                  icon={Calendar}
+                  placeholder="dd/mm/aaaa"
+                />
               </div>
               <Input label="Teléfono" type="tel" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value.replace(/\D/g,'').slice(0,11)})} icon={Phone} />
               <Select label="Sexo" options={SEXOS} value={form.sexo} onChange={e => setForm({...form, sexo: e.target.value})} />
@@ -823,116 +841,102 @@ export const InscripcionView = () => {
             </div>
           </div>
         )}
-{step === '3' && (
-  <div className="flex flex-col h-full space-y-2">
-    {/* Bloque unificado: tarjeta + fechas + botón */}
-    <div className="bg-blue-600 text-white rounded-xl shadow-lg overflow-hidden">
-      {/* Datos del curso y sede */}
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center gap-2">
-            <BookOpen size={20} className="text-blue-200" />
-            <span className="font-bold">{cursoActual?.nombre || 'Curso'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <MapPin size={20} className="text-blue-200" />
-            <span className="font-bold truncate">{sedeActual?.nombre || 'Sede'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Zap size={20} className="text-blue-200" />
-            <span className="font-bold">{form.tipoMoto}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Bike size={20} className="text-blue-200" />
-            <span className="font-bold">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
-          </div>
-        </div>
 
-        {/* Etiqueta de fechas */}
-        <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
-  <Calendar size={16} className="text-blue-200" />
-  <span className="text-xs font-bold text-center">Fechas con Horas disponibles</span>
-</div>
-      </div>
+        {step === '3' && (
+          <div className="flex flex-col h-full space-y-2">
+            {/* Tarjeta resumen con más cuerpo */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-3 rounded-xl border border-blue-100">
+              <div className="grid grid-cols-2 gap-1 text-sm">
+                <div className="flex items-center gap-1"><BookOpen size={16} className="text-blue-600" /><span className="font-bold text-gray-700">{cursoActual?.nombre || 'Curso'}</span></div>
+                <div className="flex items-center gap-1"><MapPin size={16} className="text-gray-500" /><span className="font-bold text-gray-700 truncate">{sedeActual?.nombre || 'Sede'}</span></div>
+                <div className="flex items-center gap-1"><Zap size={16} className="text-gray-500" /><span className="font-bold text-gray-700">{form.tipoMoto}</span></div>
+                <div className="flex items-center gap-1"><Bike size={16} className="text-gray-500" /><span className="font-bold text-gray-700">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span></div>
+              </div>
+            </div>
 
-      {/* Cinta de fechas (sin separación) */}
-      <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
-        {fechasMostradas.map(({ fecha, label, disponible }) => {
-          const isSelected = form.fecha1 === fecha;
-          return (
-            <button
-              key={fecha}
-              onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))}
-              disabled={!disponible}
-              className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${
-                isSelected
-                  ? 'bg-white text-blue-600'
-                  : disponible
-                  ? 'bg-blue-500/30 text-white hover:bg-blue-400/40'
-                  : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed'
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Botón "Ver calendario completo" pegado */}
-      <button
-        onClick={() => setMostrarCalendario(true)}
-        className="w-full py-2 text-xs font-medium text-blue-100 bg-blue-700/60 hover:bg-blue-700/80 transition-colors border-t border-blue-400/30"
-      >
-        Ver calendario completo
-      </button>
-    </div>
-
-    {/* Bloques de horarios (sin cambios) */}
-    {!fbUser ? (
-      <div className="flex-1 flex items-center justify-center">
-        <Spinner message="Cargando horarios..." />
-      </div>
-    ) : !recursosListos ? (
-      <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
-    ) : (
-      <div className="flex-1 mt-2">
-        <div className="grid gap-1.5">
-          {bloques.map(b => {
-            const isSelectingThis = selectingBlockId === b.id;
-            return (
-              <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
-                onClick={() => handleSelectHorario(b)}
-                className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${
-                  isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                  b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
-                  b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' :
-                  !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
-                  form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' :
-                  'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
-                }`}>
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-xs">{b.label}</span>
-                  {isSelectingThis ? (
-                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span>
-                  ) : (
-                    <>
-                      {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
-                      {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
-                      {b.ocupado && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
-                      {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}
-                      {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}
-                      {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}
-                    </>
-                  )}
+            {/* Fechas + botón unidos sin costuras */}
+            <div>
+              <div className="flex items-center gap-2 text-gray-800 mb-1">
+                <Calendar size={16} className="text-gray-600" />
+                <span className="text-xs font-bold">Fechas con Horas disponibles</span>
+              </div>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="grid grid-cols-7 border-b border-gray-200">
+                  {fechasMostradas.map(({ fecha, label, disponible }, idx) => {
+                    const isSelected = form.fecha1 === fecha;
+                    return (
+                      <button
+                        key={fecha}
+                        onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))}
+                        disabled={!disponible}
+                        className={`py-2 text-xs font-semibold transition-colors border-r border-gray-200 last:border-r-0 ${
+                          isSelected
+                            ? 'bg-blue-600 text-white'
+                            : disponible
+                            ? 'bg-green-50 text-green-800 hover:bg-green-100'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    )}
-  </div>
-)}
+                <button
+                  onClick={() => setMostrarCalendario(true)}
+                  className="w-full py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+                >
+                  Ver calendario completo
+                </button>
+              </div>
+            </div>
+
+            {/* Bloques de horarios (sin el título "Horarios") */}
+            {!fbUser ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Spinner message="Cargando horarios..." />
+              </div>
+            ) : !recursosListos ? (
+              <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
+            ) : (
+              <div className="flex-1 mt-2">
+                <div className="grid gap-1.5">
+                  {bloques.map(b => {
+                    const isSelectingThis = selectingBlockId === b.id;
+                    return (
+                      <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
+                        onClick={() => handleSelectHorario(b)}
+                        className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${
+                          isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                          b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
+                          b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' :
+                          !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
+                          form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' :
+                          'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                        }`}>
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-xs">{b.label}</span>
+                          {isSelectingThis ? (
+                            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span>
+                          ) : (
+                            <>
+                              {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
+                              {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
+                              {b.ocupado && <span className="text-[10px] bg-gray-100 text-red-300 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
+                              {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}
+                              {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}
+                              {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}
+                            </>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {step === '4' && (
           <div className="space-y-1.5">
@@ -1002,6 +1006,124 @@ export const InscripcionView = () => {
       </div>
 
       {mostrarCalendario && <CalendarioFlotante />}
+
+      {/* Modal de calendario para fecha de nacimiento */}
+      {mostrarCalendarioNacimiento && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/30 backdrop-blur-sm" onClick={() => setMostrarCalendarioNacimiento(false)}>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xl p-3 w-full max-w-sm" onClick={(e) => e.stopPropagation()} ref={calendarioRef}>
+            <div className="flex justify-between items-center mb-3">
+              <button
+                onClick={() => setMesCalendarioNacimiento(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                className="p-1 hover:bg-gray-100 rounded-full"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="font-bold text-gray-700 text-sm capitalize">
+                {mesCalendarioNacimiento.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+              </span>
+              <button
+                onClick={() => setMesCalendarioNacimiento(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                className="p-1 hover:bg-gray-100 rounded-full"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            {/* Cabecera con selectores rápidos de día, mes y año */}
+            <div className="flex gap-1 mb-2">
+              <select
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-lg py-1.5 text-xs text-center outline-none"
+                value={form.diaNac}
+                onChange={e => setForm(prev => ({ ...prev, diaNac: e.target.value }))}
+              >
+                <option value="" disabled>Día</option>
+                {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <select
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-lg py-1.5 text-xs text-center outline-none"
+                value={form.mesNac}
+                onChange={e => {
+                  setForm(prev => ({ ...prev, mesNac: e.target.value }));
+                  if (form.anoNac) {
+                    setMesCalendarioNacimiento(new Date(parseInt(form.anoNac), parseInt(e.target.value) - 1, 1));
+                  }
+                }}
+              >
+                <option value="" disabled>Mes</option>
+                {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => (
+                  <option key={i} value={String(i + 1).padStart(2, '0')}>{m}</option>
+                ))}
+              </select>
+              <select
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-lg py-1.5 text-xs text-center outline-none"
+                value={form.anoNac}
+                onChange={e => {
+                  setForm(prev => ({ ...prev, anoNac: e.target.value }));
+                  if (form.mesNac) {
+                    setMesCalendarioNacimiento(new Date(parseInt(e.target.value), parseInt(form.mesNac) - 1, 1));
+                  }
+                }}
+              >
+                <option value="" disabled>Año</option>
+                {Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i).map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Grilla de días */}
+            <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-gray-500 mb-1">
+              {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <div key={d} className="py-1">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {(() => {
+                const year = mesCalendarioNacimiento.getFullYear();
+                const month = mesCalendarioNacimiento.getMonth();
+                const primerDia = new Date(year, month, 1);
+                const ultimoDia = new Date(year, month + 1, 0);
+                const dias = [];
+                const inicioSemana = primerDia.getDay() === 0 ? 6 : primerDia.getDay() - 1;
+                for (let i = 0; i < inicioSemana; i++) dias.push(null);
+                for (let d = 1; d <= ultimoDia.getDate(); d++) {
+                  const fecha = new Date(year, month, d);
+                  const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  const hoy = new Date();
+                  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+                  const esFuturo = fechaStr > hoyStr;
+                  const esSeleccionado = form.diaNac === String(d).padStart(2, '0') && form.mesNac === String(month + 1).padStart(2, '0') && form.anoNac === String(year);
+                  dias.push({ dia: d, fecha: fechaStr, esFuturo, esSeleccionado });
+                }
+                return dias.map((diaInfo, idx) => {
+                  if (!diaInfo) return <div key={`empty-${idx}`} />;
+                  const { dia, esFuturo, esSeleccionado } = diaInfo;
+                  return (
+                    <button
+                      key={idx}
+                      disabled={esFuturo}
+                      onClick={() => {
+                        const d = String(dia).padStart(2, '0');
+                        const m = String(month + 1).padStart(2, '0');
+                        const a = String(year);
+                        setForm(prev => ({ ...prev, diaNac: d, mesNac: m, anoNac: a }));
+                        setMostrarCalendarioNacimiento(false);
+                      }}
+                      className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${
+                        esSeleccionado ? 'bg-blue-600 text-white' :
+                        esFuturo ? 'bg-gray-100 text-gray-300 cursor-not-allowed' :
+                        'bg-white hover:bg-blue-50 text-gray-700 border border-gray-200'
+                      }`}
+                    >
+                      {dia}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalLiberar && (
         <ModalConfirmacion
