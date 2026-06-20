@@ -74,7 +74,9 @@ export function EstudiantePanel() {
         const q = query(reservasRef, where('userId', '==', String(uid)));
         const snapshot = await getDocs(q);
         if (!snapshot.empty) { const docData = snapshot.docs[0].data(); setLocalReserva({ id: snapshot.docs[0].id, ...docData }); }
-      } catch (e) { console.error('Error buscando reserva:', e); } finally { setIsSearching(false); }
+      } catch (e) {
+        // Error buscando reserva
+      } finally { setIsSearching(false); }
     };
     obtenerReserva();
   }, [uid, reservaContext]);

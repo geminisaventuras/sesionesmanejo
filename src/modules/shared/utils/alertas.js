@@ -22,7 +22,7 @@ const inicializarAudio = () => {
     document.addEventListener('click', reanudarAudio, { once: true });
     document.addEventListener('touchstart', reanudarAudio, { once: true });
   } catch (e) {
-    console.log('Audio no soportado en este dispositivo');
+    // Audio no soportado en este dispositivo
   }
 };
 
@@ -43,7 +43,7 @@ const playTone = (frecuencia, duracion, tipo = 'sine', volumen = 0.3) => {
     oscilador.start(audioContext.currentTime);
     oscilador.stop(audioContext.currentTime + duracion / 1000);
   } catch (e) {
-    console.log('Error reproduciendo sonido:', e);
+    // Error reproduciendo sonido
   }
 };
 

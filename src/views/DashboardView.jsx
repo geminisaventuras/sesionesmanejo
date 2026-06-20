@@ -42,7 +42,9 @@ const AdminResumen = memo(({ setTab }) => {
   const { reservas, instructores, sedes, cleanExpiredLocks, seedDatabase } = useContext(AppContext);
   const res = reservas || [];
   const instrs = instructores || [];
-  useEffect(() => { if (cleanExpiredLocks) cleanExpiredLocks().catch(console.error); }, [cleanExpiredLocks]);
+  useEffect(() => { 
+    if (cleanExpiredLocks) cleanExpiredLocks().catch(() => {}); 
+  }, [cleanExpiredLocks]);
   const pendientes = useMemo(() => res.filter(r => r.estadoPago === 'Pendiente' || r.estadoPago === 'Rechazado').length, [res]);
   const completados = useMemo(() => res.filter(r => r.estadoCurso === 'Aprobado').slice(-5).reverse(), [res]);
   return (

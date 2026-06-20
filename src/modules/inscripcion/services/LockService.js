@@ -52,24 +52,21 @@ export const LockService = {
     const locksRef = collection(db, 'locks');
     const q = query(locksRef, where('fecha', '==', fecha), where('expiresAt', '>', Timestamp.now()));
 
-    // Usar polling cada 5 segundos (más robusto que onSnapshot en algunos entornos)
     const interval = setInterval(async () => {
       try {
         const snap = await getDocs(q);
         const locks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         callback(locks);
       } catch (e) {
-        console.error('Error en polling de locks:', e);
+        // Error en polling de locks
       }
     }, 5000);
 
-    // Ejecutar una primera consulta inmediata
     getDocs(q).then(snap => {
       const locks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       callback(locks);
     }).catch(() => {});
 
-    // Devolver función de limpieza
     return () => clearInterval(interval);
   }
 };

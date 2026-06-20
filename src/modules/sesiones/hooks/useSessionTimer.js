@@ -30,7 +30,9 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast)
   useEffect(() => {
     if (!reservaId) return;
     const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaId);
-    const unsub = onSnapshot(ref, (snap) => { if (snap.exists()) setReserva({ id: snap.id, ...snap.data() }); }, (err) => console.error('Error en suscripción:', err));
+    const unsub = onSnapshot(ref, (snap) => { if (snap.exists()) setReserva({ id: snap.id, ...snap.data() }); }, (err) => {
+      // Error en suscripción a reserva
+    });
     return () => unsub();
   }, [reservaId]);
 
