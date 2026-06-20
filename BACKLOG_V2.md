@@ -237,3 +237,23 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 
 ### ActualizaciÃ³n 21/06/2026 â€“ Control administrativo sobre contadores de sesiÃ³n
 - **[ALTA] B121** â€“ Permitir al administrador resetear los contadores de sesiÃ³n (`sesionDiariaInicio`, `sesionTotalInicio`) si un instructor inicia un mÃ³dulo por error. El reseteo debe ser manual desde el panel de administraciÃ³n.
+
+## Actualización 20/06/2026
+
+| ID    | Origen     | Descripción breve                                          | Criticidad |
+|-------|------------|------------------------------------------------------------|------------|
+| B103  | Auditoría  | Foco no atrapado en modales (Calendar, ModalSalud)         | IMPORTANTE |
+| B104  | Auditoría  | Selector de día no se adapta al mes en calendario nacimiento | MODERADO   |
+| B106  | Auditoría  | uscarProximaFechaDisponible sin AbortController          | MODERADO   |
+| B107  | Auditoría  | Falta de esquemas de validación isomórfica (Zod/Yup)       | BAJA       |
+| B109  | Mejora     | Selectores de Sexo y Estado podrían usar componente Select de UI | BAJA |
+
+## Actualización 20/06/2026
+
+| ID    | Origen     | Descripción breve                                          | Criticidad |
+|-------|------------|------------------------------------------------------------|------------|
+| B103  | Auditoría  | Foco no atrapado en modales (Calendar, ModalSalud)         | IMPORTANTE |
+| B104  | Auditoría  | Selector de día no se adapta al mes en calendario nacimiento | MODERADO   |
+| B106  | Auditoría  | uscarProximaFechaDisponible sin AbortController          | MODERADO   |
+| B107  | Auditoría  | Falta de esquemas de validación isomórfica (Zod/Yup)       | BAJA       |
+| B109  | Mejora     | Selectores de Sexo y Estado podrían usar componente Select de UI | BAJA |

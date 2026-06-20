@@ -197,3 +197,47 @@
 
 **Impacto y Deuda:**
 > Registrada deuda B121 para implementar el reseteo administrativo de contadores de sesiÃ³n.
+
+## [Arquitecto] – 20/06/2026 – Selector de fecha con tres ruedas
+
+**Decisión/Lección Clave:**
+La implementación de selectores de fecha con arrastre y snap requiere medición real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programático vs. scroll del usuario.
+
+**Contexto:**
+Se necesitaba un selector de fecha de nacimiento que fuera fácil de usar en móviles, evitando los problemas de navegación del <input type="date"> nativo para años lejanos. Se probaron múltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con medición real.
+
+**Alternativas Consideradas:**
+- Opción A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar años lejanos en móviles.
+- Opción B: Tres inputs separados (día, mes, año) ? funcional pero poco atractivo visualmente.
+- Opción C: Tres ruedas con scroll infinito ? causaba movimientos erráticos y problemas de rendimiento.
+- Opción D (elegida): Tres ruedas con medición real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
+
+**Impacto y Deuda:**
+- Componente SelectorColumna reutilizable en el modal de fecha de nacimiento.
+- Deuda técnica: no se aplicó trampa de foco en modales (B103).
+- Deuda técnica: uscarProximaFechaDisponible carece de AbortController (B106).
+
+**Para el Futuro:**
+Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un módulo compartido para usar en otros formularios.
+
+## [Arquitecto] – 20/06/2026 – Selector de fecha con tres ruedas
+
+**Decisión/Lección Clave:**
+La implementación de selectores de fecha con arrastre y snap requiere medición real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programático vs. scroll del usuario.
+
+**Contexto:**
+Se necesitaba un selector de fecha de nacimiento que fuera fácil de usar en móviles, evitando los problemas de navegación del <input type="date"> nativo para años lejanos. Se probaron múltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con medición real.
+
+**Alternativas Consideradas:**
+- Opción A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar años lejanos en móviles.
+- Opción B: Tres inputs separados (día, mes, año) ? funcional pero poco atractivo visualmente.
+- Opción C: Tres ruedas con scroll infinito ? causaba movimientos erráticos y problemas de rendimiento.
+- Opción D (elegida): Tres ruedas con medición real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
+
+**Impacto y Deuda:**
+- Componente SelectorColumna reutilizable en el modal de fecha de nacimiento.
+- Deuda técnica: no se aplicó trampa de foco en modales (B103).
+- Deuda técnica: uscarProximaFechaDisponible carece de AbortController (B106).
+
+**Para el Futuro:**
+Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un módulo compartido para usar en otros formularios.
