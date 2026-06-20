@@ -15,6 +15,8 @@ const INITIAL_CONFIG = {
 
 const APP_ID = 'motoescuela-pro-v1';
 
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@motoescuela.local';
+
 export const AppProvider = ({ children }) => {
   const [fbUser, setFbUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -31,7 +33,7 @@ export const AppProvider = ({ children }) => {
   const restoreUserRole = async (currentUser) => {
     if (!currentUser || !currentUser.email) return;
     const email = currentUser.email.toLowerCase();
-    if (email === 'armandoaventurasve@gmail.com') {
+    if (email === ADMIN_EMAIL.toLowerCase()) {
       setUser({ role: 'admin', data: { nombre: 'Administrador', email }, uid: currentUser.uid });
       return;
     }
@@ -57,7 +59,9 @@ export const AppProvider = ({ children }) => {
 const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
 setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
       
-    } catch (e) { console.error('Error restaurando rol:', e); }
+    } catch (e) {
+      // Error restaurando rol
+    }
   };
 
   useEffect(() => {
@@ -114,7 +118,9 @@ setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUs
       const unsub = onSnapshot(ref, (snap) => {
         if (!snap.empty) setData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         else setData([]);
-      }, (err) => { if (err.code !== 'permission-denied') console.error(`Error en colección ${colName}:`, err); });
+      }, (err) => { 
+        // Error en colección (silencioso para permisos denegados)
+      });
       return () => unsub();
     }, [fbUser, authReady, condition, colName, requireAuth]);
     const saveItem = async (item) => {

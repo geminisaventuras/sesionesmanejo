@@ -289,7 +289,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       }
       return null;
     } catch (e) {
-      console.error('Error buscando próxima fecha:', e);
+      // Error buscando próxima fecha
       return null;
     }
   };

@@ -7,6 +7,8 @@ import AppShell from '../modules/shared/components/AppShell';
 import { Button, Input } from '../components/UI';
 import { ChevronLeft, Lock, Mail } from 'lucide-react';
 
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@motoescuela.local';
+
 export const LoginView = () => {
   const { loginWithGoogle, loginWithEmail, setUser, instructores, proveedores } = useContext(AppContext);
   const { showToast } = useToast();
@@ -17,7 +19,7 @@ export const LoginView = () => {
   const [password, setPassword] = useState('');
 
   const assignRole = (userEmail, displayName,uid) => {
-    if (userEmail === 'armandoaventurasve@gmail.com') {
+    if (userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
       setUser({ role: 'admin', data: { nombre: displayName, email: userEmail }, uid });
       navigate('/dashboard');
       showToast(`¡Bienvenido al panel, ${displayName}!`, 'success');
