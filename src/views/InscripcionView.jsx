@@ -1,4 +1,4 @@
-// @build: 2026-06-17.03-00-00 | id: FINAL | desc: Diseño Seamless + captcha reorganizado + todas las mejoras
+// @build: 2026-06-20 | id: FINAL | desc: Stepper 3D + DateSelector unificado + Calendario con lógica de negocio + ajustes visuales finales
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -6,10 +6,12 @@ import { ReservaService } from '../services/ReservaService';
 import { LockService } from '../services/LockService';
 import { AuthService } from '../services/AuthService';
 import ModalPIN from '../components/ModalPIN';
+import ModalConfirmacion from '../modules/shared/components/ModalConfirmacion';
 import { Button, Input, Select, Spinner } from '../components/UI';
 import { useToast } from '../modules/shared/components/ToastProvider';
 import AppShell from '../modules/shared/components/AppShell';
-import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditCard, Check, ArrowRight, AlertCircle, Calendar, Clock, Hash, X, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import DashboardHeader from '../modules/shared/components/DashboardHeader';
+import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Contact, Phone, CreditCard, Check, ArrowRight, Calendar, Clock, Hash, X, ChevronRight, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
@@ -30,36 +32,52 @@ const DEFAULT_FORM = {
   sexo: '', estado: '', zona: '', telefono: '', sabeBicicleta: '', traeMoto: 'No',
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: ''
 };
-const formatearFechaNatural = (fechaStr) => {
-  if (!fechaStr) return '';
-  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  const dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-  const [anio, mes, dia] = fechaStr.split('-');
-  const fecha = new Date(anio, parseInt(mes)-1, dia);
-  return dias[fecha.getDay()] + ' ' + parseInt(dia) + ' de ' + meses[parseInt(mes)-1];
+
+const formatearFechaNatural = (texto) => {
+  if (!texto) return null;
+  texto = texto.toLowerCase().trim();
+  const hoy = new Date();
+  if (texto.includes('hoy')) return hoy.toISOString().split('T')[0];
+  if (texto.includes('mañana')) {
+    const manana = new Date(hoy);
+    manana.setDate(hoy.getDate() + 1);
+    return manana.toISOString().split('T')[0];
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  const fecha = new Date(texto);
+  if (!isNaN(fecha.getTime())) {
+    const year = fecha.getFullYear();
+    const month = String(fecha.getMonth() + 1).padStart(2, '0');
+    const day = String(fecha.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return null;
 };
+
 const isPastBlock = (fecha, label, todayStr) => {
   if (fecha !== todayStr || !label) return false;
   try {
     const startStr = label.split('-')[0].trim();
-    const [time, modifier] = startStr.split(' ');
-    let [hours, mins] = time.split(':');
-    hours = parseInt(hours, 10);
+    const parts = startStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!parts) return false;
+    let hours = parseInt(parts[1], 10);
+    const mins = parseInt(parts[2], 10);
+    const modifier = parts[3].toUpperCase();
     if (modifier === 'PM' && hours < 12) hours += 12;
     if (modifier === 'AM' && hours === 12) hours = 0;
     const blockTime = new Date();
-    blockTime.setHours(hours, parseInt(mins, 10), 0, 0);
+    blockTime.setHours(hours, mins, 0, 0);
     return new Date() > blockTime;
-  } catch { return false; }
+  } catch (e) { return false; }
 };
 
 export const InscripcionView = () => {
   const { config, cursos, sedes, horarios, fbUser, authReady, setUser,
-          getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks, 
+          getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks,
           suscribirLocks, reservas, instructores, motos } = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
-  
+
   const [step, setStep] = useState(() => {
     const saved = sessionStorage.getItem('inscripcion_step');
     return saved || '1';
@@ -72,12 +90,13 @@ export const InscripcionView = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lockId, setLockId] = useState(() => sessionStorage.getItem('inscripcion_lockId') || null);
   const generatedPinRef = useRef(null);
-const [generatedPin, setGeneratedPin] = useState(() => {
-  const saved = sessionStorage.getItem('inscripcion_generatedPin');
-  if (saved) generatedPinRef.current = saved;
-  return saved || null;
-});
-useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+  const [generatedPin, setGeneratedPin] = useState(() => {
+    const saved = sessionStorage.getItem('inscripcion_generatedPin');
+    if (saved) generatedPinRef.current = saved;
+    return saved || null;
+  });
+  useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [captchaValue, setCaptchaValue] = useState('');
@@ -91,8 +110,27 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
   const [tiempoRestante, setTiempoRestante] = useState(null);
   const [renovacionUsada, setRenovacionUsada] = useState(false);
   const [mostrarDetallesPago, setMostrarDetallesPago] = useState(false);
+  const [mostrarCalendario, setMostrarCalendario] = useState(false);
+  const [mesCalendario, setMesCalendario] = useState(() => {
+    const hoy = new Date();
+    return new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  });
+  const [modalLiberar, setModalLiberar] = useState(null);
 
   const locksSnapshotRef = useRef(activeLocks);
+  const calendarioRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (calendarioRef.current && !calendarioRef.current.contains(event.target)) {
+        setMostrarCalendario(false);
+      }
+    };
+    if (mostrarCalendario) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [mostrarCalendario]);
 
   const maxDate = useMemo(() => {
     const d = new Date();
@@ -100,15 +138,20 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     return d.toISOString().split('T')[0];
   }, []);
 
-  const fecha2Calc = form.fecha1 
-    ? (() => { const d = new Date(form.fecha1 + 'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })() 
+  const fecha2Calc = form.fecha1
+    ? (() => {
+        const d = new Date(form.fecha1 + 'T12:00:00');
+        d.setDate(d.getDate()+1);
+        return d.toISOString().split('T')[0];
+      })()
     : '';
+
   const baseUSD = calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto);
   const tasaCobro = config.monedaCobroClientes === 'USD' ? config.tasaUSD : config.tasaEUR;
   const precioFinalVES = (baseUSD * (Number(tasaCobro) || 1)).toFixed(2);
 
-  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) 
-    ? `${form.anoNac}-${String(form.mesNac).padStart(2, '0')}-${String(form.diaNac).padStart(2, '0')}` 
+  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac)
+    ? `${form.anoNac}-${String(form.mesNac).padStart(2, '0')}-${String(form.diaNac).padStart(2, '0')}`
     : '';
 
   const esMayorDeEdad = () => {
@@ -207,12 +250,64 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     return () => { if (unsubscribe) unsubscribe(); };
   }, [form.fecha1, suscribirLocks]);
 
+  // Cálculo de días disponibles
+  const diasDisponibles = useMemo(() => {
+    if (!form.sedeId || !form.tipoMoto) return [];
+    const today = getTodayStr();
+    const dias = [];
+    const cursor = new Date(today + 'T12:00:00');
+    const fin = new Date(maxDate + 'T12:00:00');
+
+    while (cursor <= fin) {
+      const fechaStr = cursor.toISOString().split('T')[0];
+      const d2 = new Date(cursor);
+      d2.setDate(d2.getDate() + 1);
+      const fecha2Candidate = d2.toISOString().split('T')[0];
+
+      const hayAlguno = (horarios || []).filter(h => h.activo && !h.isLunch).some(bloque => {
+        if (fechaStr < today || isPastBlock(fechaStr, bloque.label, today)) return false;
+        try {
+          const res = findAvailableResources({
+            fecha1: fechaStr,
+            fecha2: fecha2Candidate,
+            horaId: bloque.id,
+            sedeId: form.sedeId,
+            tipoMoto: form.tipoMoto,
+            traeMoto: form.traeMoto,
+            activeLockIds: (activeLocks || []).map(l => l.id)
+          });
+          const conflictoReserva = reservas.some(r => {
+            if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+            if (String(r.horaId) !== String(bloque.id)) return false;
+            return r.fecha === fechaStr || r.fecha === fecha2Candidate || r.fecha2 === fechaStr || r.fecha2 === fecha2Candidate;
+          });
+          return !!res && !conflictoReserva;
+        } catch (e) {
+          return false;
+        }
+      });
+      dias.push({ fecha: fechaStr, disponible: hayAlguno });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return dias;
+  }, [form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, reservas, maxDate, getTodayStr, findAvailableResources, horarios]);
+
+  useEffect(() => {
+    if (step === '3' && form.sedeId && form.tipoMoto && !form.fecha1) {
+      const firstAvail = diasDisponibles.find(d => d.disponible);
+      if (firstAvail) {
+        setForm(prev => ({ ...prev, fecha1: firstAvail.fecha }));
+      } else {
+        setForm(prev => ({ ...prev, fecha1: '' }));
+      }
+    }
+  }, [step, form.sedeId, form.tipoMoto, diasDisponibles]);
+
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
     if (!instructores?.length || !motos?.length) return [];
-    
+
     const locksSource = isSelectingHorario ? locksSnapshotRef.current : activeLocks;
-    
     const todayStr = getTodayStr();
     const hor = (horarios||[]).filter(h => h.activo).sort((a,b) => a.id.localeCompare(b.id));
     const blocks = hor.map(b => {
@@ -220,11 +315,11 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       if (lockId && form.horaId === b.id) return { ...b, disponible: true, ocupado: false, restaurado: true };
       if (b.isLunch) return { ...b, disponible: false, reason: 'ALMUERZO' };
       if (form.fecha1 < todayStr || isPastBlock(form.fecha1, b.label, todayStr)) return { ...b, disponible: false, reason: 'CERRADO' };
-      
-      const res = findAvailableResources({ 
-        fecha1: form.fecha1, fecha2: fecha2Calc, horaId: b.id, 
-        sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto, 
-        activeLockIds: (locksSource||[]).map(l => l.id) 
+
+      const res = findAvailableResources({
+        fecha1: form.fecha1, fecha2: fecha2Calc, horaId: b.id,
+        sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto,
+        activeLockIds: (locksSource||[]).map(l => l.id)
       });
       const conflictoReserva = reservas.some(r => {
         if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
@@ -251,7 +346,7 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       const locksRef = collection(db, 'locks');
       const locksQ = query(locksRef, where('fecha', '>=', today), where('fecha', '<=', hastaStr));
       const locksSnap = await getDocs(locksQ);
-      
+
       const reservasRef = collection(db, basePath, 'reservas');
       const reservasQ = query(reservasRef, where('fecha', '>=', today), where('fecha', '<=', hastaStr));
       const reservasSnap = await getDocs(reservasQ);
@@ -289,12 +384,15 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       }
       return null;
     } catch (e) {
-      // Error buscando próxima fecha
       return null;
     }
   };
 
   const handleSelectHorario = async (bloque) => {
+    if (lockId && form.horaId === bloque.id) {
+      setModalLiberar({ bloque });
+      return;
+    }
     if (isSelectingHorario) return;
     if (!fbUser) { showToast('Espera un momento, estamos preparando todo...', 'error'); return; }
     if (!bloque.instructorId || (form.traeMoto !== 'Sí' && !bloque.motoAsignar)) {
@@ -307,20 +405,36 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     const motoId = bloque.motoAsignar || 'sinmoto';
     const instructorId = bloque.instructorId || 'sininst';
     const nuevoLockId = `${form.fecha1}_${bloque.id}_${instructorId}_${motoId}`;
-    const result = await LockService.crearLock(nuevoLockId, fbUser.uid, { 
-      fecha: form.fecha1, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar 
+    const result = await LockService.crearLock(nuevoLockId, fbUser.uid, {
+      fecha: form.fecha1, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar
     });
-    if (result.success) { 
-      setLockId(nuevoLockId); 
+    if (result.success) {
+      setLockId(nuevoLockId);
       setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar }));
       setLockExpiresAt(Date.now() + LOCK_DURATION);
       setRenovacionUsada(false);
-      showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success'); 
-    } else { 
-      showToast(result.error.message || 'No se pudo bloquear el horario', 'error'); 
+      showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success');
+    } else {
+      showToast(result.error.message || 'No se pudo bloquear el horario', 'error');
     }
     setIsSelectingHorario(false);
     setSelectingBlockId(null);
+  };
+
+  const handleLiberarHorario = async () => {
+    if (!lockId) { setModalLiberar(null); return; }
+    try {
+      await LockService.liberarLock(lockId);
+      setLockId(null);
+      setLockExpiresAt(null);
+      setTiempoRestante(null);
+      setForm(prev => ({ ...prev, horaId: '' }));
+      setRenovacionUsada(false);
+      showToast('Horario liberado. Puedes seleccionar otro.', 'success');
+    } catch (error) {
+      showToast('Error al liberar el horario', 'error');
+    }
+    setModalLiberar(null);
   };
 
   const handleRenovarLock = async () => {
@@ -330,19 +444,19 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
     setIsSelectingHorario(true);
     setSelectingBlockId(form.horaId);
     const result = await LockService.crearLock(lockId, fbUser.uid, { fecha: form.fecha1, horaId: form.horaId });
-    if (result.success) { 
+    if (result.success) {
       setLockExpiresAt(Date.now() + LOCK_DURATION);
-      showToast('Tiempo renovado. Tienes 10 minutos adicionales.', 'success'); 
-    } else { 
-      showToast(result.error.message || 'No se pudo renovar el tiempo', 'error'); 
+      showToast('Tiempo renovado. Tienes 10 minutos adicionales.', 'success');
+    } else {
+      showToast(result.error.message || 'No se pudo renovar el tiempo', 'error');
     }
     setIsSelectingHorario(false);
     setSelectingBlockId(null);
   };
 
   const handlePinConfirmado = async () => {
-    if (!modalPIN || !lockId) { 
-      showToast('Error: No se encontró el bloqueo del horario.', 'error'); setModalPIN(null); return; 
+    if (!modalPIN || !lockId) {
+      showToast('Error: No se encontró el bloqueo del horario.', 'error'); setModalPIN(null); return;
     }
     setModalPIN(null);
     setIsSubmitting(true);
@@ -365,13 +479,13 @@ useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [
       if (!form.nombre || !form.cedula) { showToast('Completa los datos personales', 'error'); return; }
       if (!esMayorDeEdad()) { showToast('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
       if (fbUser && generatedPinRef.current) { setStep('2'); return; }
-if (fbUser && !generatedPinRef.current) {
-  await AuthService.logout();
-  setGeneratedPin(null);
-  generatedPinRef.current = null;
-  showToast('Se ha reiniciado tu sesión. Por favor, ingresa tus datos de nuevo.', 'error');
-  return;
-}
+      if (fbUser && !generatedPinRef.current) {
+        await AuthService.logout();
+        setGeneratedPin(null);
+        generatedPinRef.current = null;
+        showToast('Se ha reiniciado tu sesión. Por favor, ingresa tus datos de nuevo.', 'error');
+        return;
+      }
       setIsSubmitting(true);
       const result = await AuthService.crearEstudiante(form.cedula);
       setIsSubmitting(false);
@@ -382,23 +496,19 @@ if (fbUser && !generatedPinRef.current) {
     }
     if (step === '2') {
       if (!form.cursoId || !(cursos||[]).some(c => String(c.id) === String(form.cursoId))) { showToast('Selecciona un curso válido', 'error'); return; }
-      if (!form.sedeId || !form.fecha1 || !form.tipoMoto) { showToast('Completa todos los campos', 'error'); return; }
+      if (!form.sedeId || !form.tipoMoto) { showToast('Selecciona sede y tipo de moto', 'error'); return; }
       if (!form.sabeBicicleta) { showToast('Indica si sabes andar en bicicleta', 'error'); return; }
       if (!fbUser) { showToast('Preparando disponibilidad...', 'error'); return; }
-      const hayDisponible = bloques.some(b => b.disponible && !b.isLunch);
-      if (!hayDisponible) {
-        const proximaFecha = await buscarProximaFechaDisponible();
-        if (proximaFecha) {
-          showToast(`No hay horarios para el ${formatearFechaNatural(form.fecha1)}. La próxima fecha disponible es el ${formatearFechaNatural(proximaFecha)}. Selecciona esa fecha en el calendario para continuar.`, 'error');
-        } else {
-          showToast(`No hay horarios disponibles en los próximos ${MAX_DIAS_RESERVA} días.`, 'error');
-        }
-        return;
-      }
       setStep('3'); return;
     }
     if (step === '3') {
       if (!fbUser) { showToast('Preparando todo...', 'error'); return; }
+      if (!form.fecha1) { showToast('Selecciona una fecha', 'error'); return; }
+      const hayAlgunBloque = bloques.some(b => b.disponible && !b.isLunch);
+      if (!hayAlgunBloque) {
+        showToast('La fecha seleccionada no tiene horarios disponibles. Elige otra.', 'error');
+        return;
+      }
       if (!form.horaId || !lockId) { showToast('Selecciona un horario primero', 'error'); return; }
       if (!lockId.startsWith(form.fecha1 + '_')) {
         showToast('El horario seleccionado no corresponde a esta fecha.', 'error');
@@ -408,8 +518,8 @@ if (fbUser && !generatedPinRef.current) {
       setStep('4'); return;
     }
     if (step === '4') {
-      if (!form.pagoBanco || !form.pagoTelefono || !form.pagoCedula || !form.pagoRef) { 
-        showToast('Completa los datos de pago', 'error'); return; 
+      if (!form.pagoBanco || !form.pagoTelefono || !form.pagoCedula || !form.pagoRef) {
+        showToast('Completa los datos de pago', 'error'); return;
       }
       if (captchaValue !== String(captchaA + captchaB)) {
         regenerateCaptcha();
@@ -421,14 +531,7 @@ if (fbUser && !generatedPinRef.current) {
 
   const handleBack = () => {
     if (step === '2') { setStep('1'); }
-    else if (step === '3') {
-      if (lockId) {
-        LockService.liberarLock(lockId).catch(() => {});
-        setLockId(null); setLockExpiresAt(null); setTiempoRestante(null);
-        setForm(prev => ({ ...prev, horaId: '' }));
-      }
-      setStep('2');
-    }
+    else if (step === '3') { setStep('2'); }
     else if (step === '4') { setStep('3'); }
     else { navigate('/'); }
   };
@@ -439,6 +542,164 @@ if (fbUser && !generatedPinRef.current) {
   const sedeActual = (sedes||[]).find(s => String(s.id) === String(form.sedeId));
   const stepNum = (step === '1') ? 1 : (step === '2') ? 2 : (step === '3') ? 3 : 4;
   const recursosListos = instructores?.length > 0 && motos?.length > 0;
+
+  const Stepper = ({ currentStep }) => {
+    const totalSteps = 4;
+    const progressWidth = ((currentStep - 1) / (totalSteps - 1)) * 100 + '%';
+    return (
+      <div className="relative flex items-center justify-between w-full max-w-xs mx-auto py-2">
+        <div className="absolute top-1/2 left-0 right-0 h-1.5 bg-gray-200 transform -translate-y-1/2 z-0" />
+        <div
+          className="absolute top-1/2 left-0 h-1.5 bg-blue-600 transform -translate-y-1/2 z-10 transition-all duration-500"
+          style={{ width: progressWidth }}
+        />
+        {[1,2,3,4].map(i => {
+          const isCurrent = i === currentStep;
+          const isCompleted = i < currentStep;
+          const isFuture = i > currentStep;
+          let circleClass = "relative z-20 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-md transition-all";
+          if (isCurrent) {
+            circleClass += " w-16 h-16 bg-gradient-to-br from-blue-400 to-blue-700 border-2 border-blue-300 shadow-xl";
+          } else if (isCompleted) {
+            circleClass += " bg-blue-600 text-white";
+          } else {
+            circleClass += " border-2 border-gray-300 bg-white text-gray-500";
+          }
+          return (
+            <div key={i} className={circleClass}>
+              {isCurrent ? (
+                <Bike size={22} className="text-white" />
+              ) : (
+                i
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const fechasMostradas = useMemo(() => {
+    const today = getTodayStr();
+    const list = [];
+    const cursor = new Date(today + 'T12:00:00');
+    for (let i = 0; i < 7; i++) {
+      const fechaStr = cursor.toISOString().split('T')[0];
+      const info = diasDisponibles.find(d => d.fecha === fechaStr);
+      list.push({
+        fecha: fechaStr,
+        disponible: info ? info.disponible : false,
+        label: cursor.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return list;
+  }, [getTodayStr, diasDisponibles]);
+
+  const CalendarioFlotante = () => {
+    const diasEnMes = useMemo(() => {
+      const year = mesCalendario.getFullYear();
+      const month = mesCalendario.getMonth();
+      const primerDia = new Date(year, month, 1);
+      const ultimoDia = new Date(year, month + 1, 0);
+      const dias = [];
+      const primerDiaSemana = primerDia.getDay();
+      const inicioSemana = primerDiaSemana === 0 ? 6 : primerDiaSemana - 1;
+      for (let i = 0; i < inicioSemana; i++) {
+        dias.push(null);
+      }
+      for (let d = 1; d <= ultimoDia.getDate(); d++) {
+        const fecha = new Date(year, month, d);
+        const fechaStr = fecha.toISOString().split('T')[0];
+        const info = diasDisponibles.find(dd => dd.fecha === fechaStr);
+        dias.push({ dia: d, fecha: fechaStr, disponible: info ? info.disponible : false });
+      }
+      return dias;
+    }, [mesCalendario, diasDisponibles]);
+
+    const cambiarMes = (delta) => {
+      setMesCalendario(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+    };
+
+    const hoy = getTodayStr();
+
+    const handleSeleccionarFecha = (fecha) => {
+      setForm(prev => ({ ...prev, fecha1: fecha }));
+      setMostrarCalendario(false);
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/30 backdrop-blur-sm" onClick={() => setMostrarCalendario(false)}>
+        <div
+          ref={calendarioRef}
+          className="bg-white rounded-xl border border-gray-200 shadow-2xl p-3 w-full max-w-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-3">
+            <button onClick={() => cambiarMes(-1)} className="p-1 hover:bg-gray-100 rounded-full">
+              <ChevronLeft size={18} />
+            </button>
+            <span className="font-bold text-gray-700 text-sm capitalize">
+              {mesCalendario.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+            </span>
+            <button onClick={() => cambiarMes(1)} className="p-1 hover:bg-gray-100 rounded-full">
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-gray-500 mb-1">
+            {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <div key={d} className="py-1">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {diasEnMes.map((diaInfo, idx) => {
+              if (!diaInfo) return <div key={`empty-${idx}`} />;
+              const { dia, fecha, disponible } = diaInfo;
+              const esPasado = fecha < hoy;
+              const esSeleccionado = form.fecha1 === fecha;
+              const fueraDeRango = fecha < hoy || fecha > maxDate;
+              const sePuedeSeleccionar = !esPasado && !fueraDeRango && disponible;
+
+              return (
+                <button
+                  key={fecha}
+                  disabled={!sePuedeSeleccionar}
+                  onClick={() => handleSeleccionarFecha(fecha)}
+                  className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${
+                    esSeleccionado ? 'bg-blue-600 text-white' :
+                    sePuedeSeleccionar ? 'bg-green-50 text-green-700 border border-green-300 hover:bg-green-100' :
+                    'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  }`}
+                >
+                  {dia}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex justify-between items-center">
+            <button
+              onClick={async () => {
+                const proxima = await buscarProximaFechaDisponible();
+                if (proxima) {
+                  setForm(prev => ({ ...prev, fecha1: proxima }));
+                  const nuevaFecha = new Date(proxima + 'T12:00:00');
+                  setMesCalendario(new Date(nuevaFecha.getFullYear(), nuevaFecha.getMonth(), 1));
+                  setMostrarCalendario(false);
+                } else {
+                  showToast('No hay fechas disponibles en el rango.', 'error');
+                }
+              }}
+              className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100"
+            >
+              <ArrowRight size={12} /> Próxima disponible
+            </button>
+            <div className="flex gap-2 text-[10px]">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-green-100 border border-green-300 rounded"></span> Libre</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-gray-100 border border-gray-200 rounded"></span> Ocupado</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const LockTimerFlotante = () => {
     if (tiempoRestante === null) return null;
@@ -452,7 +713,6 @@ if (fbUser && !generatedPinRef.current) {
     const seconds = Math.floor((restante % 60000) / 1000);
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     const isUrgent = restante < 60000;
-    
     return (
       <div className="fixed top-32 right-4 z-40 flex flex-col items-center gap-2">
         <div className="relative w-20 h-20">
@@ -476,37 +736,34 @@ if (fbUser && !generatedPinRef.current) {
 
   return (
     <AppShell header={
-      <div className="flex items-center gap-3 p-5 border-b bg-white">
-        <button onClick={handleBack} className="p-2 bg-gray-50 rounded-full"><ChevronLeft size={24} /></button>
-        <h2 className="text-xl font-black uppercase flex-1">Inscripción</h2>
-        <button onClick={() => { limpiarSesionInscripcion(); navigate('/'); }} className="p-2 bg-gray-50 rounded-full"><X size={24} /></button>
-      </div>
+      <DashboardHeader
+        nombre={form.nombre || 'Inscripción'}
+        role="estudiante"
+        onLogout={() => { limpiarSesionInscripcion(); navigate('/'); }}
+      >
+        <div className="flex items-center gap-3 w-full">
+          <button onClick={handleBack} className="p-2 bg-white/10 rounded-full">
+            <ChevronLeft size={20} className="text-white" />
+          </button>
+          <span className="text-sm font-bold text-white truncate">{form.nombre || 'Inscripción'}</span>
+          <div className="flex-1" />
+          <button onClick={() => { limpiarSesionInscripcion(); navigate('/'); }} className="p-2 bg-white/10 rounded-full">
+            <X size={20} className="text-white" />
+          </button>
+        </div>
+      </DashboardHeader>
     } footer={
       <div className="bg-white border-t p-4">
-        <Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '2' && !fbUser) || (step === '2' && lockId)}>
-          {isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? (!fbUser ? 'Preparando disponibilidad...' : 'Continuar a Horario') : 'Continuar'}
+        <Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '3' && !fbUser) || (step === '3' && lockId && !form.horaId)}>
+          {isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? 'Continuar a Horario' : 'Continuar'}
         </Button>
       </div>
     } bgColor="bg-white">
-      <div className="px-5 pt-4 pb-2">
-        <div className="relative flex items-center justify-between">
-          <div className="absolute top-1/2 left-4 right-4 h-1.5 bg-gray-200 rounded-full transform -translate-y-1/2 z-0" />
-          <div className="absolute top-1/2 left-4 h-1.5 bg-blue-600 rounded-full transform -translate-y-1/2 z-10 transition-all duration-500"
-            style={{ width: stepNum === 4 ? 'calc(100% - 2rem)' : `${((stepNum - 1) / 3) * 100}%` }} />
-          <div className="relative z-30 transition-all duration-500"
-            style={{ left: stepNum === 4 ? 'calc(100% - 16px)' : `${((stepNum - 1) / 3) * 100}%`, transform: 'translateX(-50%)' }}>
-            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
-              <Bike size={18} className="text-white" />
-            </div>
-          </div>
-          <div className="absolute top-1/2 left-4 right-4 flex justify-between transform -translate-y-1/2 z-20 pointer-events-none">
-            {[1,2,3,4].map(i => (
-              <div key={i} className={`w-3 h-3 rounded-full border-2 ${stepNum >= i ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`} />
-            ))}
-          </div>
-        </div>
+      <div className="px-5 pt-2 pb-1">
+        <Stepper currentStep={stepNum} />
       </div>
-      <div className="px-5 pb-4 [&_.mb-4]:mb-2">
+
+      <div className="px-5 pb-4">
         {step === '1' && (
           <div className="space-y-2">
             <h3 className="font-bold text-gray-900 text-lg">Datos Personales</h3>
@@ -551,10 +808,7 @@ if (fbUser && !generatedPinRef.current) {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <Select label="Sede" options={(sedes||[]).filter(s=>s.activo)} value={form.sedeId} onChange={e => setForm({...form, sedeId: e.target.value})} icon={MapPin} />
-              <Input label="Fecha (Día 1)" type="date" value={form.fecha1} onChange={e => setForm({...form, fecha1: e.target.value})} min={getTodayStr()} max={maxDate} icon={Calendar} />
-            </div>
+            <Select label="Sede" options={(sedes||[]).filter(s=>s.activo)} value={form.sedeId} onChange={e => setForm({...form, sedeId: e.target.value})} icon={MapPin} />
             <div className="grid grid-cols-2 gap-3">
               <Select label="Tipo de Moto" options={['Automática','Sincrónica']} value={form.tipoMoto} onChange={e => setForm({...form, tipoMoto: e.target.value})} icon={Zap} />
               <Select label="¿Trae moto?" options={['No','Sí']} value={form.traeMoto} onChange={e => setForm({...form, traeMoto: e.target.value})} icon={Bike} />
@@ -569,79 +823,122 @@ if (fbUser && !generatedPinRef.current) {
             </div>
           </div>
         )}
-
-        {step === '3' && (
-          <div className="flex flex-col h-full">
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-2xl border border-blue-100 mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <BookOpen size={22} className="text-blue-600" />
-                <h3 className="font-black text-lg text-blue-900">{cursoActual?.nombre || 'Curso'}</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-gray-500" /><span className="font-bold text-gray-700 truncate">{sedeActual?.nombre || 'Sede'}</span></div>
-                <div className="flex items-center gap-1.5"><Calendar size={14} className="text-gray-500" /><span className="font-bold text-gray-700">{form.fecha1}</span></div>
-                <div className="flex items-center gap-1.5"><Zap size={14} className="text-gray-500" /><span className="font-bold text-gray-700">{form.tipoMoto}</span></div>
-                <div className="flex items-center gap-1.5"><Bike size={14} className="text-gray-500" /><span className="font-bold text-gray-700">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span></div>
-              </div>
-            </div>
-            {!fbUser ? (
-              <div className="flex-1 flex items-center justify-center">
-                <Spinner message="Cargando horarios..." />
-              </div>
-            ) : !recursosListos ? (
-              <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
-            ) : (
-              <>
-                <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2"><Clock size={20} /> Selecciona tu Horario</h3>
-                <div className="grid gap-2 flex-1">
-                  {bloques.map(b => {
-                    const isSelectingThis = selectingBlockId === b.id;
-                    return (
-                      <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
-                        onClick={() => handleSelectHorario(b)}
-                        className={`w-full p-3 rounded-xl border-2 text-left transition-colors duration-200 ${
-                          isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                          b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
-                          b.ocupado ? 'bg-red-50 border-red-400 text-red-700' :
-                          !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
-                          form.horaId === b.id ? 'bg-blue-50 border-blue-500 text-blue-800' :
-                          'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
-                        }`}>
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-sm">{b.label}</span>
-                          {isSelectingThis ? (
-                            <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">Procesando...</span>
-                          ) : (
-                            <>
-                              {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-1 rounded font-black">ALMUERZO</span>}
-                              {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">CERRADO</span>}
-                              {b.ocupado && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded font-black">OCUPADO</span>}
-                              {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-black">NO DISPONIBLE</span>}
-                              {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-black">SELECCIONADO</span>}
-                              {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded font-black">DISPONIBLE</span>}
-                            </>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+{step === '3' && (
+  <div className="flex flex-col h-full space-y-2">
+    {/* Bloque unificado: tarjeta + fechas + botón */}
+    <div className="bg-blue-600 text-white rounded-xl shadow-lg overflow-hidden">
+      {/* Datos del curso y sede */}
+      <div className="p-4">
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="flex items-center gap-2">
+            <BookOpen size={20} className="text-blue-200" />
+            <span className="font-bold">{cursoActual?.nombre || 'Curso'}</span>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <MapPin size={20} className="text-blue-200" />
+            <span className="font-bold truncate">{sedeActual?.nombre || 'Sede'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Zap size={20} className="text-blue-200" />
+            <span className="font-bold">{form.tipoMoto}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Bike size={20} className="text-blue-200" />
+            <span className="font-bold">{form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
+          </div>
+        </div>
+
+        {/* Etiqueta de fechas */}
+        <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
+  <Calendar size={16} className="text-blue-200" />
+  <span className="text-xs font-bold text-center">Fechas con Horas disponibles</span>
+</div>
+      </div>
+
+      {/* Cinta de fechas (sin separación) */}
+      <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
+        {fechasMostradas.map(({ fecha, label, disponible }) => {
+          const isSelected = form.fecha1 === fecha;
+          return (
+            <button
+              key={fecha}
+              onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))}
+              disabled={!disponible}
+              className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${
+                isSelected
+                  ? 'bg-white text-blue-600'
+                  : disponible
+                  ? 'bg-blue-500/30 text-white hover:bg-blue-400/40'
+                  : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Botón "Ver calendario completo" pegado */}
+      <button
+        onClick={() => setMostrarCalendario(true)}
+        className="w-full py-2 text-xs font-medium text-blue-100 bg-blue-700/60 hover:bg-blue-700/80 transition-colors border-t border-blue-400/30"
+      >
+        Ver calendario completo
+      </button>
+    </div>
+
+    {/* Bloques de horarios (sin cambios) */}
+    {!fbUser ? (
+      <div className="flex-1 flex items-center justify-center">
+        <Spinner message="Cargando horarios..." />
+      </div>
+    ) : !recursosListos ? (
+      <div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>
+    ) : (
+      <div className="flex-1 mt-2">
+        <div className="grid gap-1.5">
+          {bloques.map(b => {
+            const isSelectingThis = selectingBlockId === b.id;
+            return (
+              <button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser}
+                onClick={() => handleSelectHorario(b)}
+                className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${
+                  isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                  b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' :
+                  b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' :
+                  !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' :
+                  form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' :
+                  'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                }`}>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-xs">{b.label}</span>
+                  {isSelectingThis ? (
+                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span>
+                  ) : (
+                    <>
+                      {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
+                      {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
+                      {b.ocupado && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
+                      {!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}
+                      {b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}
+                      {b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}
+                    </>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
         {step === '4' && (
           <div className="space-y-1.5">
             <h3 className="font-bold text-gray-900 text-base flex items-center gap-2"><CreditCard size={18} /> Realizar Pago</h3>
-
-            {/* Contenedor Unificado (Tarjeta + Acordeón) */}
             <div className="rounded-xl border border-blue-100 shadow-sm overflow-hidden flex flex-col mt-2">
-              
-              {/* Parte Superior: Tarjeta Azul */}
               <div className="bg-blue-600 text-white p-4 flex gap-4">
-                
-                {/* Lado Izquierdo: Total */}
                 <div className="flex-1 border-r border-blue-400/50 pr-4">
                   <p className="text-[10px] text-blue-100 uppercase tracking-wider mb-1">Total a Cancelar</p>
                   <div className="flex items-baseline gap-1">
@@ -653,8 +950,6 @@ if (fbUser && !generatedPinRef.current) {
                     <p>Tasa {config.monedaCobroClientes || 'EUR'}: {config.monedaCobroClientes === 'USD' ? config.tasaUSD : config.tasaEUR}</p>
                   </div>
                 </div>
-                
-                {/* Lado Derecho: Desglose */}
                 <div className="flex-1 text-[10px] text-blue-100 flex flex-col justify-center">
                   <p className="text-white font-medium mb-1 uppercase">Desglose</p>
                   {desglosePrecio().map((linea, i) => (
@@ -662,8 +957,6 @@ if (fbUser && !generatedPinRef.current) {
                   ))}
                 </div>
               </div>
-
-              {/* Parte Inferior: Botón de Acordeón */}
               <button 
                 onClick={() => setMostrarDetallesPago(!mostrarDetallesPago)}
                 className="bg-blue-50/50 w-full px-4 py-2.5 flex items-center justify-between text-blue-700 text-xs font-medium border-t border-blue-100 transition-colors hover:bg-blue-50"
@@ -674,8 +967,6 @@ if (fbUser && !generatedPinRef.current) {
                 </div>
                 {mostrarDetallesPago ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
               </button>
-
-              {/* Contenido Expandible del Acordeón */}
               {mostrarDetallesPago && (
                 <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600">
                   <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p>
@@ -685,8 +976,6 @@ if (fbUser && !generatedPinRef.current) {
                 </div>
               )}
             </div>
-
-            {/* Banco Emisor en fila completa */}
             <div className="w-full mt-2">
               <Select label="Banco Emisor" options={BANCOS} value={form.pagoBanco} onChange={e => setForm({...form, pagoBanco: e.target.value})} icon={CreditCard} />
             </div>
@@ -695,8 +984,6 @@ if (fbUser && !generatedPinRef.current) {
               <Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => setForm({...form, pagoCedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} />
             </div>
             <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" />
-
-            {/* Captcha reorganizado */}
             <div className="flex items-center justify-end gap-2 bg-blue-50 p-2 rounded-lg border border-blue-200">
               <p className="text-xs font-bold text-blue-700 whitespace-nowrap">Escriba el resultado</p>
               <div className="flex items-center gap-1">
@@ -713,6 +1000,18 @@ if (fbUser && !generatedPinRef.current) {
           </div>
         )}
       </div>
+
+      {mostrarCalendario && <CalendarioFlotante />}
+
+      {modalLiberar && (
+        <ModalConfirmacion
+          titulo="Liberar horario"
+          mensaje="¿Deseas liberar este horario? Si lo haces, deberás seleccionar otro bloque para continuar."
+          onConfirm={handleLiberarHorario}
+          onCancel={() => setModalLiberar(null)}
+        />
+      )}
+
       {lockId && step === '4' && <LockTimerFlotante />}
       {modalPIN && <ModalPIN pin={modalPIN.pin} onConfirm={handlePinConfirmado} />}
     </AppShell>
