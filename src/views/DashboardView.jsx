@@ -1,5 +1,6 @@
-// @build: 2026-06-22 | id: SGTA-FASE1 | desc: CRUD de cursos con gestión de tiempos por módulo + rechazo con dos variantes
-import { useContext, useState, useEffect, useCallback, useMemo, memo } from 'react';
+// @build: 2026-06-22 | id: DASHBOARD-FINAL | desc: Dashboard con métricas, gráficos, resúmenes y soporte para pestaña inicial por URL
+import { useContext, useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Input, Select } from '../components/UI';
 import AppShell from '../modules/shared/components/AppShell';
@@ -7,71 +8,277 @@ import {
   ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings,
   Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle,
   BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut, ChevronDown,
-  ChevronUp, CreditCard, Minus, Equal, X, AlertTriangle
+  ChevronUp, CreditCard, Minus, Equal, TrendingUp,
+  Calendar, Eye, AlertTriangle, Bell, X, User, MapPin as MapPinIcon,
 } from 'lucide-react';
 import ProveedorPanel from './ProveedorPanel';
+import { useToast } from '../modules/shared/components/ToastProvider';
 
 // ================================================================
 // COMPONENTES INTERNOS DEL DASHBOARD
 // ================================================================
 
-const TarjetaResumen = memo(({ titulo, valor, color, onClick }) => (
-  <div onClick={onClick} className={`${color} text-white p-6 rounded-[2rem] shadow-[0_10px_40px_rgba(29,78,216,0.4)] cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
-    <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full blur-3xl transform translate-x-10 -translate-y-10"></div>
-    <p className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1">{titulo}</p>
-    <h2 className="text-6xl font-black">{valor}</h2>
+const TarjetaResumen = memo(({ titulo, valor, color, onClick, icon: Icon }) => (
+  <div onClick={onClick} className={`${color} text-white p-4 rounded-2xl shadow-lg cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
+    <div className="absolute top-0 right-0 w-20 h-20 bg-white opacity-10 rounded-full blur-2xl transform translate-x-5 -translate-y-5"></div>
+    <div className="flex items-center gap-3">
+      {Icon && <Icon size={24} className="text-white/80" />}
+      <div>
+        <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{titulo}</p>
+        <h2 className="text-3xl font-black">{valor}</h2>
+      </div>
+    </div>
   </div>
 ));
 
 const CursoCompletado = memo(({ reserva, instructorNombre }) => (
-  <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
     <div><p className="font-bold text-sm text-gray-900">{reserva.nombre} {reserva.apellido}</p><p className="text-xs text-gray-500">Inst: {instructorNombre}</p></div>
-    <Award size={24} className="text-green-500" />
+    <Award size={20} className="text-green-500" />
   </div>
 ));
 
 const DeudaItem = memo(({ item, moneda, onPagar }) => (
-  <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center mb-2">
+  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center mb-2">
     <div><p className="font-bold text-sm">{item.nombre} {item.apellido || ''}</p><p className="text-orange-600 font-black">{moneda} {item.deuda}</p></div>
-    <Button type="button" onClick={() => onPagar(item.id, item.tipo, item.deuda, item.nombre)} variant="outline" className="!w-auto !py-2 !text-xs">Pagar</Button>
+    <Button type="button" onClick={() => onPagar(item.id, item.tipo, item.deuda, item.nombre)} variant="outline" className="!w-auto !py-1.5 !text-xs">Pagar</Button>
   </div>
 ));
 
+const MiniGraficoBarras = memo(({ datos }) => (
+  <div className="flex items-end gap-1 h-16 mt-2">
+    {datos.map((d, i) => (
+      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+        <div className="w-full bg-blue-500 rounded-t" style={{ height: `${Math.max(4, (d.valor / (Math.max(...datos.map(x => x.valor), 1))) * 40)}px` }}></div>
+        <span className="text-[8px] text-gray-500">{d.label}</span>
+      </div>
+    ))}
+  </div>
+));
+
+const BannerAlertas = memo(({ alertas }) => {
+  if (!alertas || alertas.length === 0) return null;
+  return (
+    <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl space-y-2">
+      <div className="flex items-center gap-2 text-yellow-800"><Bell size={16} /><span className="text-sm font-bold">Alertas</span></div>
+      {alertas.map((a, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs text-yellow-700">
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+          <span>{a.mensaje}</span>
+        </div>
+      ))}
+    </div>
+  );
+});
+
+const ResumenTabla = memo(({ titulo, items, renderItem, vacio }) => (
+  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+    <h3 className="font-bold text-gray-900 text-sm mb-3">{titulo}</h3>
+    {items.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">{vacio || 'Sin datos'}</p> : items.map(renderItem)}
+  </div>
+));
+
+// ================================================================
+// VISTA: INICIO (MÉTRICAS, GRÁFICOS, RESÚMENES)
+// ================================================================
 const AdminResumen = memo(({ setTab }) => {
-  const { reservas, instructores, sedes, cleanExpiredLocks, seedDatabase } = useContext(AppContext);
+  const { reservas, instructores, sedes, motos, horarios, config, cleanExpiredLocks, seedDatabase } = useContext(AppContext);
   const res = reservas || [];
   const instrs = instructores || [];
-  useEffect(() => { 
-    if (cleanExpiredLocks) cleanExpiredLocks().catch(() => {}); 
-  }, [cleanExpiredLocks]);
-  const pendientes = useMemo(() => res.filter(r => r.estadoPago === 'Pendiente' || r.estadoPago === 'Rechazado').length, [res]);
+  const motosList = motos || [];
+  const hor = horarios || [];
+
+  useEffect(() => { if (cleanExpiredLocks) cleanExpiredLocks().catch(() => {}); }, [cleanExpiredLocks]);
+
   const completados = useMemo(() => res.filter(r => r.estadoCurso === 'Aprobado').slice(-5).reverse(), [res]);
+
+  const ingresosMes = useMemo(() => {
+    const ahora = new Date();
+    const mes = ahora.getMonth();
+    const anio = ahora.getFullYear();
+    return res.filter(r => r.estadoPago === 'Aprobado' && r.fecha && new Date(r.fecha).getMonth() === mes && new Date(r.fecha).getFullYear() === anio)
+      .reduce((acc, r) => acc + (Number(r.pagoTotalMoneda) || 0), 0);
+  }, [res]);
+
+  const hoyStr = new Date().toISOString().split('T')[0];
+  const bloquesOcupadosHoy = useMemo(() => {
+    const activas = res.filter(r => (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') && (r.fecha === hoyStr || r.fecha2 === hoyStr));
+    return activas.length;
+  }, [res, hoyStr]);
+  const totalBloques = hor.filter(h => h.activo && !h.isLunch).length;
+  const instrActivos = instrs.filter(i => i.activo).length;
+
+  const datosGrafico = useMemo(() => {
+    const dias = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const fechaStr = d.toISOString().split('T')[0];
+      const total = res.filter(r => r.estadoPago === 'Aprobado' && (r.fecha === fechaStr || r.fecha2 === fechaStr)).reduce((acc, r) => acc + (Number(r.pagoTotalMoneda) || 0), 0);
+      dias.push({ label: d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }), valor: total });
+    }
+    return dias;
+  }, [res]);
+
+  const alertas = useMemo(() => {
+    const lista = [];
+    const ahora = Date.now();
+    const pendientesViejas = res.filter(r => r.estadoPago === 'Pendiente' && r.createdAt && (ahora - r.createdAt.toMillis?.() > 86400000));
+    if (pendientesViejas.length > 0) lista.push({ mensaje: `${pendientesViejas.length} reservas pendientes por más de 24 horas.` });
+    const sinInstructor = res.filter(r => (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') && !r.instructorId);
+    if (sinInstructor.length > 0) lista.push({ mensaje: `${sinInstructor.length} cursos sin instructor asignado.` });
+    const motosInactivas = motosList.filter(m => !m.activo).length;
+    if (motosInactivas > 0) lista.push({ mensaje: `${motosInactivas} motos inactivas.` });
+    return lista;
+  }, [res, motosList]);
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-black text-gray-900 uppercase tracking-widest px-1">Panel Administrativo</h2>
+    <div className="space-y-4">
+      <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest px-1">Panel Administrativo</h2>
       {sedes?.length === 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 p-5 rounded-2xl mb-2 shadow-sm">
-          <p className="text-sm font-bold text-yellow-800 mb-3">¿El sistema está en blanco?</p>
-          <Button type="button" onClick={seedDatabase} variant="outline" icon={Settings} className="w-full bg-white">Inicializar Base de Datos (Sembrar)</Button>
+        <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl mb-2 shadow-sm text-xs font-bold text-yellow-800">
+          ¿El sistema está en blanco? <button onClick={seedDatabase} className="underline ml-2">Inicializar Base de Datos</button>
         </div>
       )}
-      <TarjetaResumen titulo="Reservas Pendientes" valor={pendientes} color="bg-[#1d4ed8]" onClick={() => setTab('reservas')} />
-      <div className="pt-2"><h3 className="font-bold text-gray-900 text-xl border-b-2 border-gray-100 pb-3">Últimos Cursos Completados</h3>
-        <div className="mt-4 space-y-3">
+
+      <BannerAlertas alertas={alertas} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <TarjetaResumen titulo="Ingresos Mes" valor={`${config.monedaPagoStaff || 'USD'} ${ingresosMes}`} color="bg-emerald-700" icon={DollarSign} />
+        <TarjetaResumen titulo="Ocupación Hoy" valor={`${bloquesOcupadosHoy}/${totalBloques}`} color="bg-orange-600" icon={Calendar} />
+        <TarjetaResumen titulo="Instructores" valor={instrActivos} color="bg-purple-700" icon={Users} />
+        <TarjetaResumen titulo="Motos" valor={motosList.length} color="bg-teal-700" icon={Bike} />
+      </div>
+
+      <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+        <h3 className="font-bold text-gray-900 text-xs mb-1 flex items-center gap-2"><TrendingUp size={14} className="text-blue-600" />Ingresos últimos 7 días</h3>
+        <MiniGraficoBarras datos={datosGrafico} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={() => setTab('reservas')} className="bg-blue-50 p-2 rounded-xl text-[10px] font-bold text-blue-700 hover:bg-blue-100">📋 Ver Reservas</button>
+        <button onClick={() => setTab('ocupacion')} className="bg-green-50 p-2 rounded-xl text-[10px] font-bold text-green-700 hover:bg-green-100">📅 Ocupación</button>
+        <button onClick={() => setTab('finanzas')} className="bg-purple-50 p-2 rounded-xl text-[10px] font-bold text-purple-700 hover:bg-purple-100">💰 Finanzas</button>
+      </div>
+
+      <div>
+        <h3 className="font-bold text-gray-900 text-sm border-b pb-2">Últimos Cursos Completados</h3>
+        <div className="mt-2 space-y-2">
           {completados.map(r => <CursoCompletado key={r.id} reserva={r} instructorNombre={instrs.find(i => String(i.id) === String(r.instructorId))?.nombre || 'N/A'} />)}
-          {completados.length === 0 && <p className="text-sm text-gray-400 text-center py-8 font-medium">No hay cursos completados aún.</p>}
+          {completados.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No hay cursos completados aún.</p>}
         </div>
+      </div>
+
+      <ResumenTabla titulo="Instructores" items={instrs} vacio="No hay instructores registrados"
+        renderItem={(i) => (
+          <div key={i.id} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
+            <div className="flex items-center gap-2"><User size={14} className="text-gray-400" /><span className="text-xs font-medium">{i.nombre} {i.apellido || ''}</span></div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${i.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{i.activo ? 'Activo' : 'Inactivo'}</span>
+          </div>
+        )}
+      />
+      <ResumenTabla titulo="Motos" items={motosList} vacio="No hay motos registradas"
+        renderItem={(m) => (
+          <div key={m.id} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
+            <div className="flex items-center gap-2"><Bike size={14} className="text-gray-400" /><span className="text-xs font-medium">{m.marca} {m.modelo} ({m.tipo})</span></div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${m.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{m.activo ? 'Disponible' : 'Inactiva'}</span>
+          </div>
+        )}
+      />
+    </div>
+  );
+});
+
+// ================================================================
+// VISTA: OCUPACIÓN DIARIA
+// ================================================================
+const AdminOcupacion = memo(() => {
+  const { reservas, horarios, sedes } = useContext(AppContext);
+  const [sedeSeleccionada, setSedeSeleccionada] = useState('todas');
+  const [fechaInicio, setFechaInicio] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const dias = useMemo(() => {
+    const diasArr = [];
+    const cursor = new Date(fechaInicio + 'T12:00:00');
+    for (let i = 0; i < 7; i++) {
+      diasArr.push(cursor.toISOString().split('T')[0]);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return diasArr;
+  }, [fechaInicio]);
+
+  const bloquesActivos = useMemo(() => (horarios || []).filter(h => h.activo && !h.isLunch).sort((a, b) => a.id.localeCompare(b.id)), [horarios]);
+
+  const getEstadoCelda = (fecha, bloqueId) => {
+    const reserva = reservas.find(r => {
+      if (r.estadoPago === 'Cancelado') return false;
+      if (String(r.horaId) !== String(bloqueId)) return false;
+      if (r.fecha === fecha || r.fecha2 === fecha) return true;
+      return false;
+    });
+    if (!reserva) return 'libre';
+    if (reserva.estadoPago === 'Pendiente') return 'pendiente';
+    if (reserva.estadoPago === 'Aprobado') return 'ocupado';
+    if (reserva.estadoPago === 'Rechazado') return 'rechazado';
+    return 'libre';
+  };
+
+  const colorCelda = {
+    libre: 'bg-green-100 text-green-700',
+    ocupado: 'bg-red-100 text-red-700',
+    pendiente: 'bg-yellow-100 text-yellow-700',
+    rechazado: 'bg-orange-100 text-orange-700',
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest">Ocupación Diaria</h2>
+      <div className="flex gap-3 flex-wrap">
+        <Select label="Sede" options={[{ id: 'todas', nombre: 'Todas' }, ...(sedes || []).filter(s => s.activo)]} value={sedeSeleccionada} onChange={e => setSedeSeleccionada(e.target.value)} icon={MapPinIcon} />
+        <Input label="Fecha inicio" type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} icon={Calendar} />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="p-2 text-left rounded-l-xl">Bloque</th>
+              {dias.map(d => <th key={d} className="p-2 text-center">{d.split('-').slice(1).join('/')}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {bloquesActivos.map(b => (
+              <tr key={b.id} className="border-b border-gray-100">
+                <td className="p-2 font-bold">{b.label}</td>
+                {dias.map(d => {
+                  const estado = getEstadoCelda(d, b.id);
+                  return <td key={d} className="p-1 text-center"><span className={`px-2 py-1 rounded-full text-[10px] font-bold ${colorCelda[estado]}`}>{estado === 'libre' ? 'Libre' : estado === 'ocupado' ? 'Ocup.' : estado === 'pendiente' ? 'Pend.' : 'Rech.'}</span></td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex gap-4 text-xs">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-100 rounded-full"></span> Libre</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-100 rounded-full"></span> Ocupado</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-100 rounded-full"></span> Pendiente</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-orange-100 rounded-full"></span> Rechazado</span>
       </div>
     </div>
   );
 });
 
+// ================================================================
+// VISTA: FINANZAS
+// ================================================================
 const AdminFinanzas = memo(() => {
-  const { reservas, instructores, proveedores, motos, config, saveReserva, saveMovimiento, showToast } = useContext(AppContext);
+  const { reservas, instructores, proveedores, motos, config, saveReserva, saveMovimiento, showToast, movimientos } = useContext(AppContext);
   const res = reservas || [];
   const instrs = instructores || [];
   const provs = proveedores || [];
   const motList = motos || [];
+  const movs = movimientos || [];
+
   const { gananciaNeta, deudasPorPagar, deudasInst, deudasProv } = useMemo(() => {
     const aproved = res.filter(r => r.estadoPago === 'Aprobado');
     const ingresos = aproved.reduce((acc, r) => acc + Number(r.pagoTotalMoneda || 0), 0);
@@ -81,6 +288,7 @@ const AdminFinanzas = memo(() => {
     const dProv = provs.map(p => ({ ...p, deuda: res.filter(r => r.estadoPago === 'Aprobado' && !r.pagadoProveedor && motList.find(m => String(m.id) === String(r.motoAsignadaId))?.proveedorId === String(p.id)).reduce((acc) => acc + Number(config.pagoProveedor || 0), 0), tipo: 'proveedor' })).filter(p => p.deuda > 0);
     return { gananciaNeta: neta, deudasPorPagar: deudas, deudasInst: dInst, deudasProv: dProv };
   }, [res, instrs, provs, motList, config]);
+
   const pagarStaff = useCallback(async (id, tipo, monto, nombre) => {
     for (let r of res) {
       if (r.estadoPago === 'Aprobado') {
@@ -91,68 +299,49 @@ const AdminFinanzas = memo(() => {
     await saveMovimiento({ id: Date.now().toString(), tipo: 'egreso', monto, desc: `Comisión: ${nombre}`, fecha: new Date().toISOString().split('T')[0] });
     showToast('Pago registrado correctamente');
   }, [res, motList, saveReserva, saveMovimiento, showToast]);
+
+  const pctDeudas = gananciaNeta > 0 ? Math.min(100, (deudasPorPagar / gananciaNeta) * 100) : 0;
+  const ultimosMovimientos = useMemo(() => movs.slice().reverse().slice(0, 10), [movs]);
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest px-1">Módulo Finanzas</h2>
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-green-50 p-4 rounded-3xl border-2 border-green-100"><p className="text-green-600 text-[10px] font-black uppercase tracking-wide">Ganancia Neta</p><p className="text-2xl font-black text-green-900 mt-1">USD {gananciaNeta}</p></div>
+        <div className="bg-green-50 p-4 rounded-3xl border-2 border-green-100"><p className="text-green-600 text-[10px] font-black uppercase tracking-wide">Ganancia Neta</p><p className="text-2xl font-black text-green-900 mt-1">{config.monedaPagoStaff} {gananciaNeta}</p></div>
         <div className="bg-orange-50 p-4 rounded-3xl border-2 border-orange-100 relative">{deudasPorPagar > 0 && <span className="absolute top-3 right-3 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>}<p className="text-orange-600 text-[10px] font-black uppercase tracking-wide">Por Pagar</p><p className="text-2xl font-black text-orange-900 mt-1">{config.monedaPagoStaff} {deudasPorPagar}</p></div>
       </div>
+
+      <div className="bg-white p-4 rounded-2xl border border-gray-100">
+        <div className="flex justify-between text-xs font-bold mb-2"><span>Deudas vs Ganancia</span><span>{Math.round(pctDeudas)}%</span></div>
+        <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-red-500 h-2.5 rounded-full transition-all" style={{ width: `${pctDeudas}%` }}></div></div>
+      </div>
+
       <h3 className="font-bold text-gray-900 text-lg border-b pb-2 mt-6">Deudas a Personal</h3>
       {deudasInst.length === 0 && deudasProv.length === 0 && <p className="text-sm text-gray-500 text-center py-6">Todo el personal está al día.</p>}
       {deudasInst.map(i => <DeudaItem key={i.id} item={i} moneda={config.monedaPagoStaff} onPagar={(id, tipo, monto, nombre) => pagarStaff(id, tipo, monto, nombre)} />)}
       {deudasProv.map(p => <DeudaItem key={p.id} item={p} moneda={config.monedaPagoStaff} onPagar={(id, tipo, monto, nombre) => pagarStaff(id, tipo, monto, nombre)} />)}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <h3 className="font-bold text-gray-900 text-sm mb-3">Últimos Movimientos</h3>
+        {ultimosMovimientos.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">Sin movimientos registrados.</p> :
+          ultimosMovimientos.map(mov => (
+            <div key={mov.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold ${mov.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>{mov.tipo === 'ingreso' ? '+' : '-'}{config.monedaPagoStaff} {mov.monto}</span>
+                <span className="text-xs text-gray-500">{mov.desc}</span>
+              </div>
+              <span className="text-[10px] text-gray-400">{mov.fecha}</span>
+            </div>
+          ))
+        }
+      </div>
     </div>
   );
 });
 
-const AdminReservas = memo(({ setTab }) => {
-  const { reservas, saveReserva, saveMovimiento, showToast, instructores, isReservaActiva, user } = useContext(AppContext);
-  const [selectedInstructorByRes, setSelectedInstructorByRes] = useState({});
-  const res = reservas || [];
-  const isAdmin = user?.role === 'admin';
-  const aprobarPago = useCallback(async (id) => { if (!isAdmin) return; const r = res.find(x => String(x.id) === String(id)); if (!r) return; await saveReserva({ ...r, estadoPago: 'Aprobado', estadoCurso: 'En Curso' }); await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: r.pagoTotalMoneda, desc: `Inscripción C-${id.toString().slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: r.userId }); showToast('Pago aprobado y curso activado', 'success'); }, [isAdmin, res, saveReserva, saveMovimiento, showToast]);
-  const rechazarPago = useCallback(async (id, tipo = 'rechazar') => { if (!isAdmin) return; const r = res.find(x => String(x.id) === String(id)); if (!r) return; if (tipo === 'cancelar') { await saveReserva({ ...r, estadoPago: 'Cancelado' }); showToast('Reserva cancelada definitivamente', 'info'); } else { await saveReserva({ ...r, estadoPago: 'Rechazado', rechazadoEn: Number(new Date()) }); showToast('Pago rechazado. El estudiante puede corregir la referencia.', 'info'); } }, [isAdmin, res, saveReserva, showToast]);
-  const reasignarInstructor = useCallback(async (r) => { if (!isAdmin) return; const instructorId = selectedInstructorByRes[r.id]; if (!instructorId) return showToast('Selecciona un instructor válido', 'error'); if (String(instructorId) === String(r.instructorId)) return showToast('Selecciona un instructor distinto al actual', 'error'); await saveReserva({ ...r, instructorId }); showToast('Instructor reasignado correctamente', 'success'); }, [isAdmin, selectedInstructorByRes, saveReserva, showToast]);
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 mb-6 items-center"><button type="button" onClick={() => setTab('inicio')} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h2 className="text-xl font-black text-gray-900 uppercase">Gestión Reservas</h2></div>
-      {res.length === 0 && <p className="text-center text-gray-500 py-6">No hay reservas</p>}
-      {res.slice().reverse().map(r => {
-        const busyInstructorIds = (reservas || []).filter(other => String(other.id) !== String(r.id) && isReservaActiva(other) && String(other.horaId) === String(r.horaId) && (other.fecha1 === r.fecha1 || other.fecha1 === r.fecha2 || other.fecha2 === r.fecha1 || other.fecha2 === r.fecha2)).map(other => String(other.instructorId));
-        const availableInstructors = (instructores || []).filter(i => i.activo && (i.sedes || []).includes(r.sedeId) && !busyInstructorIds.includes(String(i.id)));
-        const currentInstructor = (instructores || []).find(i => String(i.id) === String(r.instructorId));
-        const currentIsBusy = currentInstructor && busyInstructorIds.includes(String(currentInstructor.id));
-        return (
-          <div key={r.id} className={`bg-white p-4 rounded-2xl shadow-sm border-l-4 ${r.estadoPago === 'Pendiente' ? 'border-l-orange-500' : r.estadoPago === 'Rechazado' ? 'border-l-red-500' : r.estadoPago === 'Cancelado' ? 'border-l-gray-500' : 'border-l-green-500'} border-t border-r border-b border-gray-100`}>
-            <div className="flex justify-between items-start mb-2"><h4 className="font-bold text-gray-900 text-sm">{r.nombre} {r.apellido} <span className="text-xs text-gray-500 font-normal">({r.cedula})</span></h4><span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${r.estadoPago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : r.estadoPago === 'Rechazado' ? 'bg-red-100 text-red-700' : r.estadoPago === 'Cancelado' ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span></div>
-            <p className="text-xs text-gray-600 mb-1 font-bold">D1: {r.fecha1} | D2: {r.fecha2}</p>
-            <p className="text-xs text-gray-600 mb-2">Instructor actual: {currentInstructor ? `${currentInstructor.nombre} ${currentInstructor.apellido || ''}` : 'Sin instructor asignado'}</p>
-            {currentIsBusy && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm font-bold">El instructor asignado ya tiene otra clase en este horario. Selecciona uno disponible.</div>}
-            {isAdmin && (<><Select label="Reasignar Instructor" options={availableInstructors} value={selectedInstructorByRes[r.id] || ''} onChange={e => setSelectedInstructorByRes(prev => ({ ...prev, [r.id]: e.target.value }))} />{availableInstructors.length === 0 && <p className="text-xs text-gray-500 mb-3">No hay instructores disponibles en este horario/sede.</p>}<div className="flex gap-2 flex-wrap mb-3 mt-2"><Button type="button" onClick={() => reasignarInstructor(r)} variant="secondary" className="!py-2 !text-xs" disabled={availableInstructors.length === 0}>Reasignar</Button></div></>)}
-            {isAdmin && (r.estadoPago === 'Pendiente' || r.estadoPago === 'Rechazado') && (
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-3">
-                <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Validación de Pago</p>
-                <p className="text-xs mb-1">Bco: {r.pagoBanco} | Tlf: {r.pagoTelefono} | CI: {r.pagoCedula}</p>
-                <p className="text-sm font-black text-blue-900 mb-3">Ref: <span className="text-xl">{r.pagoRef}</span> • Bs. {r.pagoTotalVES}</p>
-                <div className="flex gap-2 flex-wrap">
-                  <Button type="button" onClick={() => aprobarPago(r.id)} variant="success" className="!py-2 !text-xs flex-1" icon={CheckCircle}>Aprobar</Button>
-                  <Button type="button" onClick={() => rechazarPago(r.id, 'rechazar')} variant="danger" className="!py-2 !text-xs flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
-                  <Button type="button" onClick={() => rechazarPago(r.id, 'cancelar')} variant="outline" className="!py-2 !text-xs" icon={X}>Cancelar</Button>
-                </div>
-              </div>
-            )}
-            {r.estadoPago === 'Cancelado' && (
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-3">
-                <p className="text-xs text-gray-500">Esta reserva fue cancelada definitivamente.</p>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-});
+// ================================================================
+// RESTO DE COMPONENTES (SIN CAMBIOS)
+// ================================================================
 
 const AdminConfigHub = memo(({ setTab }) => (
   <div className="space-y-6">
@@ -202,7 +391,6 @@ const AdminAjustes = memo(({ setTab }) => {
     <div className="space-y-4">
       <div className="flex gap-2 items-center mb-6"><button type="button" onClick={() => setTab('config')} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h2 className="text-xl font-black text-gray-900 uppercase">Ajustes Generales</h2></div>
 
-      {/* TASAS DE CAMBIO */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <button onClick={() => toggleSeccion('tasas')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
           <div className="flex items-center gap-2"><Activity size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Tasas de Cambio</h3></div>
@@ -217,7 +405,6 @@ const AdminAjustes = memo(({ setTab }) => {
         )}
       </div>
 
-      {/* REGLAS DE NEGOCIO */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <button onClick={() => toggleSeccion('reglas')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
           <div className="flex items-center gap-2"><DollarSign size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Reglas de Negocio (Base USD)</h3></div>
@@ -236,7 +423,6 @@ const AdminAjustes = memo(({ setTab }) => {
         )}
       </div>
 
-      {/* COMISIONES FIJAS */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <button onClick={() => toggleSeccion('comisiones')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
           <div className="flex items-center gap-2"><Wallet size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Comisiones Fijas</h3></div>
@@ -251,7 +437,6 @@ const AdminAjustes = memo(({ setTab }) => {
         )}
       </div>
 
-      {/* PAGO MÓVIL ESCUELA */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <button onClick={() => toggleSeccion('pagoMovil')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
           <div className="flex items-center gap-2"><CreditCard size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Pago Móvil Escuela</h3></div>
@@ -260,30 +445,30 @@ const AdminAjustes = memo(({ setTab }) => {
         {secciones.pagoMovil && (
           <div className="px-4 pb-4 space-y-3">
             <Select
-  label="Banco"
-  options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']}
-  value={localCfg.pagoMovilEscuela?.banco || 'Banesco'}
-  onChange={(e) => {
-    const nombreBanco = e.target.value;
-    const codigos = {
-      'Banesco': '0134',
-      'Mercantil': '0105',
-      'Provincial': '0108',
-      'Venezuela': '0102',
-      'Bancamiga': '0172',
-      'BNC': '0191',
-      'Tesoro': '0163'
-    };
-    setLocalCfg(prev => ({
-      ...prev,
-      pagoMovilEscuela: {
-        ...prev.pagoMovilEscuela,
-        banco: nombreBanco,
-        codigo: codigos[nombreBanco] || ''
-      }
-    }));
-  }}
-/>
+              label="Banco"
+              options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']}
+              value={localCfg.pagoMovilEscuela?.banco || 'Banesco'}
+              onChange={(e) => {
+                const nombreBanco = e.target.value;
+                const codigos = {
+                  'Banesco': '0134',
+                  'Mercantil': '0105',
+                  'Provincial': '0108',
+                  'Venezuela': '0102',
+                  'Bancamiga': '0172',
+                  'BNC': '0191',
+                  'Tesoro': '0163'
+                };
+                setLocalCfg(prev => ({
+                  ...prev,
+                  pagoMovilEscuela: {
+                    ...prev.pagoMovilEscuela,
+                    banco: nombreBanco,
+                    codigo: codigos[nombreBanco] || ''
+                  }
+                }));
+              }}
+            />
             <Input label="Teléfono" value={localCfg.pagoMovilEscuela?.telefono || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, telefono: e.target.value } })} />
             <Input label="Cédula / RIF" value={localCfg.pagoMovilEscuela?.cedula || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, cedula: e.target.value } })} />
           </div>
@@ -296,15 +481,12 @@ const AdminAjustes = memo(({ setTab }) => {
 });
 
 // ================================================================
-// FORMULARIO DE CURSOS MEJORADO (SGTA FASE 1)
-// Soporta: duración total, duración por módulo, distribución equitativa
+// FORMULARIOS (SIN CAMBIOS)
 // ================================================================
 const FormCursos = memo(({ item, onSave, onCancel }) => {
   const inicializarModulos = (itemData) => {
     const mods = itemData.modulos || [''];
-    if (mods.length > 0 && typeof mods[0] === 'string') {
-      return mods.map(nombre => ({ nombre, duracion: 0 }));
-    }
+    if (mods.length > 0 && typeof mods[0] === 'string') return mods.map(nombre => ({ nombre, duracion: 0 }));
     return mods.map(m => typeof m === 'string' ? { nombre: m, duracion: 0 } : { ...m });
   };
 
@@ -319,148 +501,55 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
   const hayExcedente = tiempoRestante < 0;
   const distribucionExacta = tiempoRestante === 0 && form.duracionTotal > 0;
 
-  const handleDuracionTotalChange = (e) => {
-    setForm(prev => ({ ...prev, duracionTotal: Number(e.target.value) || 0 }));
-  };
-
-  const handleModuloNombreChange = (idx, nombre) => {
-    setForm(prev => ({
-      ...prev,
-      modulos: prev.modulos.map((m, i) => i === idx ? { ...m, nombre } : m)
-    }));
-  };
-
-  const handleModuloDuracionChange = (idx, duracion) => {
-    setForm(prev => ({
-      ...prev,
-      modulos: prev.modulos.map((m, i) => i === idx ? { ...m, duracion: Number(duracion) || 0 } : m)
-    }));
-  };
-
-  const agregarModulo = () => {
-    setForm(prev => ({ ...prev, modulos: [...prev.modulos, { nombre: '', duracion: 0 }] }));
-  };
-
-  const eliminarModulo = (idx) => {
-    setForm(prev => ({
-      ...prev,
-      modulos: prev.modulos.filter((_, i) => i !== idx)
-    }));
-  };
-
+  const handleDuracionTotalChange = (e) => setForm(prev => ({ ...prev, duracionTotal: Number(e.target.value) || 0 }));
+  const handleModuloNombreChange = (idx, nombre) => setForm(prev => ({ ...prev, modulos: prev.modulos.map((m, i) => i === idx ? { ...m, nombre } : m) }));
+  const handleModuloDuracionChange = (idx, duracion) => setForm(prev => ({ ...prev, modulos: prev.modulos.map((m, i) => i === idx ? { ...m, duracion: Number(duracion) || 0 } : m) }));
+  const agregarModulo = () => setForm(prev => ({ ...prev, modulos: [...prev.modulos, { nombre: '', duracion: 0 }] }));
+  const eliminarModulo = (idx) => setForm(prev => ({ ...prev, modulos: prev.modulos.filter((_, i) => i !== idx) }));
   const distribuirEquitativamente = () => {
     const total = Number(form.duracionTotal) || 0;
     const cant = form.modulos.length;
     if (total <= 0 || cant <= 0) return;
     const porModulo = Math.floor(total / cant);
     const sobrante = total - porModulo * cant;
-    setForm(prev => ({
-      ...prev,
-      modulos: prev.modulos.map((m, i) => ({
-        ...m,
-        duracion: porModulo + (i === 0 ? sobrante : 0)
-      }))
-    }));
+    setForm(prev => ({ ...prev, modulos: prev.modulos.map((m, i) => ({ ...m, duracion: porModulo + (i === 0 ? sobrante : 0) })) }));
   };
 
   const handleSave = () => {
-    if (hayExcedente) {
-      alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`);
-      return;
-    }
-    if (form.modulos.some(m => !m.nombre.trim())) {
-      alert('Todos los módulos deben tener un nombre.');
-      return;
-    }
-    onSave({
-      ...form,
-      modulos: form.modulos.filter(m => m.nombre.trim() !== '')
-    });
+    if (hayExcedente) { alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`); return; }
+    if (form.modulos.some(m => !m.nombre.trim())) { alert('Todos los módulos deben tener un nombre.'); return; }
+    onSave({ ...form, modulos: form.modulos.filter(m => m.nombre.trim() !== '') });
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 items-center mb-4">
-        <button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button>
-        <h3 className="font-bold text-lg">{item?.id ? 'Editar' : 'Nuevo'} Curso</h3>
-      </div>
-
+      <div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item?.id ? 'Editar' : 'Nuevo'} Curso</h3></div>
       <Input label="Nombre del Curso" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
-
-      <Input
-        label="Duración Total del Curso (minutos)"
-        type="number"
-        value={form.duracionTotal || ''}
-        onChange={handleDuracionTotalChange}
-        icon={Clock}
-      />
-
+      <Input label="Duración Total del Curso (minutos)" type="number" value={form.duracionTotal || ''} onChange={handleDuracionTotalChange} icon={Clock} />
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex items-center justify-between mb-3">
           <label className="text-sm font-bold text-gray-700">Módulos</label>
-          <button
-            type="button"
-            onClick={distribuirEquitativamente}
-            disabled={!form.duracionTotal || form.modulos.length === 0}
-            className="text-xs font-bold text-blue-600 flex items-center gap-1 disabled:opacity-40"
-          >
-            <Equal size={14} /> Distribuir equitativamente
-          </button>
+          <button type="button" onClick={distribuirEquitativamente} disabled={!form.duracionTotal || form.modulos.length === 0} className="text-xs font-bold text-blue-600 flex items-center gap-1 disabled:opacity-40"><Equal size={14} /> Distribuir equitativamente</button>
         </div>
-
         {form.modulos.map((mod, i) => (
           <div key={i} className="flex gap-2 mb-2 items-start">
-            <input
-              className="flex-1 bg-white border-2 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-              placeholder={`Módulo ${i + 1}`}
-              value={mod.nombre}
-              onChange={e => handleModuloNombreChange(i, e.target.value)}
-            />
-            <input
-              type="number"
-              className="w-20 bg-white border-2 rounded-lg px-2 py-2 text-sm outline-none focus:border-blue-500 text-center"
-              placeholder="Min"
-              value={mod.duracion || ''}
-              onChange={e => handleModuloDuracionChange(i, e.target.value)}
-            />
-            {form.modulos.length > 1 && (
-              <button
-                type="button"
-                onClick={() => eliminarModulo(i)}
-                className="p-2 text-red-400 hover:text-red-600"
-              >
-                <Minus size={16} />
-              </button>
-            )}
+            <input className="flex-1 bg-white border-2 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder={`Módulo ${i + 1}`} value={mod.nombre} onChange={e => handleModuloNombreChange(i, e.target.value)} />
+            <input type="number" className="w-20 bg-white border-2 rounded-lg px-2 py-2 text-sm outline-none focus:border-blue-500 text-center" placeholder="Min" value={mod.duracion || ''} onChange={e => handleModuloDuracionChange(i, e.target.value)} />
+            {form.modulos.length > 1 && <button type="button" onClick={() => eliminarModulo(i)} className="p-2 text-red-400 hover:text-red-600"><Minus size={16} /></button>}
           </div>
         ))}
-
         <Button type="button" onClick={agregarModulo} variant="outline" className="!py-2 text-sm mt-2 bg-white" icon={Plus}>Añadir Módulo</Button>
-
         {form.duracionTotal > 0 && (
-          <div className={`mt-3 p-3 rounded-xl text-center text-sm font-bold ${
-            hayExcedente ? 'bg-red-50 text-red-700 border border-red-200' :
-            distribucionExacta ? 'bg-green-50 text-green-700 border border-green-200' :
-            'bg-blue-50 text-blue-700 border border-blue-200'
-          }`}>
-            {hayExcedente
-              ? `⚠️ Excedente: ${Math.abs(tiempoRestante)} min de más`
-              : distribucionExacta
-                ? '✅ Tiempo perfectamente distribuido'
-                : `⏳ Te quedan ${tiempoRestante} min por asignar`
-            }
+          <div className={`mt-3 p-3 rounded-xl text-center text-sm font-bold ${hayExcedente ? 'bg-red-50 text-red-700 border border-red-200' : distribucionExacta ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+            {hayExcedente ? `⚠️ Excedente: ${Math.abs(tiempoRestante)} min de más` : distribucionExacta ? '✅ Tiempo perfectamente distribuido' : `⏳ Te quedan ${tiempoRestante} min por asignar`}
           </div>
         )}
       </div>
-
       <Button type="button" onClick={handleSave} variant="dark">Guardar Curso</Button>
     </div>
   );
 });
 
-// ================================================================
-// RESTO DE FORMULARIOS (SIN CAMBIOS)
-// ================================================================
 const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
   const { sedes } = useContext(AppContext);
   const isInst = rol === 'instructor';
@@ -484,23 +573,12 @@ const FormMoto = memo(({ item, onSave, onCancel }) => {
   return (<div className="space-y-4"><div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Moto</h3></div><Select label="Proveedor Dueño" options={proveedores || []} value={form.proveedorId} onChange={e => setForm({ ...form, proveedorId: e.target.value })} /><Input label="Marca" value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })} /><Input label="Modelo" value={form.modelo} onChange={e => setForm({ ...form, modelo: e.target.value })} /><Input label="Cilindrada (ej. 150cc)" value={form.cilindrada} onChange={e => setForm({ ...form, cilindrada: e.target.value })} /><Select label="Tipo" options={['Automática', 'Sincrónica']} value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} /><div className="bg-white p-4 rounded-xl border border-gray-200"><h4 className="text-sm font-bold text-gray-700 mb-3">Sedes donde estará disponible</h4><div className="flex flex-col gap-2">{(sedes || []).filter(s => s.activo).map(s => <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer"><input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" /><span className="font-bold text-gray-800">{s.nombre}</span></label>)}</div></div><Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Moto</Button></div>);
 });
 
-// ================================================================
-// VISTA CRUD GENÉRICA (SIN CAMBIOS)
-// ================================================================
 const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, setTab, rol }) => {
   const { showToast, user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
   const isAdmin = user?.role === 'admin';
-
-  const handleSaveGeneral = useCallback(async (datos) => {
-    if (!isAdmin) return;
-    if (typeof saveFn === 'function') await saveFn(datos);
-    setItemEdit(null);
-    showToast('Guardado exitoso');
-  }, [isAdmin, saveFn, showToast]);
-
+  const handleSaveGeneral = useCallback(async (datos) => { if (!isAdmin) return; if (typeof saveFn === 'function') await saveFn(datos); setItemEdit(null); showToast('Guardado exitoso'); }, [isAdmin, saveFn, showToast]);
   if (itemEdit !== null) return <FormComponent item={itemEdit} onSave={(d) => handleSaveGeneral(d, itemEdit?.id)} onCancel={() => setItemEdit(null)} />;
-  
   return (
     <div className="pb-10">
       <div className="flex justify-between items-center mb-6"><div className="flex gap-2 items-center"><button type="button" onClick={() => setTab('config')} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h2 className="text-xl font-black text-gray-900 uppercase tracking-widest">{titulo}</h2></div>{isAdmin && <button type="button" onClick={() => setItemEdit({})} className="bg-[#1d4ed8] text-white p-2 px-3 rounded-xl font-bold flex gap-1 text-sm shadow-md hover:bg-blue-700"><Plus size={16} /> Nuevo</button>}</div>
@@ -521,10 +599,26 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, se
 // COMPONENTE PRINCIPAL DEL DASHBOARD
 // ================================================================
 export const DashboardView = () => {
-  const { user, setUser, setView, logoutUser, motos, cursos, sedes, horarios, instructores, proveedores, saveMoto, saveCurso, saveSede, saveHorario, saveProveedor, handleSaveInstructorSeguro } = useContext(AppContext);
-  const [tab, setTab] = useState('inicio');
+  const { user, setUser, setView, logoutUser, motos, cursos, sedes, horarios, instructores, proveedores, saveMoto, saveCurso, saveSede, saveHorario, saveProveedor, handleSaveInstructorSeguro, reservas, showToast } = useContext(AppContext);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tabInicial = searchParams.get('tab') || 'inicio';
+  const [tab, setTab] = useState(tabInicial);
+  const reservasPrevRef = useRef(reservas?.length || 0);
+
   if (!user) { setView('login'); return null; }
   if (user.role === 'proveedor') return <ProveedorPanel />;
+
+  useEffect(() => {
+    if (!reservas) return;
+    const prevCount = reservasPrevRef.current;
+    const newCount = reservas.length;
+    if (newCount > prevCount) {
+      showToast(`¡Nueva reserva registrada! Total: ${newCount}`, 'success');
+    }
+    reservasPrevRef.current = newCount;
+  }, [reservas?.length]);
+
   const handleLogout = useCallback(() => { if (logoutUser) logoutUser(); else { setUser(null); setView('home'); } }, [logoutUser, setUser, setView]);
 
   const header = (
@@ -540,11 +634,17 @@ export const DashboardView = () => {
   );
 
   const footer = (
-    <div className="bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center">
-      {[{ id: 'inicio', icon: Activity, label: 'Inicio' }, { id: 'finanzas', icon: Wallet, label: 'Finanzas' }, { id: 'config', icon: Settings, label: 'Configuración' }].map(t => (
-        <button key={t.id} type="button" onClick={() => setTab(t.id)} className={`flex flex-col items-center w-20 transition-all ${tab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}>
-          <div className={`p-1.5 rounded-xl ${tab === t.id ? 'bg-gray-100' : ''}`}><t.icon size={22} className={tab === t.id ? 'stroke-[2.5px]' : ''} /></div>
-          <span className="text-[10px] font-bold">{t.label}</span>
+    <div className="bg-white border-t border-gray-100 px-4 py-2 flex justify-between items-center">
+      {[
+        { id: 'inicio', icon: Activity, label: 'Inicio', action: () => setTab('inicio') },
+        { id: 'reservas', icon: BookOpen, label: 'Reservas', action: () => navigate('/admin/reservas') },
+        { id: 'ocupacion', icon: Calendar, label: 'Ocupac.', action: () => setTab('ocupacion') },
+        { id: 'finanzas', icon: Wallet, label: 'Finanzas', action: () => setTab('finanzas') },
+        { id: 'config', icon: Settings, label: 'Config', action: () => setTab('config') }
+      ].map(t => (
+        <button key={t.id} type="button" onClick={t.action} className={`flex flex-col items-center w-14 transition-all ${tab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}>
+          <div className={`p-1 rounded-lg ${tab === t.id ? 'bg-gray-100' : ''}`}><t.icon size={20} className={tab === t.id ? 'stroke-[2.5px]' : ''} /></div>
+          <span className="text-[9px] font-bold">{t.label}</span>
         </button>
       ))}
     </div>
@@ -552,9 +652,9 @@ export const DashboardView = () => {
 
   return (
     <AppShell header={header} footer={footer}>
-      <div className="p-6">
+      <div className="p-4">
         {tab === 'inicio' && <AdminResumen setTab={setTab} />}
-        {tab === 'reservas' && <AdminReservas setTab={setTab} />}
+        {tab === 'ocupacion' && <AdminOcupacion />}
         {tab === 'finanzas' && <AdminFinanzas />}
         {tab === 'config' && <AdminConfigHub setTab={setTab} />}
         {tab === 'ajustes' && <AdminAjustes setTab={setTab} />}

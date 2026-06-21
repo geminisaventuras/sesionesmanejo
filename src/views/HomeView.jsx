@@ -1,10 +1,13 @@
-// @build: 2026-06-20 | id: SISTEMA-HOME-UPDATE | desc: Botón Portal de Estudiantes reemplazado por Chat (próximamente)
+// @build: 2026-06-20 | id: SISTEMA-HOME-UPDATE | desc: Botón Portal de Estudiantes reemplazado por Chat (próximamente) + detección de sesión activa
+import { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppContext } from '../context/AppContextValue';
 import { Zap, Calendar, ArrowRight, User, Lock, MessageCircle } from 'lucide-react';
 import AppShell from '../modules/shared/components/AppShell';
 
 const HomeView = () => {
   const navigate = useNavigate();
+  const { user } = useContext(AppContext);
 
   return (
     <AppShell bgColor="bg-gray-100" maxWidth="max-w-md" className="sm:rounded-[40px] sm:shadow-2xl sm:max-h-[90vh]">
@@ -29,13 +32,30 @@ const HomeView = () => {
               </div>
               <div className="text-center"><h3 className="font-bold text-sm text-gray-500 leading-tight">Chat</h3><p className="text-[10px] text-gray-400 mt-0.5">Próximamente</p></div>
             </button>
-            {/* Acceso Privado (sin cambios) */}
-            <button onClick={() => navigate('/login')} className="bg-white py-6 px-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]">
-              <div className="w-12 h-12 rounded-full border-2 border-blue-200 flex items-center justify-center text-gray-800 shadow-sm shadow-blue-100/50">
-                <Lock size={20} />
-              </div>
-              <div className="text-center"><h3 className="font-bold text-sm text-gray-900 leading-tight">Acceso<br/>Privado</h3></div>
-            </button>
+            {/* Acceso Privado / Mi Panel */}
+            {user ? (
+              <button onClick={() => {
+                switch(user.role) {
+                  case 'admin': navigate('/dashboard'); break;
+                  case 'instructor': navigate('/instructor'); break;
+                  case 'proveedor': navigate('/proveedor'); break;
+                  case 'estudiante': navigate('/portal-reservas'); break;
+                  default: navigate('/login');
+                }
+              }} className="bg-white py-6 px-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]">
+                <div className="w-12 h-12 rounded-full border-2 border-blue-200 flex items-center justify-center text-gray-800 shadow-sm shadow-blue-100/50">
+                  <User size={20} />
+                </div>
+                <div className="text-center"><h3 className="font-bold text-sm text-gray-900 leading-tight">Mi Panel</h3></div>
+              </button>
+            ) : (
+              <button onClick={() => navigate('/login')} className="bg-white py-6 px-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]">
+                <div className="w-12 h-12 rounded-full border-2 border-blue-200 flex items-center justify-center text-gray-800 shadow-sm shadow-blue-100/50">
+                  <Lock size={20} />
+                </div>
+                <div className="text-center"><h3 className="font-bold text-sm text-gray-900 leading-tight">Acceso<br/>Privado</h3></div>
+              </button>
+            )}
           </div>
         </div>
       </div>

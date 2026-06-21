@@ -13,6 +13,9 @@ import { DashboardView } from './views/DashboardView';
 import InstructorPanel from './views/InstructorPanel';
 import AulaVirtualView from './views/AulaVirtualView';
 import TestDatePicker from './views/TestDatePicker';
+import AdminReservaDetalle from './views/AdminReservaDetalle';
+import AdminReservasList from './views/AdminReservasList';
+import AdminReservasHome from './views/AdminReservasHome';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useContext(AppContext);
@@ -50,6 +53,21 @@ function App() {
             <DashboardView />
           </ProtectedRoute>
         } />
+        <Route path="/admin/reserva/:reservaId" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservaDetalle />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/reservas/lista" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservasList />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/reservas" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservasHome />
+          </ProtectedRoute>
+        } />
         <Route path="/instructor" element={
           <ProtectedRoute allowedRoles={['instructor']}>
             <InstructorPanel />
@@ -64,8 +82,6 @@ function App() {
         <Route path="/test-datepicker" element={<TestDatePicker />} />
       </Routes>
     </ToastProvider>
-
-    
   );
 }
 
