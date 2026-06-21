@@ -368,13 +368,13 @@ export const InscripcionView = () => {
   const handlePinConfirmado = async () => { if (!modalPIN || !lockId) { showToast('Error: No se encontró el bloqueo del horario.', 'error'); setModalPIN(null); return; } setModalPIN(null); setIsSubmitting(true); const result = await ReservaService.crearReserva({ ...form, userId: fbUser.uid, fecha: form.fecha1, fecha2: fecha2Calc, fechaNacimiento }, lockId); setIsSubmitting(false); if (result.success) { limpiarSesionInscripcion(); showToast('¡Inscripción completada! Bienvenido a tu panel.', 'success'); setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: fbUser.uid }); navigate('/portal-reservas'); } else { showToast(result.error.message || 'Error al crear la reserva', 'error'); } };
 
   const handleNext = async () => {
-    if (step === '1') {
-      if (!form.nombre || !form.cedula || !form.correo) { showToast('Completa los datos personales', 'error'); return; }
+    if (step === '1') {if (!form.nombre || !form.cedula || !form.correo) { showToast('Completa los datos personales', 'error'); return; }
+      
       if (!esMayorDeEdad()) { showToast('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
       if (!form.condicionMedica) { showToast('Debes completar la información de salud', 'error'); return; }
       if (fbUser && generatedPinRef.current) { setStep('2'); return; }
       if (fbUser && !generatedPinRef.current) { await AuthService.logout(); setGeneratedPin(null); generatedPinRef.current = null; showToast('Se ha reiniciado tu sesión. Por favor, ingresa tus datos de nuevo.', 'error'); return; }
-      setIsSubmitting(true); const result = await AuthService.crearEstudiante(form.cedula); setIsSubmitting(false);
+      setIsSubmitting(true); const result = await AuthService.crearEstudiante(form.cedula, form.correo); setIsSubmitting(false);
       if (!result.success) { showToast(result.error.message, 'error'); return; }
       generatedPinRef.current = result.data.pin; setGeneratedPin(result.data.pin); setStep('2'); return;
     }
@@ -640,13 +640,42 @@ export const InscripcionView = () => {
                 <div className="flex-1 text-[10px] text-blue-100 flex flex-col justify-center"><p className="text-white font-medium mb-1 uppercase">Desglose</p>{desglosePrecio().map((item, i) => (<div key={i} className={`flex justify-between ${item.bold ? 'font-bold text-white border-t border-blue-400/50 pt-1 mt-1' : ''}`}><span>{item.label}</span><span className="ml-2">{item.value}</span></div>))}</div>
               </div>
               <button onClick={() => setMostrarDetallesPago(!mostrarDetallesPago)} className="bg-blue-50/50 w-full px-4 py-2.5 flex items-center justify-between text-blue-700 text-xs font-medium border-t border-blue-100 transition-colors hover:bg-blue-50"><div className="flex items-center gap-2">{mostrarDetallesPago ? <EyeOff size={16} /> : <Eye size={16} />}{mostrarDetallesPago ? 'Ocultar Datos de Pago Móvil' : 'Ver Datos de Pago Móvil'}</div>{mostrarDetallesPago ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}</button>
-              {mostrarDetallesPago && (<div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2"><p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p><div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div><div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div><div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span></div></div>)}
+              {mostrarDetallesPago && (<div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2"><p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p><div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div><div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div><div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span><button
+  type="button"
+  onClick={() => {
+    const { codigo, telefono, cedula } = config?.pagoMovilEscuela || {};
+    const texto = `${codigo || ''} ${telefono || ''} ${cedula || ''}`.trim();
+    navigator.clipboard.writeText(texto).then(() => {
+      showToast('Datos copiados al portapapeles', 'success');
+    }).catch(() => {
+      showToast('Error al copiar', 'error');
+    });
+  }}
+  className="w-full mt-2 py-2 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+>
+  📋 Copiar datos
+</button></div></div>)}
             </div>
             <div className="w-full mt-2"><Select label="Banco Emisor" options={BANCOS} value={form.pagoBanco} onChange={e => setForm({...form, pagoBanco: e.target.value})} icon={CreditCard} /></div>
             <div className="grid grid-cols-2 gap-2"><Input label="Teléfono Origen" type="tel" value={form.pagoTelefono} onChange={e => setForm({...form, pagoTelefono: e.target.value.replace(/\D/g,'').slice(0,11)})} icon={Phone} placeholder="04141234567" /><Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => setForm({...form, pagoCedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} placeholder="15123456" /></div>
             <div className="grid grid-cols-2 gap-2"><Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" /><div>
-  <Input label="Captcha" type="tel" value={captchaValue} onChange={e => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} icon={Lock} placeholder={`${captchaA} + ${captchaB} = ?`} />
-  <p className="text-[10px] text-gray-500 mt-0 ml-1">Resuelve la suma</p>
+  <div>
+  <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1">
+    <Lock size={14} className="text-gray-500" /> Captcha
+  </label>
+  <div className="bg-gray-50 border-2 border-gray-200 focus-within:border-blue-500 rounded-xl overflow-hidden">
+    <input
+      type="tel"
+      value={captchaValue}
+      onChange={e => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))}
+      placeholder={`${captchaA} + ${captchaB} = ?`}
+      className="w-full bg-transparent py-2.5 px-3 text-sm outline-none"
+    />
+    <div className="bg-gray-100 border-t border-gray-200 px-3 py-1 text-[10px] text-gray-500">
+      Resuelve la suma
+    </div>
+  </div>
+</div>
 </div></div>
           </div>
         )}

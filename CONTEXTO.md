@@ -10,3 +10,12 @@
 
 ## Modo de ejecución
 MVP Simplificado (según Super Marco de Trabajo V6.3).
+
+## Decisiones del 20/06/2026 (segunda sesión)
+- Login unificado con pestañas Estudiante (correo+PIN) y Staff (email+clave+Google).
+- Registro de estudiantes con correo real en lugar de correo sintético.
+- Reconocimiento del rol de administrador desde la colección dmins en Firestore.
+- Persistencia offline de Firestore (enableIndexedDbPersistence) para evitar reinicio de tasas.
+- Reglas de seguridad de Firestore actualizadas: acceso restringido por rol (admin/instructor/estudiante).
+- Copia de datos de pago móvil al portapapeles con código del banco.
+- Ajustes visuales en el paso 3 (botón "Ver calendario completo" con iconos) y paso 4 (reloj dentro de la tarjeta de pago).

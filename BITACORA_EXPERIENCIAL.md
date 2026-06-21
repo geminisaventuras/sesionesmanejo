@@ -241,3 +241,22 @@ Se necesitaba un selector de fecha de nacimiento que fuera fácil de usar en móvi
 
 **Para el Futuro:**
 Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un módulo compartido para usar en otros formularios.
+
+## [Arquitecto] – 20/06/2026 – Persistencia offline de Firestore
+
+**Decisión/Lección Clave:**
+Habilitar enableIndexedDbPersistence garantiza que la configuración financiera (tasas, precios) nunca se reinicie a los valores por defecto, incluso sin conexión.
+
+**Contexto:**
+La tasa EUR se reiniciaba a 39.10 al perder la conexión con Firestore o al recargar la aplicación. Se probó con sessionStorage, pero la solución más robusta fue la persistencia offline nativa de Firestore, que guarda en IndexedDB el último valor leído y lo sincroniza automáticamente.
+
+**Alternativas Consideradas:**
+- Opción A: sessionStorage ? frágil, se pierde al cerrar la pestaña.
+- Opción B (elegida): enableIndexedDbPersistence ? nativa, sobrevive a cierres de pestaña, no requiere lógica manual.
+
+**Impacto y Deuda:**
+- El motor financiero queda blindado contra reinicios inesperados de configuración.
+- Deuda técnica: no se implementó trampa de foco en modales (B103).
+
+**Para el Futuro:**
+Considerar localStorage o Firestore bundles para datos que deban persistir entre sesiones de usuario.

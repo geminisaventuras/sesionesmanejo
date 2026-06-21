@@ -1,78 +1,92 @@
-// @build: 2026-06-18.06-30-00 | id: SISTEMA | desc: Botones primary y sin título duplicado
-import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// @build: 2026-06-20 | id: FINAL | desc: Login unificado con redirección por rol usando useEffect + Google para estudiantes
+import React, { useState, useContext, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
 import { useToast } from '../modules/shared/components/ToastProvider';
 import AppShell from '../modules/shared/components/AppShell';
 import { Button, Input } from '../components/UI';
 import { ChevronLeft, Lock, Mail } from 'lucide-react';
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@motoescuela.local';
-
 export const LoginView = () => {
-  const { loginWithGoogle, loginWithEmail, setUser, instructores, proveedores } = useContext(AppContext);
+  const { loginWithGoogle, loginWithEmail, loginEstudiante, user } = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  const tabFromUrl = searchParams.get('tab');
+  const [modo, setModo] = useState(tabFromUrl === 'estudiante' ? 'estudiante' : 'staff');
+
+  const [correoEstudiante, setCorreoEstudiante] = useState('');
+  const [pin, setPin] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const assignRole = (userEmail, displayName,uid) => {
-    if (userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      setUser({ role: 'admin', data: { nombre: displayName, email: userEmail }, uid });
-      navigate('/dashboard');
-      showToast(`¡Bienvenido al panel, ${displayName}!`, 'success');
-      return;
+  // Redirigir según el rol una vez que el contexto se actualiza
+  useEffect(() => {
+    if (!user) return;
+    switch (user.role) {
+      case 'admin':
+        navigate('/dashboard', { replace: true });
+        break;
+      case 'instructor':
+        navigate('/instructor', { replace: true });
+        break;
+      case 'proveedor':
+        navigate('/proveedor', { replace: true });
+        break;
+      case 'estudiante':
+        navigate('/portal-reservas', { replace: true });
+        break;
+      default:
+        break;
     }
-    const inst = (instructores || []).find(i => i.email?.toLowerCase() === userEmail);
-    if (inst) {
-      if (!inst.activo) { showToast('Tu cuenta de instructor está inactiva', 'error'); return; }
-      setUser({ role: 'instructor', data: inst, uid });
-      navigate('/instructor');
-      showToast(`Bienvenido, Instructor ${inst.nombre}`, 'success');
-      return;
-    }
-    const prov = (proveedores || []).find(p => p.email?.toLowerCase() === userEmail);
-    if (prov) {
-      if (!prov.activo) { showToast('Tu cuenta de proveedor está inactiva', 'error'); return; }
-      setUser({ role: 'proveedor', data: prov, uid });
-      navigate('/proveedor');
-      showToast(`Bienvenido, ${prov.nombre}`, 'success');
-      return;
-    }
-    showToast('Este correo no tiene permisos en el sistema', 'error');
-  };
+  }, [user, navigate]);
 
   const handleGoogleLogin = async () => {
-    setIsLoggingIn(true);
+    setLoading(true);
     try {
       const result = await loginWithGoogle();
-      if (result.success) {
-        const userEmail = result.data.user.email.toLowerCase();
-        assignRole(userEmail, result.data.user.displayName, result.data.user.uid);
-      } else {
-        showToast(result.error.message, 'error');
+      if (!result?.success) {
+        showToast(result?.error?.message || 'Error al iniciar sesión con Google', 'error');
       }
+      // El contexto restoreUserRole se encargará de asignar el rol y el useEffect redirigirá
     } catch (error) {
-      showToast('Error al iniciar sesión con Google', 'error');
-    } finally { setIsLoggingIn(false); }
+      console.error('Error en Google login:', error);
+      showToast('Error inesperado al iniciar sesión con Google', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEmailLogin = async (e) => {
+  const handleStaffLogin = async (e) => {
     e.preventDefault();
-    if (!email || !password) return showToast('Completa todos los campos', 'error');
-    setIsLoggingIn(true);
-    try {
-      const result = await loginWithEmail(email, password);
-      if (result.success) {
-        assignRole(email.toLowerCase(), email, result.data.user.uid);
-      } else {
-        showToast(result.error.message, 'error');
-      }
-    } catch (error) {
-      showToast('Error al iniciar sesión', 'error');
-    } finally { setIsLoggingIn(false); }
+    if (!email || !password) {
+      showToast('Ingresa correo y contraseña', 'error');
+      return;
+    }
+    setLoading(true);
+    const result = await loginWithEmail(email, password);
+    setLoading(false);
+    if (!result?.success) {
+      showToast(result?.error?.message || 'Error al iniciar sesión', 'error');
+    }
+    // El contexto restoreUserRole asigna el rol y el useEffect redirige
+  };
+
+  const handleEstudianteLogin = async (e) => {
+    e.preventDefault();
+    if (!correoEstudiante || !pin) {
+      showToast('Ingresa tu correo y PIN', 'error');
+      return;
+    }
+    setLoading(true);
+    const result = await loginEstudiante(correoEstudiante, pin);
+    setLoading(false);
+    if (!result?.success) {
+      showToast(result?.error?.message || 'Error al iniciar sesión', 'error');
+    }
+    // El contexto restoreUserRole asigna el rol y el useEffect redirige
   };
 
   const header = (
@@ -80,41 +94,76 @@ export const LoginView = () => {
       <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
         <ChevronLeft size={24} />
       </button>
-      <h2 className="text-xl font-black uppercase flex-1">Acceso Privado</h2>
+      <h2 className="text-xl font-black uppercase flex-1">Acceso</h2>
     </div>
   );
 
   return (
     <AppShell header={header} bgColor="bg-white">
       <div className="p-6 flex flex-col items-center justify-center min-h-full">
-        <div className="w-20 h-20 bg-gray-900 rounded-3xl flex items-center justify-center mb-6 shadow-xl mx-auto transform -rotate-6">
-          <Lock size={36} className="text-white transform rotate-6" />
+        <div className="flex gap-2 mb-6 w-full max-w-xs">
+          <button
+            type="button"
+            onClick={() => setModo('staff')}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+              modo === 'staff' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            🛡️ Staff
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo('estudiante')}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+              modo === 'estudiante' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            🎓 Estudiante
+          </button>
         </div>
-        <p className="text-center text-gray-500 text-sm mb-8">
-          {showEmailForm ? 'Ingresa tus credenciales' : 'Inicia sesión con tu cuenta de Google o con correo y clave.'}
-        </p>
-        {!showEmailForm ? (
-          <>
-            <Button onClick={handleGoogleLogin} variant="primary" className="mt-4" disabled={isLoggingIn}>
-              {isLoggingIn ? 'Conectando con Google...' : 'Iniciar sesión con Google'}
+
+        {modo === 'staff' ? (
+          <div className="w-full max-w-xs space-y-4">
+            <form onSubmit={handleStaffLogin} className="space-y-4">
+              <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@motoescuela.com" />
+              <Input label="Contraseña" type="password" icon={Lock} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+              <Button type="submit" disabled={loading} className="!w-full !py-3">
+                {loading ? 'Verificando...' : 'Ingresar'}
+              </Button>
+            </form>
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">o</span>
+              </div>
+            </div>
+            <Button onClick={handleGoogleLogin} variant="outline" className="!w-full !py-3" disabled={loading}>
+              {loading ? 'Conectando...' : 'Iniciar sesión con Google'}
             </Button>
-            <p className="text-center text-sm text-gray-500 mt-4">
-              <button type="button" onClick={() => setShowEmailForm(true)} className="text-blue-600 font-bold underline">
-                Iniciar sesión con correo y clave
-              </button>
-            </p>
-          </>
+          </div>
         ) : (
-          <form onSubmit={handleEmailLogin} className="space-y-4 w-full">
-            <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} required />
-            <Input label="Contraseña" type="password" icon={Lock} value={password} onChange={e => setPassword(e.target.value)} required />
-            <Button type="submit" variant="primary" disabled={isLoggingIn}>{isLoggingIn ? 'Verificando...' : 'Entrar'}</Button>
-            <p className="text-center text-sm text-gray-500 mt-2">
-              <button type="button" onClick={() => setShowEmailForm(false)} className="text-blue-600 underline">
-                Volver a inicio de sesión con Google
-              </button>
-            </p>
-          </form>
+          <div className="w-full max-w-xs space-y-4">
+            <form onSubmit={handleEstudianteLogin} className="space-y-4">
+              <Input label="Correo electrónico" type="email" icon={Mail} value={correoEstudiante} onChange={e => setCorreoEstudiante(e.target.value.trim().toLowerCase())} placeholder="tucorreo@ejemplo.com" />
+              <Input label="PIN de acceso" type="password" icon={Lock} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" maxLength={6} />
+              <Button type="submit" disabled={loading} className="!w-full !py-3">
+                {loading ? 'Ingresando...' : 'Ingresar'}
+              </Button>
+            </form>
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">o</span>
+              </div>
+            </div>
+            <Button onClick={handleGoogleLogin} variant="outline" className="!w-full !py-3" disabled={loading}>
+              {loading ? 'Conectando...' : 'Iniciar sesión con Google'}
+            </Button>
+          </div>
         )}
       </div>
     </AppShell>

@@ -1,13 +1,11 @@
-// @build: 2026-06-18.07-30-00 | id: B51 | desc: Lógica de creación de staff centralizada en el contexto + Corrección Timezone
+// @build: 2026-06-20 | id: B51-UPDATE | desc: Admin desde Firestore + firmas corregidas para correo real
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
 import { AppContext } from './AppContextValue';
 import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
-// ✅ CORRECCIÓN: Importación correcta desde la raíz del proyecto
 import { db } from '../firebase';
-
 
 const INITIAL_CONFIG = {
   monedaPagoStaff: 'USD', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5,
@@ -16,9 +14,6 @@ const INITIAL_CONFIG = {
 };
 
 const APP_ID = 'motoescuela-pro-v1';
-
-// Se recomienda mover esto a variables de entorno .env
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@motoescuela.local';
 
 export const AppProvider = ({ children }) => {
   const [fbUser, setFbUser] = useState(null);
@@ -36,29 +31,47 @@ export const AppProvider = ({ children }) => {
   const restoreUserRole = async (currentUser) => {
     if (!currentUser || !currentUser.email) return;
     const email = currentUser.email.toLowerCase();
-    if (email === ADMIN_EMAIL.toLowerCase()) {
-      setUser({ role: 'admin', data: { nombre: 'Administrador', email }, uid: currentUser.uid });
-      return;
-    }
+    const basePath = `artifacts/${APP_ID}/public/data`;
+    
     try {
-      const basePath = `artifacts/${APP_ID}/public/data`;
+      // 1. Verificar si es admin (consulta la colección admins)
+      const adminQuery = query(collection(db, basePath, 'admins'), where('email', '==', email));
+      const adminSnap = await getDocs(adminQuery);
+      if (!adminSnap.empty) {
+        const adminData = adminSnap.docs[0].data();
+        setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
+        return;
+      }
+
+      // 2. Verificar si es instructor
       const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
       const instSnap = await getDocs(instQuery);
       if (!instSnap.empty) {
         const instData = instSnap.docs[0].data();
-        if (!instData.activo) { setUser(null); showToast('Tu cuenta de instructor está inactiva', 'error'); return; }
+        if (!instData.activo) {
+          setUser(null);
+          showToast('Tu cuenta de instructor está inactiva', 'error');
+          return;
+        }
         setUser({ role: 'instructor', data: instData, uid: currentUser.uid });
         return;
       }
+
+      // 3. Verificar si es proveedor
       const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
       const provSnap = await getDocs(provQuery);
       if (!provSnap.empty) {
         const provData = provSnap.docs[0].data();
-        if (!provData.activo) { setUser(null); showToast('Tu cuenta de proveedor está inactiva', 'error'); return; }
+        if (!provData.activo) {
+          setUser(null);
+          showToast('Tu cuenta de proveedor está inactiva', 'error');
+          return;
+        }
         setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
         return;
       }
-      // Si no es staff, asumir que es estudiante
+
+      // 4. Si no es staff, asumir que es estudiante
       const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
       setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
       
@@ -70,8 +83,12 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = AuthService.onAuthChange((currentUser) => {
       setFbUser(currentUser);
-      if (currentUser) { restoreUserRole(currentUser).finally(() => setAuthReady(true)); }
-      else { setUser(null); setAuthReady(true); }
+      if (currentUser) {
+        restoreUserRole(currentUser).finally(() => setAuthReady(true));
+      } else {
+        setUser(null);
+        setAuthReady(true);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -88,14 +105,14 @@ export const AppProvider = ({ children }) => {
     return res;
   }, [showToast]);
 
-  const loginEstudiante = useCallback(async (cedula, pin) => {
-    const res = await AuthService.loginEstudiante(cedula, pin);
+  const loginEstudiante = useCallback(async (correo, pin) => {
+    const res = await AuthService.loginEstudiante(correo, pin);
     if (!res.success) showToast(res.error.message, 'error');
     return res;
   }, [showToast]);
 
-  const crearEstudiante = useCallback(async (cedula) => {
-    const res = await AuthService.crearEstudiante(cedula);
+  const crearEstudiante = useCallback(async (cedula, correo) => {
+    const res = await AuthService.crearEstudiante(cedula, correo);
     if (!res.success) showToast(res.error.message, 'error');
     return res;
   }, [showToast]);
@@ -141,7 +158,9 @@ export const AppProvider = ({ children }) => {
     useEffect(() => {
       if (!db || !authReady) return;
       const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main');
-      const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setCfg(snap.data()); else setCfg(INITIAL_CONFIG); });
+      const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setCfg(snap.data()); 
+        //else setCfg(INITIAL_CONFIG); 
+      });
       return () => unsub();
     }, [authReady]);
     const saveCfg = async (newCfg) => { if (db && fbUser && authReady) await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg); else setCfg(newCfg); };
@@ -165,7 +184,6 @@ export const AppProvider = ({ children }) => {
     await saveMovimientoRaw(itemConUsuario);
   }, [fbUser, user, saveMovimientoRaw]);
 
-  // ✅ CORRECCIÓN CRÍTICA: Zona horaria de Venezuela (America/Caracas)
   const getTodayStr = useCallback(() => {
     const now = new Date();
     const options = {
@@ -174,14 +192,11 @@ export const AppProvider = ({ children }) => {
       month: '2-digit',
       day: '2-digit'
     };
-    
-    // Formateamos manualmente a YYYY-MM-DD para evitar problemas de locale
     const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(now);
     const dateObj = {};
     parts.forEach(({ type, value }) => {
       if (type !== 'literal') dateObj[type] = value;
     });
-    
     return `${dateObj.year}-${dateObj.month}-${dateObj.day}`;
   }, []);
 
@@ -237,7 +252,6 @@ export const AppProvider = ({ children }) => {
     return total > 0 ? total : 0;
   }, [config, sedes]);
 
-  // [B51] Lógica centralizada de creación de staff
   const handleSaveInstructorSeguro = async (datos) => {
     if (!datos.id && datos.email && datos.password) {
       const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);

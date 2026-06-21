@@ -257,3 +257,10 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 | B106  | Auditoría  | uscarProximaFechaDisponible sin AbortController          | MODERADO   |
 | B107  | Auditoría  | Falta de esquemas de validación isomórfica (Zod/Yup)       | BAJA       |
 | B109  | Mejora     | Selectores de Sexo y Estado podrían usar componente Select de UI | BAJA |
+
+## Actualización 20/06/2026 (segunda sesión)
+
+| ID    | Origen     | Descripción breve                                          | Criticidad |
+|-------|------------|------------------------------------------------------------|------------|
+| B110  | Mejora     | El login de estudiante no muestra mensaje de error si el correo no está registrado | BAJA |
+| B111  | Mejora     | El botón "Acceder al Chat" en HomeView está deshabilitado sin funcionalidad | BAJA |

@@ -1,4 +1,4 @@
-// @build: 2026-06-17.16-00-00 | id: B55-CLEAN | desc: Eliminadas funciones de autenticación anónima (código muerto)
+// @build: 2026-06-20 | id: FINAL | desc: AuthService con login estudiante por correo+PIN y staff por email+clave+Google
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -10,14 +10,12 @@ import {
 import { auth } from '../../shared/firebase/firebase';
 
 export const AuthService = {
-  async loginEstudiante(cedula, pin) {
-    if (!cedula || !/^\d{6,10}$/.test(cedula))
-      return { success: false, error: { code: 'invalid-cedula', message: 'Cédula inválida' } };
-    if (!pin || !/^\d{6}$/.test(pin))
-      return { success: false, error: { code: 'invalid-pin', message: 'PIN inválido (6 dígitos)' } };
+  async loginEstudiante(correo, pin) {
+    if (!correo || !/^\d{6}$/.test(pin))
+      return { success: false, error: { code: 'invalid-data', message: 'Correo o PIN inválido' } };
     
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, `${cedula}@motoescuela.local`, pin);
+      const userCredential = await signInWithEmailAndPassword(auth, correo, pin);
       return { success: true, data: { user: userCredential.user } };
     } catch (error) {
       if (error.code === 'auth/user-not-found')
@@ -26,7 +24,7 @@ export const AuthService = {
     }
   },
 
-  async crearEstudiante(cedula) {
+  async crearEstudiante(cedula, correo) {
     if (!cedula || !/^\d{6,10}$/.test(cedula))
       return { success: false, error: { code: 'invalid-cedula', message: 'Cédula inválida' } };
     
@@ -35,7 +33,7 @@ export const AuthService = {
     const pin = String(array[0] % 900000 + 100000).padStart(6, '0');
     
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, `${cedula}@motoescuela.local`, pin);
+      const userCredential = await createUserWithEmailAndPassword(auth, correo, pin);
       return { success: true, data: { user: userCredential.user, pin } };
     } catch (error) {
       if (error.code === 'auth/email-already-in-use')
