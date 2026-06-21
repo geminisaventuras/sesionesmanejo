@@ -1,4 +1,4 @@
-// @build: 2026-06-20.19-00-00 | id: AULA-RESERVA | desc: Botones de reserva, FilaTiempo ampliada, relojes autónomos
+// @build: 2026-06-20.19-00-00 | id: AULA-RESERVA | desc: Botones de reserva, FilaTiempo ampliada, relojes autónomos + protección de acceso
 import { useContext, useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -41,6 +41,14 @@ export default function AulaVirtualView() {
 
   const { reserva, sgta, modalConfirmacion, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast);
 
+  // ✅ Protección de acceso: si la reserva existe pero el pago no está aprobado, redirigir al portal
+  useEffect(() => {
+    if (reserva && reserva.estadoPago !== 'Aprobado' && esEstudiante) {
+      showToast('Tu pago aún no ha sido aprobado. Espera la validación del administrador.', 'error');
+      navigate('/portal-reservas', { replace: true });
+    }
+  }, [reserva, esEstudiante, showToast, navigate]);
+
   const curso = useMemo(() => { if (!reserva) return { nombre: '', modulos: [], duracionTotal: 240 }; return (cursos || []).find(c => String(c.id) === String(reserva.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 }; }, [cursos, reserva]);
   const hor = useMemo(() => reserva ? (horarios || []).find(h => String(h.id) === String(reserva.horaId)) : null, [horarios, reserva]);
   const sede = useMemo(() => reserva ? (sedes || []).find(s => String(s.id) === String(reserva.sedeId)) : null, [sedes, reserva]);
@@ -63,6 +71,20 @@ export default function AulaVirtualView() {
   const handleEmergencia = () => { showToast('Emergencia reportada.', 'error'); if (reserva && saveReserva) saveReserva({ emergencia: { timestamp: Date.now(), reportadoPor: rol } }); };
 
   if (!reserva) return (<AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando aula..." /></div></AppShell>);
+
+  // Si la reserva existe pero el pago no está aprobado y no es instructor, mostrar mensaje
+  if (reserva.estadoPago !== 'Aprobado' && esEstudiante) {
+    return (
+      <AppShell bgColor="bg-gray-50">
+        <div className="flex flex-col items-center justify-center min-h-full p-6 text-center">
+          <Award size={48} className="text-yellow-500 mb-4" />
+          <h2 className="text-xl font-black text-gray-900 mb-2">Acceso Restringido</h2>
+          <p className="text-sm text-gray-500 mb-6">Tu pago está pendiente de aprobación. Un administrador validará tu pago pronto.</p>
+          <Button onClick={() => navigate('/portal-reservas')} variant="primary">Volver al Panel</Button>
+        </div>
+      </AppShell>
+    );
+  }
 
   const header = (<div className="bg-gradient-to-r from-gray-900 via-slate-800 to-gray-900 text-white px-4 py-2.5 flex items-center gap-3 relative overflow-hidden shadow-lg rounded-b-2xl"><div className="absolute -top-4 -right-4 w-16 h-16 bg-blue-500/20 rounded-full blur-xl"></div><button onClick={handleVolver} className="p-1.5 bg-white/10 rounded-full relative z-10"><ChevronLeft size={18} className="text-white" /></button><h2 className="text-base font-black uppercase tracking-widest flex-1 relative z-10">Aula Virtual</h2><button onClick={handleEmergencia} className="p-1.5 bg-red-500/60 rounded-full relative z-10"><Siren size={18} className="text-white" /></button></div>);
   const footer = (<div className="bg-white border-t border-gray-200 px-4 py-3 flex justify-between items-center shadow-md">{[{ icon: Library, label: 'Material', action: () => setMostrarMaterial(true) }, { icon: MessageCircle, label: 'Chat', action: () => showToast('Chat próximamente', 'info') }, { icon: Siren, label: 'Emergencia', action: handleEmergencia }].map((btn, i) => (<button key={i} onClick={btn.action} className="flex flex-col items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors"><btn.icon size={20} /><span className="text-[10px] font-bold">{btn.label}</span></button>))}</div>);

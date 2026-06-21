@@ -264,3 +264,66 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 |-------|------------|------------------------------------------------------------|------------|
 | B110  | Mejora     | El login de estudiante no muestra mensaje de error si el correo no está registrado | BAJA |
 | B111  | Mejora     | El botón "Acceder al Chat" en HomeView está deshabilitado sin funcionalidad | BAJA |
+
+### Actualización 21/06/2026 – Correcciones finales
+
+**Bugs cerrados:**
+- ? Disponibilidad de bloques (instructor libre vs moto ocupada).
+- ? Cinta de fechas estable al cambiar de día (separación de locks).
+- ? Campo ctivo en motos documentado.
+- ? Expiración del lock con modal de 3 intentos.
+- ? Control de acceso al portal del estudiante.
+- ? Rechazo de pago con dos variantes (corregir / cancelar).
+- ? Toasts en días inhabilitados.
+- ? Botón de copiar datos de pago.
+- ? Placeholders, validaciones y atributos HTML en formulario.
+- ? Corrección de hooks en EstudiantePanel (error "Rendered more hooks").
+- ? Corrección de typo 	oday ? 	odayStr en loques.
+- ? Protección contra ctiveLocks = null en calcularDisponibilidadBloque.
+
+**Deuda técnica pendiente:**
+- B66: Validación de edad máxima (110 años).
+- B106: uscarProximaFechaDisponible sin AbortController.
+- B109: Selectores de Sexo y Estado no usan componente Select personalizado.
+
+### Actualización 21/06/2026 – Correcciones finales
+
+**Bugs cerrados:**
+- ? Disponibilidad de bloques (instructor libre vs moto ocupada).
+- ? Cinta de fechas estable al cambiar de día (separación de locks).
+- ? Campo ctivo en motos documentado.
+- ? Expiración del lock con modal de 3 intentos.
+- ? Control de acceso al portal del estudiante.
+- ? Rechazo de pago con dos variantes (corregir / cancelar).
+- ? Toasts en días inhabilitados.
+- ? Botón de copiar datos de pago.
+- ? Placeholders, validaciones y atributos HTML en formulario.
+- ? Corrección de hooks en EstudiantePanel (error "Rendered more hooks").
+- ? Corrección de typo 	oday ? 	odayStr en loques.
+- ? Protección contra ctiveLocks = null en calcularDisponibilidadBloque.
+
+**Deuda técnica pendiente:**
+- B66: Validación de edad máxima (110 años).
+- B106: uscarProximaFechaDisponible sin AbortController.
+- B109: Selectores de Sexo y Estado no usan componente Select personalizado.
+
+### Actualización 21/06/2026 – Correcciones finales
+
+**Bugs cerrados:**
+- ? Disponibilidad de bloques (instructor libre vs moto ocupada).
+- ? Cinta de fechas estable al cambiar de día (separación de locks).
+- ? Campo ctivo en motos documentado.
+- ? Expiración del lock con modal de 3 intentos.
+- ? Control de acceso al portal del estudiante.
+- ? Rechazo de pago con dos variantes (corregir / cancelar).
+- ? Toasts en días inhabilitados.
+- ? Botón de copiar datos de pago.
+- ? Placeholders, validaciones y atributos HTML en formulario.
+- ? Corrección de hooks en EstudiantePanel (error "Rendered more hooks").
+- ? Corrección de typo 	oday ? 	odayStr en loques.
+- ? Protección contra ctiveLocks = null en calcularDisponibilidadBloque.
+
+**Deuda técnica pendiente:**
+- B66: Validación de edad máxima (110 años).
+- B106: uscarProximaFechaDisponible sin AbortController.
+- B109: Selectores de Sexo y Estado no usan componente Select personalizado.

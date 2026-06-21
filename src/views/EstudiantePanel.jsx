@@ -1,4 +1,4 @@
-// @build: 2026-06-20.04-00-00 | id: ESTUDIANTE-DASHBOARD | desc: Dashboard del estudiante con botón prominente de Sesión Activa
+// @build: 2026-06-22 | id: ESTUDIANTE-DASHBOARD | desc: Dashboard del estudiante con control de acceso y modo corrección (hooks fijos)
 import { useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -11,7 +11,7 @@ import RelojSesion from '../modules/shared/components/RelojSesion';
 import FilaTiempo from '../modules/shared/components/FilaTiempo';
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
-  User, AlertCircle, RefreshCw, ChevronLeft, Share2, Zap
+  User, AlertCircle, RefreshCw, ChevronLeft, Share2, Zap, Lock
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -39,10 +39,11 @@ const obtenerMesCortoYAnio = (fechaStr) => {
 };
 
 export function EstudiantePanel() {
-  const { reservas, cursos, horarios, instructores, sedes, user, fbUser, saveReserva, logoutUser } = useContext(AppContext);
+  const ctx = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
 
+  // ========== TODOS LOS HOOKS (orden fijo) ==========
   const [tab, setTab] = useState('miCurso');
   const [isSearching, setIsSearching] = useState(true);
   const [localReserva, setLocalReserva] = useState(null);
@@ -50,50 +51,88 @@ export function EstudiantePanel() {
   const [busquedaCursoFallida, setBusquedaCursoFallida] = useState(false);
   const [conexionPerdida, setConexionPerdida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
+  const [redirigido, setRedirigido] = useState(false);
 
-  // Tick local para el reloj del dashboard
   const [tick, setTick] = useState(0);
   useEffect(() => { const interval = setInterval(() => setTick(t => t + 1), 1000); return () => clearInterval(interval); }, []);
 
-  if (!user || user.role !== 'estudiante') { navigate('/portal', { replace: true }); return null; }
+  // Extraer datos del contexto después de todos los hooks
+  const {
+    reservas = [], cursos = [], horarios = [], instructores = [], sedes = [],
+    user, fbUser, saveReserva, logoutUser
+  } = ctx;
+
   const uid = fbUser?.uid || user?.uid;
 
+  // Reserva actual
   const reservaContext = reservas.find(r => {
     if (String(r.userId) !== String(uid)) return false;
     if (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') return true;
-    if (r.estadoPago === 'Rechazado') { if (r.expiraEn) return Date.now() < Number(r.expiraEn); if (r.rechazadoEn) return (Date.now() - r.rechazadoEn) / 60000 < 20; }
+    if (r.estadoPago === 'Rechazado') {
+      if (r.rechazadoEn) return (Date.now() - r.rechazadoEn) / 60000 < 20;
+      return true;
+    }
     return false;
   });
 
+  // Buscar reserva si no está en contexto
   useEffect(() => {
     if (!uid) { setIsSearching(false); return; }
     if (reservaContext) { setIsSearching(false); return; }
+    let cancel = false;
     const obtenerReserva = async () => {
       try {
-        const reservasRef = collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas');
-        const q = query(reservasRef, where('userId', '==', String(uid)));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) { const docData = snapshot.docs[0].data(); setLocalReserva({ id: snapshot.docs[0].id, ...docData }); }
-      } catch (e) {
-        // Error buscando reserva
-      } finally { setIsSearching(false); }
+        const ref = collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas');
+        const q = query(ref, where('userId', '==', String(uid)));
+        const snap = await getDocs(q);
+        if (!cancel && !snap.empty) setLocalReserva({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } catch (e) { /* silencioso */ }
+      finally { if (!cancel) setIsSearching(false); }
     };
     obtenerReserva();
+    return () => { cancel = true; };
   }, [uid, reservaContext]);
 
+  // Curso asociado
   const buscarCurso = useCallback(async () => {
-    const reserva = reservaContext || localReserva;
-    if (!reserva || !reserva.cursoId) { setBusquedaCursoFallida(true); return; }
+    const r = reservaContext || localReserva;
+    if (!r || !r.cursoId) { setBusquedaCursoFallida(true); return; }
     setBusquedaCursoFallida(false);
     try {
-      const cursoRef = doc(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'cursos', String(reserva.cursoId));
-      const cursoSnap = await getDoc(cursoRef);
-      if (cursoSnap.exists()) { setCursoDirecto({ id: cursoSnap.id, ...cursoSnap.data() }); } else { setCursoDirecto(null); setBusquedaCursoFallida(true); }
+      const snap = await getDoc(doc(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'cursos', String(r.cursoId)));
+      if (snap.exists()) setCursoDirecto({ id: snap.id, ...snap.data() });
+      else { setCursoDirecto(null); setBusquedaCursoFallida(true); }
     } catch (e) { setCursoDirecto(null); setBusquedaCursoFallida(true); }
   }, [reservaContext, localReserva]);
 
   useEffect(() => { buscarCurso(); }, [buscarCurso]);
 
+  const reservaActual = reservaContext || localReserva;
+
+  // Control de acceso (useEffect fijo, siempre se ejecuta)
+  useEffect(() => {
+    if (isSearching || redirigido) return;
+    if (!user || user.role !== 'estudiante') return;
+
+    const tieneAprobadaOCompletada = reservas.some(r => String(r.userId) === String(uid) && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado'));
+    const todasCanceladasORechazadas = reservas.filter(r => String(r.userId) === String(uid)).every(r => r.estadoPago === 'Cancelado' || r.estadoPago === 'Rechazado');
+    const tieneRechazadaEnGracia = reservaActual?.estadoPago === 'Rechazado';
+
+    if (!reservaActual && !tieneAprobadaOCompletada) {
+      setRedirigido(true);
+      showToast('No tienes reservas activas. Debes inscribirte.', 'error');
+      navigate('/inscripcion', { replace: true });
+      return;
+    }
+    if (todasCanceladasORechazadas && !tieneRechazadaEnGracia) {
+      setRedirigido(true);
+      showToast('Tus reservas han sido canceladas. Debes inscribirte nuevamente.', 'error');
+      navigate('/inscripcion', { replace: true });
+      return;
+    }
+  }, [isSearching, reservaActual, reservas, uid, user, redirigido]);
+
+  // Logout y compartir
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
   const compartirCurso = () => {
     const texto = `¡Completé el curso "${cursoDetalle?.cursoNombre || 'MotoEscuela'}" en MotoEscuela App! 🏍️`;
@@ -101,13 +140,18 @@ export function EstudiantePanel() {
     else { navigator.clipboard.writeText(texto).then(() => showToast('Enlace copiado', 'success')); }
   };
 
+  // ========== RENDERIZADO ==========
   if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
 
-  const reservaActual = reservaContext || localReserva;
+  const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && !reservas.some(r => String(r.userId) === String(uid) && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado'));
+
   const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} />;
   const footer = <DashboardFooter
-    tabs={[{ id: 'miCurso', icon: BookOpen, label: 'Mi Curso' }, { id: 'cursos', icon: Compass, label: 'Cursos' }, { id: 'recursos', icon: Library, label: 'Recursos' }, { id: 'evaluaciones', icon: FileText, label: 'Eval.' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]}
-    activeTab={tab} onTabChange={(t) => { setTab(t); setCursoDetalle(null); }}
+    tabs={modoCorreccion
+      ? [{ id: 'miCurso', icon: BookOpen, label: 'Mi Curso' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]
+      : [{ id: 'miCurso', icon: BookOpen, label: 'Mi Curso' }, { id: 'cursos', icon: Compass, label: 'Cursos' }, { id: 'recursos', icon: Library, label: 'Recursos' }, { id: 'evaluaciones', icon: FileText, label: 'Eval.' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]
+    }
+    activeTab={tab} onTabChange={(t) => { if (modoCorreccion && t !== 'miCurso' && t !== 'perfil') return; setTab(t); setCursoDetalle(null); }}
   />;
 
   const cursoAsignado = cursoDirecto || cursos.find(c => String(c.id) === String(reservaActual?.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 };
@@ -122,11 +166,9 @@ export function EstudiantePanel() {
   const sello = obtenerMesCortoYAnio(reservaActual?.fecha);
   const pagoAprobado = reservaActual?.estadoPago === 'Aprobado';
 
-  const irAlAula = () => {
-    if (reservaActual?.id) navigate(`/aula/${reservaActual.id}`);
-  };
+  const irAlAula = () => { if (reservaActual?.id) navigate(`/aula/${reservaActual.id}`); };
 
-  // Vista Mi Curso (NUEVO DASHBOARD)
+  // Vista Mi Curso
   const VistaMiCurso = () => {
     if (!reservaActual) {
       return (
@@ -136,73 +178,56 @@ export function EstudiantePanel() {
             <h2 className="text-xl font-black text-gray-900 mb-2">Sin reservas activas</h2>
             <p className="text-sm text-gray-500 mb-4">No tienes ninguna reserva activa en este momento.</p>
           </div>
-          {/* Placeholder de próximos cursos y ofertas */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos</h3>
-            <p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p>
-          </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3>
-            <p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p>
-          </div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos</h3><p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p></div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3><p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p></div>
         </div>
       );
     }
 
     return (
       <div className="space-y-4">
-        {/* BOTÓN DE SESIÓN ACTIVA */}
         <div className="bg-white rounded-3xl shadow-xl border border-blue-100 overflow-hidden">
           <div className="p-6 text-center">
             <div className="flex items-center justify-center gap-2 mb-4">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              <span className="text-xs font-bold text-green-600 uppercase tracking-widest">Sesión Activa</span>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${pagoAprobado ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+              <span className={`text-xs font-bold uppercase tracking-widest ${pagoAprobado ? 'text-green-600' : 'text-yellow-600'}`}>
+                {pagoAprobado ? 'Sesión Activa' : 'Pago Pendiente'}
+              </span>
             </div>
-            
-            <button
-              onClick={irAlAula}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl shadow-xl shadow-blue-600/30 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
-            >
-              <Bike size={28} className="text-blue-200" />
-              <span className="text-xl font-black uppercase tracking-widest">Entrar al Aula Virtual</span>
-              <Zap size={24} className="text-yellow-300 animate-pulse" />
-            </button>
-            
+            {pagoAprobado ? (
+              <button onClick={irAlAula} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl shadow-xl shadow-blue-600/30 transition-all active:scale-[0.98] flex items-center justify-center gap-3">
+                <Bike size={28} className="text-blue-200" />
+                <span className="text-xl font-black uppercase tracking-widest">Entrar al Aula Virtual</span>
+                <Zap size={24} className="text-yellow-300 animate-pulse" />
+              </button>
+            ) : (
+              <button disabled className="w-full bg-gray-300 text-gray-500 py-5 rounded-2xl shadow-md cursor-not-allowed flex items-center justify-center gap-3">
+                <Lock size={28} className="text-gray-400" />
+                <span className="text-xl font-black uppercase tracking-widest">Aula Bloqueada</span>
+              </button>
+            )}
             <div className="mt-4 space-y-1 text-xs text-gray-500">
               <p className="flex items-center justify-center gap-1.5">
-                <Calendar size={12} />
-                <span className="font-bold">{formatearRangoCorto(reservaActual.fecha, reservaActual.fecha2)}</span>
+                <Calendar size={12} /><span className="font-bold">{formatearRangoCorto(reservaActual.fecha, reservaActual.fecha2)}</span>
                 <span className="mx-1">·</span>
-                <Clock size={12} />
-                <span className="font-bold">{horaInicio} - {horaFin}</span>
+                <Clock size={12} /><span className="font-bold">{horaInicio} - {horaFin}</span>
               </p>
               <p className="flex items-center justify-center gap-1.5">
-                <MapPin size={12} />
-                <span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
+                <MapPin size={12} /><span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
                 <span className="mx-1">·</span>
-                <User size={12} />
-                <span className="font-bold">Inst: {inst ? inst.nombre : 'Asignando'}</span>
+                <User size={12} /><span className="font-bold">Inst: {inst ? inst.nombre : 'Asignando'}</span>
               </p>
-              {pagoAprobado && modulosFaltantes > 0 && (
-                <p className="text-[10px] text-blue-600 font-bold mt-2">
-                  Te {modulosFaltantes === 1 ? 'falta' : 'faltan'} {modulosFaltantes} {modulosFaltantes === 1 ? 'módulo' : 'módulos'} para tu certificado
-                </p>
-              )}
+              {pagoAprobado && modulosFaltantes > 0 && <p className="text-[10px] text-blue-600 font-bold mt-2">Te {modulosFaltantes === 1 ? 'falta' : 'faltan'} {modulosFaltantes} {modulosFaltantes === 1 ? 'módulo' : 'módulos'} para tu certificado</p>}
+              {!pagoAprobado && <p className="text-[10px] text-yellow-600 font-bold mt-2">Esperando la validación del pago por un administrador</p>}
             </div>
           </div>
-          
-          {/* Estado del pago */}
           {!pagoAprobado && (
             <div className={`px-4 py-3 border-t ${reservaActual.estadoPago === 'Rechazado' ? 'bg-red-50' : 'bg-orange-50'}`}>
               <div className="flex items-center gap-2">
                 {reservaActual.estadoPago === 'Rechazado' ? <AlertCircle size={14} className="text-red-600" /> : <Clock size={14} className="text-orange-600" />}
                 <div className="flex-1">
-                  <p className={`text-xs font-bold ${reservaActual.estadoPago === 'Rechazado' ? 'text-red-700' : 'text-orange-700'}`}>
-                    {reservaActual.estadoPago === 'Rechazado' ? 'Pago Rechazado' : 'Pago Pendiente'}
-                  </p>
-                  <p className="text-[10px] text-gray-600">
-                    {reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef}
-                  </p>
+                  <p className={`text-xs font-bold ${reservaActual.estadoPago === 'Rechazado' ? 'text-red-700' : 'text-orange-700'}`}>{reservaActual.estadoPago === 'Rechazado' ? 'Pago Rechazado' : 'Pago Pendiente'}</p>
+                  <p className="text-[10px] text-gray-600">{reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef}</p>
                 </div>
                 {reservaActual.estadoPago === 'Rechazado' && (
                   <div className="flex gap-1">
@@ -219,21 +244,12 @@ export function EstudiantePanel() {
             </div>
           )}
         </div>
-
-        {/* Sección de próximos cursos y ofertas */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos y Ofertas</h3>
-          <p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p>
-        </div>
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3>
-          <p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p>
-        </div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos y Ofertas</h3><p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p></div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3><p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p></div>
       </div>
     );
   };
 
-  // Vista Cursos (lista + detalle)
   const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
   const cursosCompletados = misReservas.filter(r => r.estadoCurso === 'Aprobado');
   const cursoActivo = reservaActual && reservaActual.estadoCurso !== 'Aprobado' ? reservaActual : null;
@@ -306,9 +322,9 @@ export function EstudiantePanel() {
     <AppShell header={header} footer={footer}>
       <div className="p-4 space-y-4">
         {tab === 'miCurso' && <VistaMiCurso />}
-        {tab === 'cursos' && <VistaCursos />}
-        {tab === 'recursos' && <Placeholder icon={Library} titulo="Recursos" descripcion="Leyes de tránsito, señales, documentales y más." />}
-        {tab === 'evaluaciones' && <Placeholder icon={FileText} titulo="Evaluaciones" descripcion="Pruebas teóricas para medir tu conocimiento." />}
+        {tab === 'cursos' && !modoCorreccion && <VistaCursos />}
+        {tab === 'recursos' && !modoCorreccion && <Placeholder icon={Library} titulo="Recursos" descripcion="Leyes de tránsito, señales, documentales y más." />}
+        {tab === 'evaluaciones' && !modoCorreccion && <Placeholder icon={FileText} titulo="Evaluaciones" descripcion="Pruebas teóricas para medir tu conocimiento." />}
         {tab === 'perfil' && <VistaPerfil />}
       </div>
     </AppShell>

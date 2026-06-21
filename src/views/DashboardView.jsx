@@ -1,4 +1,4 @@
-// @build: 2026-06-18.10-00-00 | id: SGTA-FASE1 | desc: CRUD de cursos con gestión de tiempos por módulo
+// @build: 2026-06-22 | id: SGTA-FASE1 | desc: CRUD de cursos con gestión de tiempos por módulo + rechazo con dos variantes
 import { useContext, useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { AppContext } from '../context/AppContextValue';
 import { Button, Input, Select } from '../components/UI';
@@ -7,9 +7,8 @@ import {
   ChevronLeft, Users, Briefcase, Plus, Award, Bike, Settings,
   Edit, Power, DollarSign, Activity, Check, CheckCircle, AlertCircle,
   BookOpen, MapPin, Clock, ChevronRight, Wallet, LogOut, ChevronDown,
-  ChevronUp, CreditCard, Minus, Equal
+  ChevronUp, CreditCard, Minus, Equal, X, AlertTriangle
 } from 'lucide-react';
-import InstructorPanel from '../views/InstructorPanel';
 import ProveedorPanel from './ProveedorPanel';
 
 // ================================================================
@@ -113,7 +112,7 @@ const AdminReservas = memo(({ setTab }) => {
   const res = reservas || [];
   const isAdmin = user?.role === 'admin';
   const aprobarPago = useCallback(async (id) => { if (!isAdmin) return; const r = res.find(x => String(x.id) === String(id)); if (!r) return; await saveReserva({ ...r, estadoPago: 'Aprobado', estadoCurso: 'En Curso' }); await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: r.pagoTotalMoneda, desc: `Inscripción C-${id.toString().slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: r.userId }); showToast('Pago aprobado y curso activado', 'success'); }, [isAdmin, res, saveReserva, saveMovimiento, showToast]);
-  const rechazarPago = useCallback(async (id) => { if (!isAdmin) return; const r = res.find(x => String(x.id) === String(id)); if (!r) return; await saveReserva({ ...r, estadoPago: 'Rechazado', rechazadoEn: Number(new Date()) }); showToast('Pago rechazado correctamente', 'info'); }, [isAdmin, res, saveReserva, showToast]);
+  const rechazarPago = useCallback(async (id, tipo = 'rechazar') => { if (!isAdmin) return; const r = res.find(x => String(x.id) === String(id)); if (!r) return; if (tipo === 'cancelar') { await saveReserva({ ...r, estadoPago: 'Cancelado' }); showToast('Reserva cancelada definitivamente', 'info'); } else { await saveReserva({ ...r, estadoPago: 'Rechazado', rechazadoEn: Number(new Date()) }); showToast('Pago rechazado. El estudiante puede corregir la referencia.', 'info'); } }, [isAdmin, res, saveReserva, showToast]);
   const reasignarInstructor = useCallback(async (r) => { if (!isAdmin) return; const instructorId = selectedInstructorByRes[r.id]; if (!instructorId) return showToast('Selecciona un instructor válido', 'error'); if (String(instructorId) === String(r.instructorId)) return showToast('Selecciona un instructor distinto al actual', 'error'); await saveReserva({ ...r, instructorId }); showToast('Instructor reasignado correctamente', 'success'); }, [isAdmin, selectedInstructorByRes, saveReserva, showToast]);
   return (
     <div className="space-y-4">
@@ -125,8 +124,8 @@ const AdminReservas = memo(({ setTab }) => {
         const currentInstructor = (instructores || []).find(i => String(i.id) === String(r.instructorId));
         const currentIsBusy = currentInstructor && busyInstructorIds.includes(String(currentInstructor.id));
         return (
-          <div key={r.id} className={`bg-white p-4 rounded-2xl shadow-sm border-l-4 ${r.estadoPago === 'Pendiente' ? 'border-l-orange-500' : r.estadoPago === 'Rechazado' ? 'border-l-red-500' : 'border-l-green-500'} border-t border-r border-b border-gray-100`}>
-            <div className="flex justify-between items-start mb-2"><h4 className="font-bold text-gray-900 text-sm">{r.nombre} {r.apellido} <span className="text-xs text-gray-500 font-normal">({r.cedula})</span></h4><span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${r.estadoPago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : r.estadoPago === 'Rechazado' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{r.estadoPago}</span></div>
+          <div key={r.id} className={`bg-white p-4 rounded-2xl shadow-sm border-l-4 ${r.estadoPago === 'Pendiente' ? 'border-l-orange-500' : r.estadoPago === 'Rechazado' ? 'border-l-red-500' : r.estadoPago === 'Cancelado' ? 'border-l-gray-500' : 'border-l-green-500'} border-t border-r border-b border-gray-100`}>
+            <div className="flex justify-between items-start mb-2"><h4 className="font-bold text-gray-900 text-sm">{r.nombre} {r.apellido} <span className="text-xs text-gray-500 font-normal">({r.cedula})</span></h4><span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${r.estadoPago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : r.estadoPago === 'Rechazado' ? 'bg-red-100 text-red-700' : r.estadoPago === 'Cancelado' ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span></div>
             <p className="text-xs text-gray-600 mb-1 font-bold">D1: {r.fecha1} | D2: {r.fecha2}</p>
             <p className="text-xs text-gray-600 mb-2">Instructor actual: {currentInstructor ? `${currentInstructor.nombre} ${currentInstructor.apellido || ''}` : 'Sin instructor asignado'}</p>
             {currentIsBusy && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm font-bold">El instructor asignado ya tiene otra clase en este horario. Selecciona uno disponible.</div>}
@@ -136,7 +135,16 @@ const AdminReservas = memo(({ setTab }) => {
                 <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Validación de Pago</p>
                 <p className="text-xs mb-1">Bco: {r.pagoBanco} | Tlf: {r.pagoTelefono} | CI: {r.pagoCedula}</p>
                 <p className="text-sm font-black text-blue-900 mb-3">Ref: <span className="text-xl">{r.pagoRef}</span> • Bs. {r.pagoTotalVES}</p>
-                <div className="flex gap-2"><Button type="button" onClick={() => aprobarPago(r.id)} variant="success" className="!py-2 !text-xs flex-1" icon={CheckCircle}>Aprobar</Button><Button type="button" onClick={() => rechazarPago(r.id)} variant="danger" className="!py-2 !text-xs flex-1" icon={AlertCircle}>Rechazar</Button></div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" onClick={() => aprobarPago(r.id)} variant="success" className="!py-2 !text-xs flex-1" icon={CheckCircle}>Aprobar</Button>
+                  <Button type="button" onClick={() => rechazarPago(r.id, 'rechazar')} variant="danger" className="!py-2 !text-xs flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
+                  <Button type="button" onClick={() => rechazarPago(r.id, 'cancelar')} variant="outline" className="!py-2 !text-xs" icon={X}>Cancelar</Button>
+                </div>
+              </div>
+            )}
+            {r.estadoPago === 'Cancelado' && (
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-3">
+                <p className="text-xs text-gray-500">Esta reserva fue cancelada definitivamente.</p>
               </div>
             )}
           </div>
@@ -163,7 +171,29 @@ const AdminConfigHub = memo(({ setTab }) => (
 
 const AdminAjustes = memo(({ setTab }) => {
   const { config, saveConfig, showToast } = useContext(AppContext);
-  const [localCfg, setLocalCfg] = useState(config || { monedaPagoStaff: 'USD', monedaCobroClientes: 'EUR', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5, recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10, autoTasas: true, promocionActiva: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' } });
+  const [localCfg, setLocalCfg] = useState(() => ({
+  monedaPagoStaff: 'USD',
+  monedaCobroClientes: 'EUR',
+  tasaUSD: 36.50,
+  tasaEUR: 39.10,
+  precioBase: 35,
+  recargoGuarenas: 5,
+  recargoSinBici: 10,
+  descuentoMotoPropia: 5,
+  descuentoPromo: 0,
+  pagoInstructor: 15,
+  pagoProveedor: 10,
+  autoTasas: true,
+  promocionActiva: false,
+  pagoMovilEscuela: {
+    banco: 'Banesco',
+    telefono: '04141234567',
+    cedula: '12345678',
+    codigo: '0134',
+    ...(config?.pagoMovilEscuela || {})
+  },
+  ...(config || {})
+}));
   const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false });
   const toggleSeccion = (sec) => setSecciones(prev => ({ ...prev, [sec]: !prev[sec] }));
   const doSave = useCallback(async () => { await saveConfig(localCfg); setTab('config'); showToast('Ajustes guardados'); }, [localCfg, saveConfig, setTab, showToast]);
@@ -229,7 +259,31 @@ const AdminAjustes = memo(({ setTab }) => {
         </button>
         {secciones.pagoMovil && (
           <div className="px-4 pb-4 space-y-3">
-            <Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={localCfg.pagoMovilEscuela?.banco || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, banco: e.target.value } })} />
+            <Select
+  label="Banco"
+  options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']}
+  value={localCfg.pagoMovilEscuela?.banco || 'Banesco'}
+  onChange={(e) => {
+    const nombreBanco = e.target.value;
+    const codigos = {
+      'Banesco': '0134',
+      'Mercantil': '0105',
+      'Provincial': '0108',
+      'Venezuela': '0102',
+      'Bancamiga': '0172',
+      'BNC': '0191',
+      'Tesoro': '0163'
+    };
+    setLocalCfg(prev => ({
+      ...prev,
+      pagoMovilEscuela: {
+        ...prev.pagoMovilEscuela,
+        banco: nombreBanco,
+        codigo: codigos[nombreBanco] || ''
+      }
+    }));
+  }}
+/>
             <Input label="Teléfono" value={localCfg.pagoMovilEscuela?.telefono || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, telefono: e.target.value } })} />
             <Input label="Cédula / RIF" value={localCfg.pagoMovilEscuela?.cedula || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, cedula: e.target.value } })} />
           </div>
@@ -247,12 +301,10 @@ const AdminAjustes = memo(({ setTab }) => {
 // ================================================================
 const FormCursos = memo(({ item, onSave, onCancel }) => {
   const inicializarModulos = (itemData) => {
-    // Convertir módulos antiguos (strings) a nuevo formato (objetos con duración)
     const mods = itemData.modulos || [''];
     if (mods.length > 0 && typeof mods[0] === 'string') {
       return mods.map(nombre => ({ nombre, duracion: 0 }));
     }
-    // Asegurar que cada módulo sea un objeto
     return mods.map(m => typeof m === 'string' ? { nombre: m, duracion: 0 } : { ...m });
   };
 
@@ -262,13 +314,11 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
     modulos: inicializarModulos(item?.id ? item : { modulos: [''] })
   });
 
-  // Calcular tiempo restante por asignar
   const tiempoAsignado = form.modulos.reduce((acc, mod) => acc + (Number(mod.duracion) || 0), 0);
   const tiempoRestante = (Number(form.duracionTotal) || 0) - tiempoAsignado;
   const hayExcedente = tiempoRestante < 0;
   const distribucionExacta = tiempoRestante === 0 && form.duracionTotal > 0;
 
-  // Manejadores
   const handleDuracionTotalChange = (e) => {
     setForm(prev => ({ ...prev, duracionTotal: Number(e.target.value) || 0 }));
   };
@@ -314,17 +364,14 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
   };
 
   const handleSave = () => {
-    // Validar que no haya excedente
     if (hayExcedente) {
       alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`);
       return;
     }
-    // Validar que todos los módulos tengan nombre
     if (form.modulos.some(m => !m.nombre.trim())) {
       alert('Todos los módulos deben tener un nombre.');
       return;
     }
-    // Guardar
     onSave({
       ...form,
       modulos: form.modulos.filter(m => m.nombre.trim() !== '')
@@ -348,7 +395,6 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
         icon={Clock}
       />
 
-      {/* Módulos con duración */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex items-center justify-between mb-3">
           <label className="text-sm font-bold text-gray-700">Módulos</label>
@@ -391,7 +437,6 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
 
         <Button type="button" onClick={agregarModulo} variant="outline" className="!py-2 text-sm mt-2 bg-white" icon={Plus}>Añadir Módulo</Button>
 
-        {/* Indicador de tiempo restante */}
         {form.duracionTotal > 0 && (
           <div className={`mt-3 p-3 rounded-xl text-center text-sm font-bold ${
             hayExcedente ? 'bg-red-50 text-red-700 border border-red-200' :
@@ -443,11 +488,11 @@ const FormMoto = memo(({ item, onSave, onCancel }) => {
 // VISTA CRUD GENÉRICA (SIN CAMBIOS)
 // ================================================================
 const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, setTab, rol }) => {
-  const { showToast, instructores, saveInstructor, proveedores, saveProveedor, createStaffUser, user } = useContext(AppContext);
+  const { showToast, user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
   const isAdmin = user?.role === 'admin';
 
-  const handleSaveGeneral = useCallback(async (datos, id = null) => {
+  const handleSaveGeneral = useCallback(async (datos) => {
     if (!isAdmin) return;
     if (typeof saveFn === 'function') await saveFn(datos);
     setItemEdit(null);

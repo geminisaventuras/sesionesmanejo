@@ -1,16 +1,16 @@
-// @build: 2026-06-20 | id: B51-UPDATE | desc: Admin desde Firestore + firmas corregidas para correo real
+// @build: 2026-06-22 | id: B51-CLEAN | desc: Admin desde Firestore sin índices compuestos + isReservaActiva corregido
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
 import { AppContext } from './AppContextValue';
-import { collection, doc, setDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, onSnapshot, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const INITIAL_CONFIG = {
   monedaPagoStaff: 'USD', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5,
   recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10,
-  autoTasas: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678' }, monedaCobroClientes: 'EUR'
+  autoTasas: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678', codigo: '0134' }, monedaCobroClientes: 'EUR'
 };
 
 const APP_ID = 'motoescuela-pro-v1';
@@ -34,16 +34,16 @@ export const AppProvider = ({ children }) => {
     const basePath = `artifacts/${APP_ID}/public/data`;
     
     try {
-      // 1. Verificar si es admin (consulta la colección admins)
-      const adminQuery = query(collection(db, basePath, 'admins'), where('email', '==', email));
-      const adminSnap = await getDocs(adminQuery);
-      if (!adminSnap.empty) {
-        const adminData = adminSnap.docs[0].data();
-        setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
-        return;
+      const adminDocRef = doc(db, basePath, 'admins', 'admin1');
+      const adminSnap = await getDoc(adminDocRef);
+      if (adminSnap.exists()) {
+        const adminData = adminSnap.data();
+        if (adminData.email === email) {
+          setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
+          return;
+        }
       }
 
-      // 2. Verificar si es instructor
       const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
       const instSnap = await getDocs(instQuery);
       if (!instSnap.empty) {
@@ -57,7 +57,6 @@ export const AppProvider = ({ children }) => {
         return;
       }
 
-      // 3. Verificar si es proveedor
       const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
       const provSnap = await getDocs(provQuery);
       if (!provSnap.empty) {
@@ -71,7 +70,6 @@ export const AppProvider = ({ children }) => {
         return;
       }
 
-      // 4. Si no es staff, asumir que es estudiante
       const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
       setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
       
@@ -158,9 +156,7 @@ export const AppProvider = ({ children }) => {
     useEffect(() => {
       if (!db || !authReady) return;
       const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main');
-      const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setCfg(snap.data()); 
-        //else setCfg(INITIAL_CONFIG); 
-      });
+      const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setCfg(snap.data()); });
       return () => unsub();
     }, [authReady]);
     const saveCfg = async (newCfg) => { if (db && fbUser && authReady) await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg); else setCfg(newCfg); };
@@ -204,9 +200,10 @@ export const AppProvider = ({ children }) => {
     if (!r) return false;
     if (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') return true;
     if (r.estadoPago === 'Rechazado') {
-      if (r.expiraEn) return Date.now() < Number(r.expiraEn);
       if (r.rechazadoEn) return (Date.now() - r.rechazadoEn) / 60000 < 20;
+      return true;
     }
+    if (r.estadoPago === 'Cancelado') return false;
     return false;
   }, []);
 
@@ -233,7 +230,7 @@ export const AppProvider = ({ children }) => {
     const selected = availableInstructors.find(i => i.esPrincipal) || availableInstructors[0];
     let motoId = null;
     if (traeMoto !== 'Sí') {
-      const motosDelTipo = (motos || []).filter(m => m.tipo === tipoMoto && m.activa && (m.sedes || []).includes(sedeId));
+      const motosDelTipo = (motos || []).filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId));
       const ocupadas = reservas.filter(r => isReservationConflict(r, fecha1, fecha2, horaId) && r.traeMoto !== 'Sí').map(r => String(r.motoAsignadaId));
       const libre = motosDelTipo.find(m => !ocupadas.includes(String(m.id)) && !isLockedResource(selected.id, m.id));
       if (!libre) return null;

@@ -119,3 +119,43 @@
 
 **Pendiente:**
 - `buscarProximaFechaDisponible` debe buscar siempre hacia adelante desde la fecha seleccionada.
+
+### Sesión 21/06/2026 – Correcciones finales de inscripción y panel
+
+**Inscripción:**
+- Refactorización de disponibilidad (calcularDisponibilidadBloque).
+- Separación de días (reservas) y bloques (reservas + locks).
+- Toasts en días inhabilitados (cinta y calendario).
+- Botón "Hoy" en calendario flotante.
+- Modal de expiración del lock con 3 intentos.
+- Placeholders, validaciones y atributos HTML en paso 1 y 4.
+
+**Panel administrador:**
+- Dos botones de rechazo: "Rechazar (corregir)" y "Cancelar".
+- Badge "CANCELADO" para reservas canceladas.
+- isReservaActiva maneja 'Cancelado' como nunca activo.
+
+**Panel estudiante:**
+- Control de acceso (sin reservas ? /inscripcion).
+- Modo corrección con footer limitado (Mi Curso y Perfil).
+- Corrección de error "Rendered more hooks".
+
+### Sesión 21/06/2026 – Correcciones finales de inscripción y panel
+
+**Inscripción:**
+- Refactorización de disponibilidad (calcularDisponibilidadBloque).
+- Separación de días (reservas) y bloques (reservas + locks).
+- Toasts en días inhabilitados (cinta y calendario).
+- Botón "Hoy" en calendario flotante.
+- Modal de expiración del lock con 3 intentos.
+- Placeholders, validaciones y atributos HTML en paso 1 y 4.
+
+**Panel administrador:**
+- Dos botones de rechazo: "Rechazar (corregir)" y "Cancelar".
+- Badge "CANCELADO" para reservas canceladas.
+- isReservaActiva maneja 'Cancelado' como nunca activo.
+
+**Panel estudiante:**
+- Control de acceso (sin reservas ? /inscripcion).
+- Modo corrección con footer limitado (Mi Curso y Perfil).
+- Corrección de error "Rendered more hooks".

@@ -170,3 +170,39 @@ Esto garantiza un punto de restauracion antes de cada modificacion.
 
 ### SESIÃ“N 21/06/2026 â€“ Control administrativo de contadores
 - **B121:** Permitir al administrador resetear `sesionDiariaInicio` y `sesionTotalInicio` desde el panel de administraciÃ³n si un instructor iniciÃ³ un mÃ³dulo por error.
+
+### SESIÓN 21/06/2026 – Correcciones finales de inscripción y panel
+
+**Decisiones clave:**
+- **Refactorización completa de disponibilidad:** La función calcularDisponibilidadBloque reemplaza a indAvailableResources, cubriendo todas las combinaciones de "trae moto / no trae moto" y múltiples instructores/motos. La cinta de fechas usa solo reservas (sin locks) para estabilidad visual.
+- **Corrección de campo ctivo en motos:** El campo en Firestore es ctivo, no ctiva. Se documentó con comentario en el código.
+- **Flujo de expiración del lock (paso 4):** Modal con dos botones ("Seleccionar Bloque", "Salir del sistema") y máximo 3 intentos. El PIN nunca se muestra si el tiempo expiró.
+- **Control de acceso al portal:** Solo ingresan estudiantes con reservas activas o históricas. Modo corrección con footer limitado (solo Mi Curso y Perfil).
+- **Dos variantes de rechazo:** "Rechazar (corregir)" con 20 min de gracia, y "Cancelar" (libera el bloque de inmediato). isReservaActiva maneja 'Cancelado' como nunca activo.
+- **Toasts en días inhabilitados:** Cinta de fechas y calendario flotante muestran "Sin horarios disponibles para esta fecha" al tocar un día inhabilitado.
+- **Botón de copiar datos de pago:** Funciona con código del banco automático desde config.pagoMovilEscuela.
+- **Placeholders, validaciones y atributos HTML** en todos los campos del formulario de inscripción.
+
+### SESIÓN 21/06/2026 – Correcciones finales de inscripción y panel
+
+**Decisiones clave:**
+- **Refactorización completa de disponibilidad:** La función calcularDisponibilidadBloque reemplaza a indAvailableResources, cubriendo todas las combinaciones de "trae moto / no trae moto" y múltiples instructores/motos. La cinta de fechas usa solo reservas (sin locks) para estabilidad visual.
+- **Corrección de campo ctivo en motos:** El campo en Firestore es ctivo, no ctiva. Se documentó con comentario en el código.
+- **Flujo de expiración del lock (paso 4):** Modal con dos botones ("Seleccionar Bloque", "Salir del sistema") y máximo 3 intentos. El PIN nunca se muestra si el tiempo expiró.
+- **Control de acceso al portal:** Solo ingresan estudiantes con reservas activas o históricas. Modo corrección con footer limitado (solo Mi Curso y Perfil).
+- **Dos variantes de rechazo:** "Rechazar (corregir)" con 20 min de gracia, y "Cancelar" (libera el bloque de inmediato). isReservaActiva maneja 'Cancelado' como nunca activo.
+- **Toasts en días inhabilitados:** Cinta de fechas y calendario flotante muestran "Sin horarios disponibles para esta fecha" al tocar un día inhabilitado.
+- **Botón de copiar datos de pago:** Funciona con código del banco automático desde config.pagoMovilEscuela.
+- **Placeholders, validaciones y atributos HTML** en todos los campos del formulario de inscripción.
+
+### SESIÓN 21/06/2026 – Correcciones finales de inscripción y panel
+
+**Decisiones clave:**
+- **Refactorización completa de disponibilidad:** La función calcularDisponibilidadBloque reemplaza a indAvailableResources, cubriendo todas las combinaciones de "trae moto / no trae moto" y múltiples instructores/motos. La cinta de fechas usa solo reservas (sin locks) para estabilidad visual.
+- **Corrección de campo ctivo en motos:** El campo en Firestore es ctivo, no ctiva. Se documentó con comentario en el código.
+- **Flujo de expiración del lock (paso 4):** Modal con dos botones ("Seleccionar Bloque", "Salir del sistema") y máximo 3 intentos. El PIN nunca se muestra si el tiempo expiró.
+- **Control de acceso al portal:** Solo ingresan estudiantes con reservas activas o históricas. Modo corrección con footer limitado (solo Mi Curso y Perfil).
+- **Dos variantes de rechazo:** "Rechazar (corregir)" con 20 min de gracia, y "Cancelar" (libera el bloque de inmediato). isReservaActiva maneja 'Cancelado' como nunca activo.
+- **Toasts en días inhabilitados:** Cinta de fechas y calendario flotante muestran "Sin horarios disponibles para esta fecha" al tocar un día inhabilitado.
+- **Botón de copiar datos de pago:** Funciona con código del banco automático desde config.pagoMovilEscuela.
+- **Placeholders, validaciones y atributos HTML** en todos los campos del formulario de inscripción.

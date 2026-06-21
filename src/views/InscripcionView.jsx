@@ -1,4 +1,4 @@
-// @build: 2026-06-20 | id: FINAL | desc: Compactación paso 1 + círculos Stepper funcionales + formulario salud obligatorio + paso 3 intacto
+// @build: 2026-06-22 | id: FINAL-DISPONIBILIDAD | desc: Refactorización completa de la lógica de disponibilidad de bloques y días + toasts en días inhabilitados + separación de locks en días (corregido null)
 import { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContextValue';
@@ -11,7 +11,9 @@ import { Button, Input, Select, Spinner } from '../components/UI';
 import { useToast } from '../modules/shared/components/ToastProvider';
 import AppShell from '../modules/shared/components/AppShell';
 import DashboardHeader from '../modules/shared/components/DashboardHeader';
-import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Users, Contact, Phone, CreditCard, Check, ArrowRight, Calendar, Clock, Hash, X, ChevronRight, ChevronDown, ChevronUp, Eye, EyeOff, Mail, Heart, Lock } from 'lucide-react';import { collection, query, where, getDocs } from 'firebase/firestore';
+import { ChevronLeft, BookOpen, MapPin, Bike, Zap, User, Users, Contact, Phone, CreditCard, Check, ArrowRight, Calendar, Clock, Hash, X, ChevronRight, ChevronDown, ChevronUp, Eye, EyeOff, Mail, Heart, Lock, AlertTriangle, LogOut } from 'lucide-react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 /* ---------------------------------------------------------------
  * COMPONENTE AUXILIAR: Columna del selector de fecha
@@ -155,12 +157,27 @@ const SelectorColumna = ({ items, selected, onSelect }) => {
  */
 const MAX_DIAS_RESERVA = 30;
 const LOCK_DURATION = 10 * 60 * 1000;
+const MAX_REINTENTOS_EXPIRACION = 3;
 
 const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
 const BANCOS = [
-  'Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro',
-  'BOD', 'Banplus', 'Banco Exterior', 'Banco Nacional de Crédito', 'Banco Caroní',
-  'Sofitasa', 'Bancaribe', 'Mi Banco', 'Banco Activo', 'Banco Agrícola'
+  { nombre: 'Banesco', codigo: '0134' },
+  { nombre: 'Mercantil', codigo: '0105' },
+  { nombre: 'Provincial', codigo: '0108' },
+  { nombre: 'Venezuela', codigo: '0102' },
+  { nombre: 'Bancamiga', codigo: '0172' },
+  { nombre: 'BNC', codigo: '0191' },
+  { nombre: 'Tesoro', codigo: '0163' },
+  { nombre: 'BOD', codigo: '0116' },
+  { nombre: 'Banplus', codigo: '0174' },
+  { nombre: 'Banco Exterior', codigo: '0115' },
+  { nombre: 'Banco Nacional de Crédito', codigo: '0191' },
+  { nombre: 'Banco Caroní', codigo: '0128' },
+  { nombre: 'Sofitasa', codigo: '0138' },
+  { nombre: 'Bancaribe', codigo: '0114' },
+  { nombre: 'Mi Banco', codigo: '0169' },
+  { nombre: 'Banco Activo', codigo: '0166' },
+  { nombre: 'Banco Agrícola', codigo: '0163' }
 ];
 const SEXOS = ['Masculino', 'Femenino'];
 
@@ -202,10 +219,94 @@ const isPastBlock = (fecha, label, todayStr) => {
   } catch (e) { return false; }
 };
 
+/* ---------------------------------------------------------------
+ * FUNCIÓN CENTRAL DE DISPONIBILIDAD (PROTEGIDA CONTRA activeLocks = null)
+ * ---------------------------------------------------------------
+ */
+const calcularDisponibilidadBloque = (
+  bloque, fecha1, fecha2, sedeId, tipoMoto, traeMoto,
+  instructores, motos, reservas, activeLocks, lockId, selectingBlockId, todayStr
+) => {
+  // Bloque de almuerzo
+  if (bloque.isLunch) {
+    return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
+  }
+
+  // Bloque vencido
+  if (fecha1 < todayStr || isPastBlock(fecha1, bloque.label, todayStr)) {
+    return { ...bloque, disponible: false, reason: 'CERRADO', instructorId: null, motoAsignadaId: null };
+  }
+
+  // Seleccionando este bloque (feedback visual)
+  if (bloque.id === selectingBlockId) {
+    return { ...bloque, disponible: true, reason: '', instructorId: null, motoAsignadaId: null, seleccionando: true };
+  }
+
+  // --- Filtros de instructores disponibles ---
+  const locks = activeLocks || [];
+  const instructoresDisponibles = instructores
+    .filter(i => i.activo && (i.sedes || []).includes(sedeId))
+    .filter(i => !reservas.some(r => {
+      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+      if (String(r.horaId) !== String(bloque.id)) return false;
+      const coincideFecha = r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
+      if (!coincideFecha) return false;
+      return String(r.instructorId) === String(i.id);
+    }))
+    .filter(i => !locks.some(l => l.id.startsWith(`${fecha1}_${bloque.id}_${i.id}`) && l.id !== lockId));
+
+  // IMPORTANTE: El campo en Firestore es "activo", no "activa"
+  const motosDisponibles = motos
+    .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
+    .filter(m => !reservas.some(r => {
+      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+      if (String(r.horaId) !== String(bloque.id)) return false;
+      const coincideFecha = r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
+      if (!coincideFecha) return false;
+      // Solo ocupa moto si la reserva NO trae moto propia
+      if (r.traeMoto === 'Sí') return false;
+      return String(r.motoAsignadaId) === String(m.id);
+    }))
+    .filter(m => !locks.some(l => l.id.startsWith(`${fecha1}_${bloque.id}_`) && l.id.endsWith(`_${m.id}`) && l.id !== lockId));
+
+  // --- Determinar disponibilidad según el caso ---
+  const necesitaMoto = traeMoto !== 'Sí';
+  
+  if (!necesitaMoto) {
+    // Solo necesita instructor
+    if (instructoresDisponibles.length > 0) {
+      return {
+        ...bloque,
+        disponible: true,
+        reason: '',
+        instructorId: instructoresDisponibles[0].id,
+        motoAsignadaId: null
+      };
+    } else {
+      return { ...bloque, disponible: false, reason: 'OCUPADO', instructorId: null, motoAsignadaId: null };
+    }
+  } else {
+    // Necesita instructor y moto
+    if (instructoresDisponibles.length === 0) {
+      return { ...bloque, disponible: false, reason: 'OCUPADO', instructorId: null, motoAsignadaId: null };
+    }
+    if (motosDisponibles.length === 0) {
+      return { ...bloque, disponible: false, reason: 'SIN_MOTO', instructorId: null, motoAsignadaId: null };
+    }
+    return {
+      ...bloque,
+      disponible: true,
+      reason: '',
+      instructorId: instructoresDisponibles[0].id,
+      motoAsignadaId: motosDisponibles[0].id
+    };
+  }
+};
+
 export const InscripcionView = () => {
   const { config, cursos, sedes, horarios, fbUser, authReady, setUser,
-          getTodayStr, calcularBaseUSD, findAvailableResources, activeLocks,
-          suscribirLocks, reservas, instructores, motos } = useContext(AppContext);
+          getTodayStr, calcularBaseUSD, activeLocks, suscribirLocks,
+          reservas, instructores, motos, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -237,6 +338,10 @@ export const InscripcionView = () => {
   const [tempFechaNacimiento, setTempFechaNacimiento] = useState({ dia: '', mes: '', ano: '' });
 
   const [mostrarFormularioSalud, setMostrarFormularioSalud] = useState(false);
+
+  const [lockExpirado, setLockExpirado] = useState(false);
+  const [reintentosExpiracion, setReintentosExpiracion] = useState(0);
+  const [mostrarModalExpiracion, setMostrarModalExpiracion] = useState(false);
 
   const locksSnapshotRef = useRef(activeLocks);
   const calendarioRef = useRef(null);
@@ -290,48 +395,86 @@ export const InscripcionView = () => {
 
   useEffect(() => { if (lockId && form.horaId && step !== '4') { LockService.liberarLock(lockId).catch(() => {}); setLockId(null); setLockExpiresAt(null); setTiempoRestante(null); setForm(prev => ({ ...prev, horaId: '' })); } }, [form.fecha1]);
 
-  useEffect(() => { if (!lockExpiresAt) { setTiempoRestante(null); return; } const actualizarContador = () => { const restante = lockExpiresAt - Date.now(); if (restante <= 0) { setTiempoRestante(0); if (lockId) { LockService.liberarLock(lockId).catch(() => {}); setLockId(null); setLockExpiresAt(null); setTiempoRestante(null); setForm(prev => ({ ...prev, horaId: '' })); showToast('Tu tiempo ha expirado. El horario ha sido liberado.', 'error'); } return; } setTiempoRestante(restante); }; actualizarContador(); const interval = setInterval(actualizarContador, 1000); return () => clearInterval(interval); }, [lockExpiresAt]);
+  // useEffect de expiración del lock con modal de 3 intentos
+  useEffect(() => {
+    if (!lockExpiresAt) {
+      setTiempoRestante(null);
+      setLockExpirado(false);
+      setMostrarModalExpiracion(false);
+      return;
+    }
+
+    const actualizarContador = () => {
+      const restante = lockExpiresAt - Date.now();
+      if (restante <= 0) {
+        setTiempoRestante(0);
+        if (!lockExpirado) {
+          setLockExpirado(true);
+          setMostrarModalExpiracion(true);
+        }
+        return;
+      }
+      setTiempoRestante(restante);
+    };
+
+    actualizarContador();
+    const interval = setInterval(actualizarContador, 1000);
+    return () => clearInterval(interval);
+  }, [lockExpiresAt, lockExpirado]);
 
   useEffect(() => { let unsubscribe; if (form.fecha1) unsubscribe = suscribirLocks(form.fecha1); return () => { if (unsubscribe) unsubscribe(); }; }, [form.fecha1, suscribirLocks]);
 
+  // Cálculo de días disponibles usando la nueva función centralizada (SIN locks para estabilidad de la cinta)
   const diasDisponibles = useMemo(() => {
     if (!form.sedeId || !form.tipoMoto) return [];
-    const today = getTodayStr(); const dias = []; const cursor = new Date(today + 'T12:00:00'); const fin = new Date(maxDate + 'T12:00:00');
+    const today = getTodayStr();
+    const dias = [];
+    const cursor = new Date(today + 'T12:00:00');
+    const fin = new Date(maxDate + 'T12:00:00');
+
     while (cursor <= fin) {
-      const fechaStr = cursor.toISOString().split('T')[0]; const d2 = new Date(cursor); d2.setDate(d2.getDate() + 1); const fecha2Candidate = d2.toISOString().split('T')[0];
+      const fechaStr = cursor.toISOString().split('T')[0];
+      const d2 = new Date(cursor);
+      d2.setDate(d2.getDate() + 1);
+      const fecha2Candidate = d2.toISOString().split('T')[0];
+
       const hayAlguno = (horarios || []).filter(h => h.activo && !h.isLunch).some(bloque => {
-        if (fechaStr < today || isPastBlock(fechaStr, bloque.label, today)) return false;
-        try {
-          const res = findAvailableResources({ fecha1: fechaStr, fecha2: fecha2Candidate, horaId: bloque.id, sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto, activeLockIds: (activeLocks || []).map(l => l.id) });
-          const conflictoReserva = reservas.some(r => { if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false; if (String(r.horaId) !== String(bloque.id)) return false; return r.fecha === fechaStr || r.fecha === fecha2Candidate || r.fecha2 === fechaStr || r.fecha2 === fecha2Candidate; });
-          return !!res && !conflictoReserva;
-        } catch (e) { return false; }
+        const info = calcularDisponibilidadBloque(
+          bloque, fechaStr, fecha2Candidate, form.sedeId, form.tipoMoto, form.traeMoto,
+          instructores, motos, reservas, null, null, selectingBlockId, today
+        );
+        return info.disponible;
       });
-      dias.push({ fecha: fechaStr, disponible: hayAlguno }); cursor.setDate(cursor.getDate() + 1);
+
+      dias.push({ fecha: fechaStr, disponible: hayAlguno });
+      cursor.setDate(cursor.getDate() + 1);
     }
     return dias;
-  }, [form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, reservas, maxDate, getTodayStr, findAvailableResources, horarios]);
+  }, [form.sedeId, form.tipoMoto, form.traeMoto, reservas, maxDate, getTodayStr, horarios, instructores, motos]);
 
   useEffect(() => { if (step === '3' && form.sedeId && form.tipoMoto && !form.fecha1) { const firstAvail = diasDisponibles.find(d => d.disponible); if (firstAvail) setForm(prev => ({ ...prev, fecha1: firstAvail.fecha })); else setForm(prev => ({ ...prev, fecha1: '' })); } }, [step, form.sedeId, form.tipoMoto, diasDisponibles]);
 
+  // Cálculo de bloques usando la función centralizada (CON locks para tiempo real)
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
     if (!instructores?.length || !motos?.length) return [];
-    const locksSource = isSelectingHorario ? locksSnapshotRef.current : activeLocks; const todayStr = getTodayStr(); const hor = (horarios||[]).filter(h => h.activo).sort((a,b) => a.id.localeCompare(b.id));
-    const blocks = hor.map(b => {
-      if (b.id === selectingBlockId) return { ...b, disponible: true, ocupado: false, seleccionando: true };
-      if (lockId && form.horaId === b.id) return { ...b, disponible: true, ocupado: false, restaurado: true };
-      if (b.isLunch) return { ...b, disponible: false, reason: 'ALMUERZO' };
-      if (form.fecha1 < todayStr || isPastBlock(form.fecha1, b.label, todayStr)) return { ...b, disponible: false, reason: 'CERRADO' };
-      const res = findAvailableResources({ fecha1: form.fecha1, fecha2: fecha2Calc, horaId: b.id, sedeId: form.sedeId, tipoMoto: form.tipoMoto, traeMoto: form.traeMoto, activeLockIds: (locksSource||[]).map(l => l.id) });
-      const conflictoReserva = reservas.some(r => { if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false; if (String(r.horaId) !== String(b.id)) return false; return r.fecha === form.fecha1 || r.fecha === fecha2Calc || r.fecha2 === form.fecha1 || r.fecha2 === fecha2Calc; });
-      const estaOcupadoPorLock = locksSource.some(l => l.id.startsWith(`${form.fecha1}_${b.id}`) && l.id !== lockId);
-      const estaOcupado = estaOcupadoPorLock || conflictoReserva; const tieneRecursos = !!res && !estaOcupado;
-      const disponibilidadFinal = tieneRecursos || (form.traeMoto === 'Sí' && res?.instructorId && !estaOcupado);
-      return { ...b, disponible: disponibilidadFinal, instructorId: res?.instructorId, motoAsignar: res?.motoAsignadaId, ocupado: estaOcupado };
+    const locksSource = isSelectingHorario ? locksSnapshotRef.current : activeLocks;
+    const todayStr = getTodayStr();
+    const hor = (horarios || []).filter(h => h.activo).sort((a, b) => a.id.localeCompare(b.id));
+
+    return hor.map(b => {
+      const info = calcularDisponibilidadBloque(
+        b, form.fecha1, fecha2Calc, form.sedeId, form.tipoMoto, form.traeMoto,
+        instructores, motos, reservas, locksSource, lockId, selectingBlockId, todayStr
+      );
+
+      // Restaurar visualmente el lock del usuario
+      if (lockId && form.horaId === b.id) {
+        return { ...info, disponible: true, reason: '', restaurado: true };
+      }
+      return info;
     });
-    return blocks;
-  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, lockId, form.horaId, getTodayStr, reservas, instructores, motos, horarios, fecha2Calc, findAvailableResources, selectingBlockId, isSelectingHorario]);
+  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, activeLocks, lockId, form.horaId, getTodayStr, reservas, instructores, motos, horarios, fecha2Calc, selectingBlockId, isSelectingHorario]);
 
   const buscarProximaFechaDisponible = async () => {
     try {
@@ -347,17 +490,62 @@ export const InscripcionView = () => {
     } catch (e) { return null; }
   };
 
+  const handleSeleccionarBloqueDesdeExpiracion = async () => {
+    const nuevoReintentos = reintentosExpiracion + 1;
+    setReintentosExpiracion(nuevoReintentos);
+
+    if (lockId) {
+      await LockService.liberarLock(lockId).catch(() => {});
+    }
+    setLockId(null);
+    setLockExpiresAt(null);
+    setTiempoRestante(null);
+    setLockExpirado(false);
+    setMostrarModalExpiracion(false);
+    setForm(prev => ({ ...prev, horaId: '' }));
+
+    if (nuevoReintentos >= MAX_REINTENTOS_EXPIRACION) {
+      showToast('Has excedido el límite de intentos. Debes salir del sistema.', 'error');
+      if (logoutUser) await logoutUser();
+      limpiarSesionInscripcion();
+      navigate('/');
+      return;
+    }
+
+    showToast('Selecciona un nuevo horario.', 'info');
+    setStep('3');
+  };
+
+  const handleSalirDesdeExpiracion = async () => {
+    if (lockId) {
+      await LockService.liberarLock(lockId).catch(() => {});
+    }
+    setMostrarModalExpiracion(false);
+    limpiarSesionInscripcion();
+    if (logoutUser) await logoutUser();
+    navigate('/');
+  };
+
   const handleSelectHorario = async (bloque) => {
     if (lockId && form.horaId === bloque.id) { setModalLiberar({ bloque }); return; }
     if (isSelectingHorario) return;
     if (!fbUser) { showToast('Espera un momento, estamos preparando todo...', 'error'); return; }
-    if (!bloque.instructorId || (form.traeMoto !== 'Sí' && !bloque.motoAsignar)) { showToast('Este bloque no tiene recursos asignados. Intenta con otro horario.', 'error'); return; }
+    if (!bloque.instructorId || (form.traeMoto !== 'Sí' && !bloque.motoAsignadaId)) { showToast('Este bloque no tiene recursos asignados. Intenta con otro horario.', 'error'); return; }
     locksSnapshotRef.current = activeLocks; setIsSelectingHorario(true); setSelectingBlockId(bloque.id);
     if (lockId && !renovacionUsada) { await LockService.liberarLock(lockId).catch(() => {}); }
-    const motoId = bloque.motoAsignar || 'sinmoto'; const instructorId = bloque.instructorId || 'sininst'; const nuevoLockId = `${form.fecha1}_${bloque.id}_${instructorId}_${motoId}`;
-    const result = await LockService.crearLock(nuevoLockId, fbUser.uid, { fecha: form.fecha1, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar });
-    if (result.success) { setLockId(nuevoLockId); setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignar })); setLockExpiresAt(Date.now() + LOCK_DURATION); setRenovacionUsada(false); showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success'); }
-    else { showToast(result.error.message || 'No se pudo bloquear el horario', 'error'); }
+    const motoId = bloque.motoAsignadaId || 'sinmoto'; const instructorId = bloque.instructorId || 'sininst'; const nuevoLockId = `${form.fecha1}_${bloque.id}_${instructorId}_${motoId}`;
+    const result = await LockService.crearLock(nuevoLockId, fbUser.uid, { fecha: form.fecha1, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignadaId });
+    if (result.success) {
+      setLockId(nuevoLockId);
+      setForm(prev => ({ ...prev, horaId: bloque.id, instructorId: bloque.instructorId, motoAsignadaId: bloque.motoAsignadaId }));
+      setLockExpiresAt(Date.now() + LOCK_DURATION);
+      setLockExpirado(false);
+      setReintentosExpiracion(0);
+      setRenovacionUsada(false);
+      showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success');
+    } else {
+      showToast(result.error.message || 'No se pudo bloquear el horario', 'error');
+    }
     setIsSelectingHorario(false); setSelectingBlockId(null);
   };
 
@@ -368,8 +556,14 @@ export const InscripcionView = () => {
   const handlePinConfirmado = async () => { if (!modalPIN || !lockId) { showToast('Error: No se encontró el bloqueo del horario.', 'error'); setModalPIN(null); return; } setModalPIN(null); setIsSubmitting(true); const result = await ReservaService.crearReserva({ ...form, userId: fbUser.uid, fecha: form.fecha1, fecha2: fecha2Calc, fechaNacimiento }, lockId); setIsSubmitting(false); if (result.success) { limpiarSesionInscripcion(); showToast('¡Inscripción completada! Bienvenido a tu panel.', 'success'); setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: fbUser.uid }); navigate('/portal-reservas'); } else { showToast(result.error.message || 'Error al crear la reserva', 'error'); } };
 
   const handleNext = async () => {
-    if (step === '1') {if (!form.nombre || !form.cedula || !form.correo) { showToast('Completa los datos personales', 'error'); return; }
-      
+    if (step === '1') {
+      if (!form.nombre || !form.apellido || !form.cedula || !form.correo) { showToast('Completa todos los campos obligatorios: nombres, apellidos, cédula y correo', 'error'); return; }
+      if (!form.telefono) { showToast('El número de teléfono es obligatorio', 'error'); return; }
+      if (!form.contactoEmergencia) { showToast('El contacto de emergencia es obligatorio', 'error'); return; }
+      if (!form.sexo) { showToast('Selecciona tu sexo', 'error'); return; }
+      if (!form.estado) { showToast('Selecciona tu estado', 'error'); return; }
+      if (!form.zona) { showToast('Indica tu zona o localidad', 'error'); return; }
+      if (!form.diaNac || !form.mesNac || !form.anoNac) { showToast('Selecciona tu fecha de nacimiento', 'error'); return; }
       if (!esMayorDeEdad()) { showToast('Debes ser mayor de 18 años para inscribirte', 'error'); return; }
       if (!form.condicionMedica) { showToast('Debes completar la información de salud', 'error'); return; }
       if (fbUser && generatedPinRef.current) { setStep('2'); return; }
@@ -379,8 +573,16 @@ export const InscripcionView = () => {
       generatedPinRef.current = result.data.pin; setGeneratedPin(result.data.pin); setStep('2'); return;
     }
     if (step === '2') { if (!form.cursoId || !(cursos||[]).some(c => String(c.id) === String(form.cursoId))) { showToast('Selecciona un curso válido', 'error'); return; } if (!form.sedeId || !form.tipoMoto) { showToast('Selecciona sede y tipo de moto', 'error'); return; } if (!form.sabeBicicleta) { showToast('Indica si sabes andar en bicicleta', 'error'); return; } if (!fbUser) { showToast('Preparando disponibilidad...', 'error'); return; } setStep('3'); return; }
-    if (step === '3') { if (!fbUser) { showToast('Preparando todo...', 'error'); return; } if (!form.fecha1) { showToast('Selecciona una fecha', 'error'); return; } const hayAlgunBloque = bloques.some(b => b.disponible && !b.isLunch); if (!hayAlgunBloque) { showToast('La fecha seleccionada no tiene horarios disponibles. Elige otra.', 'error'); return; } if (!form.horaId || !lockId) { showToast('Selecciona un horario primero', 'error'); return; } if (!lockId.startsWith(form.fecha1 + '_')) { showToast('El horario seleccionado no corresponde a esta fecha.', 'error'); setLockId(null); setLockExpiresAt(null); setForm(prev => ({ ...prev, horaId: '' })); return; } setLockExpiresAt(Date.now() + LOCK_DURATION); setStep('4'); return; }
-    if (step === '4') { if (!form.pagoBanco || !form.pagoTelefono || !form.pagoCedula || !form.pagoRef) { showToast('Completa los datos de pago', 'error'); return; } if (captchaValue !== String(captchaA + captchaB)) { regenerateCaptcha(); showToast('Resultado incorrecto. Intenta de nuevo.', 'error'); return; } setModalPIN({ pin: generatedPinRef.current || generatedPin, userId: fbUser.uid }); }
+    if (step === '3') { if (!fbUser) { showToast('Preparando todo...', 'error'); return; } if (!form.fecha1) { showToast('Selecciona una fecha', 'error'); return; } const hayAlgunBloque = bloques.some(b => b.disponible && !b.isLunch); if (!hayAlgunBloque) { showToast('La fecha seleccionada no tiene horarios disponibles. Elige otra.', 'error'); return; } if (!form.horaId || !lockId) { showToast('Selecciona un horario primero', 'error'); return; } if (!lockId.startsWith(form.fecha1 + '_')) { showToast('El horario seleccionado no corresponde a esta fecha.', 'error'); setLockId(null); setLockExpiresAt(null); setForm(prev => ({ ...prev, horaId: '' })); return; } setLockExpiresAt(Date.now() + LOCK_DURATION); setLockExpirado(false); setStep('4'); return; }
+    if (step === '4') {
+      if (lockExpirado) {
+        showToast('El tiempo expiró. Debes seleccionar un nuevo horario.', 'error');
+        return;
+      }
+      if (!form.pagoBanco || !form.pagoTelefono || !form.pagoCedula || !form.pagoRef) { showToast('Completa todos los datos de pago', 'error'); return; }
+      if (captchaValue !== String(captchaA + captchaB)) { regenerateCaptcha(); showToast('Resultado incorrecto. Intenta de nuevo.', 'error'); return; }
+      setModalPIN({ pin: generatedPinRef.current || generatedPin, userId: fbUser.uid });
+    }
   };
 
   const handleBack = () => { if (step === '2') setStep('1'); else if (step === '3') setStep('2'); else if (step === '4') setStep('3'); else navigate('/'); };
@@ -395,7 +597,6 @@ export const InscripcionView = () => {
   const titulosPasos = { '1': 'Datos Personales', '2': 'Configurar Clase', '3': 'Fechas y Horarios', '4': 'Realizar Pago' };
 
   const handleStepClick = (targetStep) => {
-    // Solo permitir navegar hacia atrás (pasos ya completados)
     if (targetStep < stepNum) {
       setStep(String(targetStep));
     }
@@ -460,10 +661,29 @@ export const InscripcionView = () => {
     return (
       <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/30 backdrop-blur-sm" onClick={() => setMostrarCalendario(false)}>
         <div ref={calendarioRef} className="bg-white rounded-xl border border-gray-200 shadow-2xl p-3 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-between items-center mb-3"><button onClick={() => cambiarMes(-1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronLeft size={18} /></button><span className="font-bold text-gray-700 text-sm capitalize">{mesCalendario.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</span><button onClick={() => cambiarMes(1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronRight size={18} /></button></div>
+          <div className="flex justify-between items-center mb-3">
+            <button onClick={() => cambiarMes(-1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronLeft size={18} /></button>
+            <button 
+              onClick={() => {
+                const hoyStr = getTodayStr();
+                const infoHoy = diasDisponibles.find(d => d.fecha === hoyStr);
+                if (!infoHoy?.disponible) {
+                  showToast('Sin horarios disponibles para esta fecha', 'info');
+                }
+                setForm(prev => ({ ...prev, fecha1: hoyStr }));
+                setMesCalendario(new Date());
+                setMostrarCalendario(false);
+              }}
+              className="text-[10px] font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg"
+            >
+              Hoy
+            </button>
+            <span className="font-bold text-gray-700 text-sm capitalize">{mesCalendario.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</span>
+            <button onClick={() => cambiarMes(1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronRight size={18} /></button>
+          </div>
           <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-gray-500 mb-1">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <div key={d} className="py-1">{d}</div>)}</div>
           <div className="grid grid-cols-7 gap-0.5">
-            {diasEnMes.map((diaInfo, idx) => { if (!diaInfo) return <div key={`empty-${idx}`} />; const { dia, fecha, disponible } = diaInfo; const esPasado = fecha < hoy; const esSeleccionado = form.fecha1 === fecha; const fueraDeRango = fecha < hoy || fecha > maxDate; const sePuedeSeleccionar = !esPasado && !fueraDeRango && disponible; return ( <button key={fecha} disabled={!sePuedeSeleccionar} onClick={() => handleSeleccionarFecha(fecha)} className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${ esSeleccionado ? 'bg-blue-600 text-white' : sePuedeSeleccionar ? 'bg-green-50 text-green-700 border border-green-300 hover:bg-green-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' }`}>{dia}</button> ); })}
+            {diasEnMes.map((diaInfo, idx) => { if (!diaInfo) return <div key={`empty-${idx}`} />; const { dia, fecha, disponible } = diaInfo; const esPasado = fecha < hoy; const esSeleccionado = form.fecha1 === fecha; const fueraDeRango = fecha < hoy || fecha > maxDate; const sePuedeSeleccionar = !esPasado && !fueraDeRango && disponible; return ( <button key={fecha} onClick={() => { if (!sePuedeSeleccionar) { showToast('Sin horarios disponibles para esta fecha', 'info'); return; } handleSeleccionarFecha(fecha); }} className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${ esSeleccionado ? 'bg-blue-600 text-white' : sePuedeSeleccionar ? 'bg-green-50 text-green-700 border border-green-300 hover:bg-green-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' }`}>{dia}</button> ); })}
           </div>
           <div className="mt-3 flex justify-between items-center">
             <button onClick={async () => { const proxima = await buscarProximaFechaDisponible(); if (proxima) { setForm(prev => ({ ...prev, fecha1: proxima })); const nuevaFecha = new Date(proxima + 'T12:00:00'); setMesCalendario(new Date(nuevaFecha.getFullYear(), nuevaFecha.getMonth(), 1)); setMostrarCalendario(false); } else showToast('No hay fechas disponibles en el rango.', 'error'); }} className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100"><ArrowRight size={12} /> Próxima disponible</button>
@@ -490,7 +710,7 @@ export const InscripcionView = () => {
         </div>
       </DashboardHeader>
     } footer={
-      <div className="bg-white border-t p-4"><Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '3' && !fbUser) || (step === '3' && lockId && !form.horaId)}>{isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? 'Continuar a Horario' : 'Continuar'}</Button></div>
+      <div className="bg-white border-t p-4"><Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '3' && !fbUser) || (step === '3' && lockId && !form.horaId) || (step === '4' && lockExpirado)}>{isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? 'Continuar a Horario' : 'Continuar'}</Button></div>
     } bgColor="bg-white">
 <div className="px-5 pt-2 pb-1 relative overflow-visible">        <Stepper currentStep={stepNum} onStepClick={handleStepClick} />
       </div>
@@ -502,17 +722,17 @@ export const InscripcionView = () => {
       {/* Nombres */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><User size={14} className="text-gray-500" /> Nombres</label>
-        <input type="text" value={form.nombre} onChange={e => setForm({...form, nombre: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="text" value={form.nombre} onChange={e => setForm({...form, nombre: e.target.value})} placeholder="Ej: Juan" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Apellidos */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><User size={14} className="text-gray-500" /> Apellidos</label>
-        <input type="text" value={form.apellido} onChange={e => setForm({...form, apellido: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="text" value={form.apellido} onChange={e => setForm({...form, apellido: e.target.value})} placeholder="Ej: Pérez" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Cédula */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Contact size={14} className="text-gray-500" /> Cédula</label>
-        <input type="tel" value={form.cedula} onChange={e => setForm({...form, cedula: e.target.value.replace(/\D/g,'').slice(0,10)})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="tel" value={form.cedula} onChange={e => setForm({...form, cedula: e.target.value.replace(/\D/g,'').slice(0,10)})} placeholder="Ej: 12345678" inputMode="numeric" pattern="\d{7,10}" maxLength={10} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Fecha de Nac. */}
       <div onClick={() => { setTempFechaNacimiento({ dia: form.diaNac || '01', mes: form.mesNac || String(new Date().getMonth() + 1).padStart(2, '0'), ano: form.anoNac || String(new Date().getFullYear()) }); setMostrarCalendarioNacimiento(true); }} className="cursor-pointer">
@@ -527,22 +747,22 @@ export const InscripcionView = () => {
       {/* Teléfono */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Teléfono</label>
-        <input type="tel" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value.replace(/\D/g,'').slice(0,11)})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="tel" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value.replace(/\D/g,'').slice(0,11)})} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Contacto de emergencia */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Contacto emergencia</label>
-        <input type="tel" value={form.contactoEmergencia} onChange={e => setForm({...form, contactoEmergencia: e.target.value.replace(/\D/g,'').slice(0,11)})} placeholder="0412..." className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="tel" value={form.contactoEmergencia} onChange={e => setForm({...form, contactoEmergencia: e.target.value.replace(/\D/g,'').slice(0,11)})} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Correo electrónico */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Mail size={14} className="text-gray-500" /> Correo</label>
-        <input type="email" value={form.correo} onChange={e => setForm({...form, correo: e.target.value.trim().toLowerCase()})} placeholder="ejemplo@correo.com" className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="email" value={form.correo} onChange={e => setForm({...form, correo: e.target.value.trim().toLowerCase()})} placeholder="ejemplo@correo.com" className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Sexo */}
 <div>
   <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Users size={14} className="text-gray-500" /> Sexo</label>
-  <select value={form.sexo} onChange={e => setForm({...form, sexo: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none">
+  <select value={form.sexo} onChange={e => setForm({...form, sexo: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required>
     <option value="" disabled>Seleccionar</option>
     {SEXOS.map(s => <option key={s} value={s}>{s}</option>)}
   </select>
@@ -550,7 +770,7 @@ export const InscripcionView = () => {
       {/* Estado */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Estado</label>
-        <select value={form.estado} onChange={e => setForm({...form, estado: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none">
+        <select value={form.estado} onChange={e => setForm({...form, estado: e.target.value})} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required>
           <option value="" disabled>Seleccionar</option>
           {ESTADOS_VZLA.map(e => <option key={e} value={e}>{e}</option>)}
         </select>
@@ -558,7 +778,7 @@ export const InscripcionView = () => {
       {/* Zona */}
       <div>
         <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Zona</label>
-        <input type="text" value={form.zona} onChange={e => setForm({...form, zona: e.target.value})} placeholder="Ej: Petare" className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" />
+        <input type="text" value={form.zona} onChange={e => setForm({...form, zona: e.target.value})} placeholder="Ej: Petare" maxLength={100} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
     </div>
 
@@ -601,7 +821,7 @@ export const InscripcionView = () => {
                 <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40"><Calendar size={16} className="text-blue-200" /><span className="text-xs font-bold text-center">Fechas con Horas disponibles</span></div>
               </div>
               <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
-                {fechasMostradas.map(({ fecha, label, disponible }) => { const isSelected = form.fecha1 === fecha; return (<button key={fecha} onClick={() => setForm(prev => ({ ...prev, fecha1: fecha }))} disabled={!disponible} className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${ isSelected ? 'bg-white text-blue-600' : disponible ? 'bg-blue-500/30 text-white hover:bg-blue-400/40' : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed' }`}>{label}</button>); })}
+                {fechasMostradas.map(({ fecha, label, disponible }) => { const isSelected = form.fecha1 === fecha; return (<button key={fecha} onClick={() => { if (!disponible) { showToast('Sin horarios disponibles para esta fecha', 'info'); return; } setForm(prev => ({ ...prev, fecha1: fecha })); }} className={`py-2 text-xs font-semibold transition-colors border-r border-blue-400/30 last:border-r-0 ${ isSelected ? 'bg-white text-blue-600' : disponible ? 'bg-blue-500/30 text-white hover:bg-blue-400/40' : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed' }`}>{label}</button>); })}
               </div>
 <button
   onClick={() => setMostrarCalendario(true)}
@@ -613,7 +833,7 @@ export const InscripcionView = () => {
 </button>            </div>
             {!fbUser ? (<div className="flex-1 flex items-center justify-center"><Spinner message="Cargando horarios..." /></div>) : !recursosListos ? (<div className="flex-1 flex items-center justify-center"><Spinner message="Cargando instructores y motos..." /></div>) : (
               <div className="flex-1 mt-2"><div className="grid gap-1.5">
-                {bloques.map(b => { const isSelectingThis = selectingBlockId === b.id; return (<button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser} onClick={() => handleSelectHorario(b)} className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${ isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' : b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' : b.ocupado ? 'bg-gray-50 border-gray-300 text-gray-400' : !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' : form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' : 'bg-white border-gray-200 hover:border-blue-300 cursor-pointer' }`}><div className="flex justify-between items-center"><span className="font-bold text-xs">{b.label}</span>{isSelectingThis ? <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span> : (<>{b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}{b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}{b.ocupado && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}{!b.disponible && !b.ocupado && !b.isLunch && b.reason !== 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}{b.disponible && !b.ocupado && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}{b.disponible && !b.ocupado && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}</>)}</div></button>); })}
+                {bloques.map(b => { const isSelectingThis = selectingBlockId === b.id; return (<button key={b.id} disabled={!b.disponible || b.isLunch || isSelectingHorario || !fbUser} onClick={() => handleSelectHorario(b)} className={`w-full py-3 px-2 rounded-lg border-2 text-left transition-colors duration-200 ${ isSelectingThis ? 'bg-blue-50 border-blue-500 text-blue-800' : b.isLunch ? 'bg-gray-100 border-gray-200 opacity-60' : !b.disponible ? 'bg-gray-50 border-gray-200 opacity-60' : form.horaId === b.id ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-300' : 'bg-white border-gray-200 hover:border-blue-300 cursor-pointer' }`}><div className="flex justify-between items-center"><span className="font-bold text-xs">{b.label}</span>{isSelectingThis ? <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">Procesando...</span> : (<>{b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}{b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}{b.reason === 'OCUPADO' && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}{b.reason === 'SIN_MOTO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">SIN MOTO</span>}{!b.disponible && !b.reason && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}{b.disponible && form.horaId === b.id && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SELECCIONADO</span>}{b.disponible && form.horaId !== b.id && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-black">DISPONIBLE</span>}</>)}</div></button>); })}
               </div></div>
             )}
           </div>
@@ -643,22 +863,44 @@ export const InscripcionView = () => {
               {mostrarDetallesPago && (<div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2"><p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p><div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div><div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div><div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span><button
   type="button"
   onClick={() => {
-    const { codigo, telefono, cedula } = config?.pagoMovilEscuela || {};
-    const texto = `${codigo || ''} ${telefono || ''} ${cedula || ''}`.trim();
-    navigator.clipboard.writeText(texto).then(() => {
-      showToast('Datos copiados al portapapeles', 'success');
-    }).catch(() => {
-      showToast('Error al copiar', 'error');
-    });
-  }}
+  const { codigo, telefono, cedula } = config?.pagoMovilEscuela || {};
+  const texto = `${codigo || ''} ${telefono || ''} ${cedula || ''}`.trim();
+
+  const copiar = (text) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    // Fallback para navegadores antiguos o entornos sin HTTPS
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      return Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  copiar(texto).then(() => {
+    showToast('Datos Copiado', 'success');
+  }).catch(() => {
+    showToast('Error al copiar', 'error');
+  });
+}}
   className="w-full mt-2 py-2 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
 >
   📋 Copiar datos
 </button></div></div>)}
             </div>
-            <div className="w-full mt-2"><Select label="Banco Emisor" options={BANCOS} value={form.pagoBanco} onChange={e => setForm({...form, pagoBanco: e.target.value})} icon={CreditCard} /></div>
-            <div className="grid grid-cols-2 gap-2"><Input label="Teléfono Origen" type="tel" value={form.pagoTelefono} onChange={e => setForm({...form, pagoTelefono: e.target.value.replace(/\D/g,'').slice(0,11)})} icon={Phone} placeholder="04141234567" /><Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => setForm({...form, pagoCedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} placeholder="15123456" /></div>
-            <div className="grid grid-cols-2 gap-2"><Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" /><div>
+            <div className="w-full mt-2"><Select label="Banco Emisor" options={BANCOS.map(b => b.nombre)} value={form.pagoBanco} onChange={e => setForm({...form, pagoBanco: e.target.value})} icon={CreditCard} /></div>
+            <div className="grid grid-cols-2 gap-2"><Input label="Teléfono Origen" type="tel" value={form.pagoTelefono} onChange={e => setForm({...form, pagoTelefono: e.target.value.replace(/\D/g,'').slice(0,11)})} icon={Phone} placeholder="04141234567" inputMode="numeric" pattern="\d{11}" maxLength={11} required /><Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => setForm({...form, pagoCedula: e.target.value.replace(/\D/g,'').slice(0,10)})} icon={Contact} placeholder="15123456" inputMode="numeric" pattern="\d{7,10}" maxLength={10} required /></div>
+            <div className="grid grid-cols-2 gap-2"><Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => setForm({...form, pagoRef: e.target.value.replace(/\D/g,'').slice(0,4)})} icon={Hash} placeholder="8452" inputMode="numeric" pattern="\d{4}" maxLength={4} required /><div>
   <div>
   <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1">
     <Lock size={14} className="text-gray-500" /> Captcha
@@ -751,6 +993,38 @@ export const InscripcionView = () => {
 
       {modalLiberar && (<ModalConfirmacion titulo="Liberar horario" mensaje="¿Deseas liberar este horario? Si lo haces, deberás seleccionar otro bloque para continuar." onConfirm={handleLiberarHorario} onCancel={() => setModalLiberar(null)} />)}
       {modalPIN && <ModalPIN pin={modalPIN.pin} onConfirm={handlePinConfirmado} />}
+
+      {/* Modal de expiración del lock */}
+      {mostrarModalExpiracion && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+            <AlertTriangle size={40} className="text-red-500 mx-auto mb-4" />
+            <h3 className="font-black text-gray-900 text-lg mb-2">Tiempo Expirado</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              El tiempo de 10 minutos expiró. El bloque de horario ha sido liberado. Debe seleccionar uno nuevo.
+            </p>
+            <div className="space-y-3">
+              <Button
+                type="button"
+                onClick={handleSeleccionarBloqueDesdeExpiracion}
+                variant="primary"
+                icon={Clock}
+                disabled={reintentosExpiracion >= MAX_REINTENTOS_EXPIRACION}
+              >
+                Seleccionar Bloque {reintentosExpiracion > 0 ? `(${MAX_REINTENTOS_EXPIRACION - reintentosExpiracion} intentos)` : ''}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSalirDesdeExpiracion}
+                variant="outline"
+                icon={LogOut}
+              >
+                Salir del sistema
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 };
