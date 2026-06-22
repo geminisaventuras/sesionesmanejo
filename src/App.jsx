@@ -3,19 +3,25 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
 import { ToastProvider } from './modules/shared/components/ToastProvider';
 import { Spinner } from './components/UI';
-import HomeView from './views/HomeView';
-import { InscripcionView } from './views/InscripcionView';
-import { PortalEstudiante } from './views/PortalEstudiante';
-import { EstudiantePanel } from './views/EstudiantePanel';
-import { TestBloquesView } from './views/TestBloquesView';
-import { LoginView } from './views/LoginView';
-import { DashboardView } from './views/DashboardView';
-import InstructorPanel from './views/InstructorPanel';
-import AulaVirtualView from './views/AulaVirtualView';
-import TestDatePicker from './views/TestDatePicker';
-import AdminReservaDetalle from './views/AdminReservaDetalle';
-import AdminReservasList from './views/AdminReservasList';
-import AdminReservasHome from './views/AdminReservasHome';
+import HomeView from './modules/home/views/HomeView';
+import { InscripcionView } from './modules/inscripcion/views/InscripcionView';
+import { PortalEstudiante } from './modules/auth/views/PortalEstudiante';
+import { EstudiantePanel } from './modules/estudiante/views/EstudiantePanel';
+import { TestBloquesView } from './modules/test/views/TestBloquesView';
+import { LoginView } from './modules/auth/views/LoginView';
+import InstructorPanel from './modules/instructor/views/InstructorPanel';
+import AulaVirtualView from './modules/aula/views/AulaVirtualView';
+import TestDatePicker from './modules/test/views/TestDatePicker';
+
+// Módulo admin – páginas independientes
+import AdminResumen from './modules/admin/components/AdminResumen';
+import AdminReservasHome from './modules/admin/components/AdminReservasHome';
+import AdminReservasList from './modules/admin/components/AdminReservasList';
+import AdminReservaDetalle from './modules/admin/components/AdminReservaDetalle';
+import AdminOcupacion from './modules/admin/components/AdminOcupacion';
+import AdminFinanzas from './modules/admin/components/AdminFinanzas';
+import AdminConfigHub from './modules/admin/components/AdminConfigHub';
+import AdminAjustes from './modules/admin/components/AdminAjustes';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useContext(AppContext);
@@ -38,21 +44,43 @@ function App() {
   return (
     <ToastProvider>
       <Routes>
+        {/* Rutas públicas */}
         <Route path="/" element={<HomeView />} />
         <Route path="/inscripcion" element={<InscripcionView />} />
         <Route path="/portal" element={<PortalEstudiante />} />
+        <Route path="/login" element={<LoginView />} />
+        <Route path="/test-bloques" element={<TestBloquesView />} />
+        <Route path="/test-datepicker" element={<TestDatePicker />} />
+
+        {/* Panel del estudiante */}
         <Route path="/portal-reservas" element={
           <ProtectedRoute allowedRoles={['estudiante']}>
             <EstudiantePanel />
           </ProtectedRoute>
         } />
-        <Route path="/test-bloques" element={<TestBloquesView />} />
-        <Route path="/login" element={<LoginView />} />
-        <Route path="/dashboard/*" element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <DashboardView />
+
+        {/* Panel del instructor */}
+        <Route path="/instructor" element={
+          <ProtectedRoute allowedRoles={['instructor']}>
+            <InstructorPanel />
           </ProtectedRoute>
         } />
+
+        {/* Aula virtual (instructor y estudiante) */}
+        <Route path="/aula/:reservaId" element={
+          <ProtectedRoute allowedRoles={['instructor', 'estudiante']}>
+            <AulaVirtualView />
+          </ProtectedRoute>
+        } />
+
+        {/* Panel de administración – Dashboard principal */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminResumen />
+          </ProtectedRoute>
+        } />
+
+        {/* Gestión de reservas (admin) */}
         <Route path="/admin/reserva/:reservaId" element={
           <ProtectedRoute allowedRoles={['admin']}>
             <AdminReservaDetalle />
@@ -68,18 +96,35 @@ function App() {
             <AdminReservasHome />
           </ProtectedRoute>
         } />
-        <Route path="/instructor" element={
-          <ProtectedRoute allowedRoles={['instructor']}>
-            <InstructorPanel />
+
+        {/* Ocupación diaria (admin) */}
+        <Route path="/admin/ocupacion" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminOcupacion />
           </ProtectedRoute>
         } />
-        <Route path="/aula/:reservaId" element={
-          <ProtectedRoute allowedRoles={['instructor', 'estudiante']}>
-            <AulaVirtualView />
+
+        {/* Finanzas (admin) */}
+        <Route path="/admin/finanzas" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminFinanzas />
           </ProtectedRoute>
         } />
+
+        {/* Configuración (admin) */}
+        <Route path="/admin/config" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminConfigHub />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/config/ajustes" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminAjustes />
+          </ProtectedRoute>
+        } />
+
+        {/* Redirección por defecto */}
         <Route path="*" element={<Navigate to="/" replace />} />
-        <Route path="/test-datepicker" element={<TestDatePicker />} />
       </Routes>
     </ToastProvider>
   );

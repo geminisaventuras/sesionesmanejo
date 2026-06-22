@@ -1,0 +1,133 @@
+import React, { useContext } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AppContext } from './context/AppContextValue';
+import { ToastProvider } from './modules/shared/components/ToastProvider';
+import { Spinner } from './components/UI';
+import HomeView from './views/HomeView';
+import { InscripcionView } from './views/InscripcionView';
+import { PortalEstudiante } from './views/PortalEstudiante';
+import { EstudiantePanel } from './views/EstudiantePanel';
+import { TestBloquesView } from './views/TestBloquesView';
+import { LoginView } from './views/LoginView';
+import InstructorPanel from './views/InstructorPanel';
+import AulaVirtualView from './views/AulaVirtualView';
+import TestDatePicker from './views/TestDatePicker';
+
+// Módulo admin – páginas independientes
+import AdminResumen from './modules/admin/components/AdminResumen';
+import AdminReservasHome from './modules/admin/components/AdminReservasHome';
+import AdminReservasList from './modules/admin/components/AdminReservasList';
+import AdminReservaDetalle from './modules/admin/components/AdminReservaDetalle';
+import AdminOcupacion from './modules/admin/components/AdminOcupacion';
+import AdminFinanzas from './modules/admin/components/AdminFinanzas';
+import AdminConfigHub from './modules/admin/components/AdminConfigHub';
+import AdminAjustes from './modules/admin/components/AdminAjustes';
+
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { user } = useContext(AppContext);
+  if (!user) return <Navigate to="/login" replace />;
+  if (!allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+};
+
+function App() {
+  const { authReady } = useContext(AppContext);
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <Spinner message="Conectando con Firebase..." />
+      </div>
+    );
+  }
+
+  return (
+    <ToastProvider>
+      <Routes>
+        {/* Rutas públicas */}
+        <Route path="/" element={<HomeView />} />
+        <Route path="/inscripcion" element={<InscripcionView />} />
+        <Route path="/portal" element={<PortalEstudiante />} />
+        <Route path="/login" element={<LoginView />} />
+        <Route path="/test-bloques" element={<TestBloquesView />} />
+        <Route path="/test-datepicker" element={<TestDatePicker />} />
+
+        {/* Panel del estudiante */}
+        <Route path="/portal-reservas" element={
+          <ProtectedRoute allowedRoles={['estudiante']}>
+            <EstudiantePanel />
+          </ProtectedRoute>
+        } />
+
+        {/* Panel del instructor */}
+        <Route path="/instructor" element={
+          <ProtectedRoute allowedRoles={['instructor']}>
+            <InstructorPanel />
+          </ProtectedRoute>
+        } />
+
+        {/* Aula virtual (instructor y estudiante) */}
+        <Route path="/aula/:reservaId" element={
+          <ProtectedRoute allowedRoles={['instructor', 'estudiante']}>
+            <AulaVirtualView />
+          </ProtectedRoute>
+        } />
+
+        {/* Panel de administración – Dashboard principal */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminResumen />
+          </ProtectedRoute>
+        } />
+
+        {/* Gestión de reservas (admin) */}
+        <Route path="/admin/reserva/:reservaId" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservaDetalle />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/reservas/lista" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservasList />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/reservas" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminReservasHome />
+          </ProtectedRoute>
+        } />
+
+        {/* Ocupación diaria (admin) */}
+        <Route path="/admin/ocupacion" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminOcupacion />
+          </ProtectedRoute>
+        } />
+
+        {/* Finanzas (admin) */}
+        <Route path="/admin/finanzas" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminFinanzas />
+          </ProtectedRoute>
+        } />
+
+        {/* Configuración (admin) */}
+        <Route path="/admin/config" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminConfigHub />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/config/ajustes" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminAjustes />
+          </ProtectedRoute>
+        } />
+
+        {/* Redirección por defecto */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ToastProvider>
+  );
+}
+
+export default App;

@@ -1,0 +1,40 @@
+import { z } from 'zod';
+
+export const inscripcionSchema = z.object({
+  nombre: z.string().min(2).max(50),
+  apellido: z.string().min(2).max(50),
+  cedula: z.string().regex(/^\d{7,10}$/),
+  diaNac: z.string().regex(/^\d{1,2}$/),
+  mesNac: z.string().regex(/^\d{1,2}$/),
+  anoNac: z.string().regex(/^\d{4}$/),
+  sexo: z.enum(['Masculino', 'Femenino']),
+  estado: z.string().min(1),
+  zona: z.string().min(1),
+  correo: z.string().email(),
+  telefono: z.string().regex(/^\d{11}$/),
+  contactoEmergencia: z.string().regex(/^\d{11}$/),
+  sabeBicicleta: z.enum(['Sí', 'No']),
+  traeMoto: z.enum(['Sí', 'No']),
+  tipoMoto: z.enum(['Automática', 'Sincrónica']),
+  cursoId: z.string(),
+  sedeId: z.string(),
+  condicionMedica: z.enum(['si', 'no']),
+  detalleCondicion: z.string().optional(),
+});
+
+export const loginEmailSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+export const loginEstudianteSchema = z.object({
+  correo: z.string().email(),
+  pin: z.string().regex(/^\d{6}$/),
+});
+
+export const pagoSchema = z.object({
+  pagoBanco: z.string().min(1),
+  pagoTelefono: z.string().regex(/^\d{11}$/),
+  pagoCedula: z.string().regex(/^\d{7,10}$/),
+  pagoRef: z.string().regex(/^\d{4}$/),
+});

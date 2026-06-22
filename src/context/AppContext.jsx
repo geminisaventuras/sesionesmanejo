@@ -1,303 +1,103 @@
-// @build: 2026-06-22 | id: B51-CLEAN | desc: Admin desde Firestore sin índices compuestos + isReservaActiva corregido
-import { useState, useEffect, useCallback } from 'react';
-import { AuthService } from '../services/AuthService';
-import { LockService } from '../services/LockService';
-import { StaffService } from '../modules/admin/services/StaffService';
+// @build: 2026-06-21.FASE3 | id: FASE3-COMPOSITOR | desc: AppContext refactorizado como compositor de hooks especializados
+import React, { useState, useCallback, useMemo } from 'react';
 import { AppContext } from './AppContextValue';
-import { collection, doc, setDoc, onSnapshot, query, where, getDocs, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-
-const INITIAL_CONFIG = {
-  monedaPagoStaff: 'USD', tasaUSD: 36.50, tasaEUR: 39.10, precioBase: 35, recargoGuarenas: 5,
-  recargoSinBici: 10, descuentoMotoPropia: 5, descuentoPromo: 0, pagoInstructor: 15, pagoProveedor: 10,
-  autoTasas: false, pagoMovilEscuela: { banco: 'Banesco', telefono: '04141234567', cedula: '12345678', codigo: '0134' }, monedaCobroClientes: 'EUR'
-};
-
-const APP_ID = 'motoescuela-pro-v1';
+import { useAuthProvider } from './AuthProvider';
+import { useConfigProvider } from './ConfigProvider';
+import { useFirestoreProvider } from './FirestoreProvider';
+import { useNotificationsProvider } from './NotificationsProvider';
 
 export const AppProvider = ({ children }) => {
-  const [fbUser, setFbUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [user, setUser] = useState(null);
   const [toast, setToast] = useState(null);
-  const [autoLoginData, setAutoLoginData] = useState(null);
-  const [activeLocks, setActiveLocks] = useState([]);
 
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  const restoreUserRole = async (currentUser) => {
-    if (!currentUser || !currentUser.email) return;
-    const email = currentUser.email.toLowerCase();
-    const basePath = `artifacts/${APP_ID}/public/data`;
-    
-    try {
-      const adminDocRef = doc(db, basePath, 'admins', 'admin1');
-      const adminSnap = await getDoc(adminDocRef);
-      if (adminSnap.exists()) {
-        const adminData = adminSnap.data();
-        if (adminData.email === email) {
-          setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
-          return;
-        }
-      }
+  // 1. Autenticación
+  const auth = useAuthProvider(showToast);
 
-      const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
-      const instSnap = await getDocs(instQuery);
-      if (!instSnap.empty) {
-        const instData = instSnap.docs[0].data();
-        if (!instData.activo) {
-          setUser(null);
-          showToast('Tu cuenta de instructor está inactiva', 'error');
-          return;
-        }
-        setUser({ role: 'instructor', data: instData, uid: currentUser.uid });
-        return;
-      }
+  // 2. Configuración (depende de authReady)
+  const cfg = useConfigProvider(auth.authReady);
 
-      const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
-      const provSnap = await getDocs(provQuery);
-      if (!provSnap.empty) {
-        const provData = provSnap.docs[0].data();
-        if (!provData.activo) {
-          setUser(null);
-          showToast('Tu cuenta de proveedor está inactiva', 'error');
-          return;
-        }
-        setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
-        return;
-      }
+  // 3. Datos Firestore (depende de fbUser, authReady, isAdmin, showToast, user)
+  const isAdmin = auth.user?.role === 'admin';
+  const firestore = useFirestoreProvider(auth.fbUser, auth.authReady, isAdmin, showToast, auth.user);
 
-      const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
-      setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
-      
-    } catch (e) {
-      // Error restaurando rol
-    }
-  };
+  // 4. Notificaciones automáticas (depende de reservas, isAdmin, fbUser, instructores)
+  useNotificationsProvider(
+    firestore.reservas,
+    isAdmin,
+    auth.fbUser,
+    firestore.instructores,
+    firestore.saveNotificacion,
+    firestore.prevReservasRef
+  );
 
-  useEffect(() => {
-    const unsubscribe = AuthService.onAuthChange((currentUser) => {
-      setFbUser(currentUser);
-      if (currentUser) {
-        restoreUserRole(currentUser).finally(() => setAuthReady(true));
-      } else {
-        setUser(null);
-        setAuthReady(true);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const loginWithGoogle = useCallback(async () => {
-    const res = await AuthService.loginConGoogle();
-    if (!res.success) showToast(res.error.message, 'error');
-    return res;
-  }, [showToast]);
-
-  const loginWithEmail = useCallback(async (email, password) => {
-    const res = await AuthService.loginConEmail(email, password);
-    if (!res.success) showToast(res.error.message, 'error');
-    return res;
-  }, [showToast]);
-
-  const loginEstudiante = useCallback(async (correo, pin) => {
-    const res = await AuthService.loginEstudiante(correo, pin);
-    if (!res.success) showToast(res.error.message, 'error');
-    return res;
-  }, [showToast]);
-
-  const crearEstudiante = useCallback(async (cedula, correo) => {
-    const res = await AuthService.crearEstudiante(cedula, correo);
-    if (!res.success) showToast(res.error.message, 'error');
-    return res;
-  }, [showToast]);
-
-  const logoutUser = useCallback(async () => {
-    const res = await AuthService.logout();
-    if (res.success) { setUser(null); }
-    else showToast(res.error.message, 'error');
-  }, [showToast]);
-
-  const suscribirLocks = useCallback((fecha) => {
-    return LockService.escucharLocks(fecha, (locks) => setActiveLocks(locks));
-  }, []);
-
-  const buildPath = (colName) => `artifacts/${APP_ID}/public/data/${colName}`;
-
-  const useFirebaseCollection = (colName, initialData = [], condition = true, queryConstraint = null, requireAuth = true) => {
-    const [data, setData] = useState(initialData);
-    useEffect(() => {
-      if (!db || (requireAuth && (!fbUser || !authReady)) || !condition) return;
-      let ref = collection(db, buildPath(colName));
-      if (queryConstraint) ref = query(ref, queryConstraint);
-      const unsub = onSnapshot(ref, (snap) => {
-        if (!snap.empty) setData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        else setData([]);
-      }, (err) => { 
-        // Error en colección (silencioso para permisos denegados)
-      });
-      return () => unsub();
-    }, [fbUser, authReady, condition, colName, requireAuth]);
-    const saveItem = async (item) => {
-      const id = item.id ? String(item.id) : Date.now().toString();
-      const newItem = { ...item, id };
-      if (db && fbUser) await setDoc(doc(db, buildPath(colName), id), newItem);
-      else setData(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
-      return newItem;
-    };
-    return [data, saveItem];
-  };
-
-  const useFirebaseConfig = () => {
-    const [cfg, setCfg] = useState(INITIAL_CONFIG);
-    useEffect(() => {
-      if (!db || !authReady) return;
-      const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main');
-      const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setCfg(snap.data()); });
-      return () => unsub();
-    }, [authReady]);
-    const saveCfg = async (newCfg) => { if (db && fbUser && authReady) await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg); else setCfg(newCfg); };
-    return [cfg, saveCfg];
-  };
-
-  const isAdmin = user?.role === 'admin';
-  const [config, saveConfig] = useFirebaseConfig();
-  const [sedes, saveSede] = useFirebaseCollection('sedes', [], true, null, true);
-  const [horarios, saveHorario] = useFirebaseCollection('horarios', [], true, null, true);
-  const [cursos, saveCurso] = useFirebaseCollection('cursos', [], true, null, true);
-  const [instructores, saveInstructor] = useFirebaseCollection('instructores', [], true, null, true);
-  const [proveedores, saveProveedor] = useFirebaseCollection('proveedores', [], true, null, true);
-  const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, true);
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
-  const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
-  const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
-
-  const saveMovimiento = useCallback(async (item) => {
-    const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
-    await saveMovimientoRaw(itemConUsuario);
-  }, [fbUser, user, saveMovimientoRaw]);
-
-  const getTodayStr = useCallback(() => {
-    const now = new Date();
-    const options = {
-      timeZone: 'America/Caracas',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    };
-    const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(now);
-    const dateObj = {};
-    parts.forEach(({ type, value }) => {
-      if (type !== 'literal') dateObj[type] = value;
-    });
-    return `${dateObj.year}-${dateObj.month}-${dateObj.day}`;
-  }, []);
-
-  const isReservaActiva = useCallback((r) => {
-    if (!r) return false;
-    if (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') return true;
-    if (r.estadoPago === 'Rechazado') {
-      if (r.rechazadoEn) return (Date.now() - r.rechazadoEn) / 60000 < 20;
-      return true;
-    }
-    if (r.estadoPago === 'Cancelado') return false;
-    return false;
-  }, []);
-
-  const isReservationConflict = useCallback((r, fecha1, fecha2, horaId) => {
-    return String(r.horaId) === String(horaId) && isReservaActiva(r) &&
-      (r.fecha1 === fecha1 || r.fecha1 === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2);
-  }, [isReservaActiva]);
-
-  const buildLockId = (fecha1, horaId, instructorId, motoAsignadaId) => {
-    return `${fecha1}_${horaId}_${String(instructorId)}_${motoAsignadaId ? String(motoAsignadaId) : 'sinmoto'}`;
-  };
-
-  const findAvailableResources = useCallback(({ fecha1, fecha2, horaId, sedeId, tipoMoto, traeMoto, activeLockIds = [] }) => {
-    if (!fecha1 || !fecha2 || !horaId || !sedeId || !tipoMoto) return null;
-    const isLockedResource = (instructorId, motoAsignadaId) => {
-      const lockId = buildLockId(fecha1, horaId, instructorId, motoAsignadaId);
-      return activeLockIds.includes(lockId);
-    };
-    const availableInstructors = instructores
-      .filter(i => i.activo && (i.sedes || []).includes(sedeId))
-      .filter(inst => !reservas.some(r => String(r.instructorId) === String(inst.id) && isReservationConflict(r, fecha1, fecha2, horaId)))
-      .filter(inst => !isLockedResource(inst.id, null));
-    if (availableInstructors.length === 0) return null;
-    const selected = availableInstructors.find(i => i.esPrincipal) || availableInstructors[0];
-    let motoId = null;
-    if (traeMoto !== 'Sí') {
-      const motosDelTipo = (motos || []).filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId));
-      const ocupadas = reservas.filter(r => isReservationConflict(r, fecha1, fecha2, horaId) && r.traeMoto !== 'Sí').map(r => String(r.motoAsignadaId));
-      const libre = motosDelTipo.find(m => !ocupadas.includes(String(m.id)) && !isLockedResource(selected.id, m.id));
-      if (!libre) return null;
-      motoId = libre.id;
-    }
-    return { instructorId: selected.id, motoAsignadaId: motoId };
-  }, [instructores, motos, reservas, isReservationConflict]);
-
+  // 5. calcularBaseUSD (depende de config y sedes)
   const calcularBaseUSD = useCallback((sedeId, sabeBici, traeMoto) => {
-    let total = Number(config.precioBase) || 0;
-    const s = sedes.find(x => String(x.id) === String(sedeId));
-    if (s?.nombre === 'Guarenas') total += Number(config.recargoGuarenas) || 0;
-    if (sabeBici === 'No') total += Number(config.recargoSinBici) || 0;
-    if (traeMoto === 'Sí') total -= Number(config.descuentoMotoPropia) || 0;
-    total -= Number(config.descuentoPromo) || 0;
+    let total = Number(cfg.config.precioBase) || 0;
+    const s = firestore.sedes.find(x => String(x.id) === String(sedeId));
+    if (s?.nombre === 'Guarenas') total += Number(cfg.config.recargoGuarenas) || 0;
+    if (sabeBici === 'No') total += Number(cfg.config.recargoSinBici) || 0;
+    if (traeMoto === 'Sí') total -= Number(cfg.config.descuentoMotoPropia) || 0;
+    total -= Number(cfg.config.descuentoPromo) || 0;
     return total > 0 ? total : 0;
-  }, [config, sedes]);
+  }, [cfg.config, firestore.sedes]);
 
-  const handleSaveInstructorSeguro = async (datos) => {
-    if (!datos.id && datos.email && datos.password) {
-      const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
-      if (!res.success) { showToast(res.error.message, 'error'); return; }
-      showToast('Usuario creado correctamente', 'success');
-      return;
-    }
-    if (datos.esPrincipal) {
-      for (let inst of instructores) {
-        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
-      }
-    }
-    await saveInstructor(datos);
-    showToast('Guardado exitoso');
-  };
+  // 6. Construir contextValue (API idéntica a la anterior)
+  const contextValue = useMemo(() => ({
+    config: cfg.config,
+    saveConfig: cfg.saveConfig,
+    sedes: firestore.sedes,
+    saveSede: firestore.saveSede,
+    horarios: firestore.horarios,
+    saveHorario: firestore.saveHorario,
+    cursos: firestore.cursos,
+    saveCurso: firestore.saveCurso,
+    instructores: firestore.instructores,
+    saveInstructor: firestore.saveInstructor,
+    handleSaveInstructorSeguro: firestore.handleSaveInstructorSeguro,
+    proveedores: firestore.proveedores,
+    saveProveedor: firestore.saveProveedorSeguro,
+    motos: firestore.motos,
+    saveMoto: firestore.saveMoto,
+    reservas: firestore.reservas,
+    saveReserva: firestore.saveReserva,
+    movimientos: firestore.movimientos,
+    saveMovimiento: firestore.saveMovimiento,
+    admins: firestore.admins,
+    saveAdmin: firestore.saveAdmin,
+    notifications: firestore.notifications,
+    markNotificationRead: firestore.markNotificationRead,
+    user: auth.user,
+    setUser: auth.setUser,
+    toast,
+    showToast,
+    autoLoginData: auth.autoLoginData,
+    setAutoLoginData: auth.setAutoLoginData,
+    fbUser: auth.fbUser,
+    authReady: auth.authReady,
+    loginWithGoogle: auth.loginWithGoogle,
+    loginWithEmail: auth.loginWithEmail,
+    loginEstudiante: auth.loginEstudiante,
+    crearEstudiante: auth.crearEstudiante,
+    logoutUser: auth.logoutUser,
+    activeLocks: firestore.activeLocks,
+    suscribirLocks: firestore.suscribirLocks,
+    getTodayStr: firestore.getTodayStr,
+    isReservaActiva: firestore.isReservaActiva,
+    isReservationConflict: firestore.isReservationConflict,
+    findAvailableResources: firestore.findAvailableResources,
+    calcularBaseUSD,
+    createStaffUser: firestore.createStaffUser,
+    seedDatabase: firestore.seedDatabase,
+    cleanExpiredLocks: firestore.cleanExpiredLocks
+  }), [cfg, firestore, auth, toast, showToast, calcularBaseUSD]);
 
-  const saveProveedorSeguro = async (datos) => {
-    if (!datos.id && datos.email && datos.password) {
-      const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
-      if (!res.success) { showToast(res.error.message, 'error'); return; }
-      showToast('Usuario creado correctamente', 'success');
-      return;
-    }
-    await saveProveedor(datos);
-    showToast('Guardado exitoso');
-  };
-
-  const createStaffUser = async (email, password, role, data) => {
-    return await StaffService.crearStaff(email, password, role, data);
-  };
-
-  const seedDatabase = async () => {
-    const res = await StaffService.seedDatabase();
-    if (res.success) showToast('Base de datos inicializada correctamente.', 'success');
-    else if (res.error.code === 'already-seeded') showToast('La base de datos ya tiene datos.', 'info');
-    else showToast(res.error.message, 'error');
-  };
-
-  const cleanExpiredLocks = async () => { await StaffService.cleanExpiredLocks(); };
-
-  const contextValue = {
-    config, saveConfig, sedes, saveSede, horarios, saveHorario, cursos, saveCurso,
-    instructores, saveInstructor, handleSaveInstructorSeguro, proveedores, saveProveedor: saveProveedorSeguro, motos, saveMoto,
-    reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
-    user, setUser, toast, showToast, autoLoginData, setAutoLoginData,
-    getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources, calcularBaseUSD,
-    fbUser, authReady, loginWithGoogle, loginWithEmail, loginEstudiante, crearEstudiante, logoutUser,
-    activeLocks, suscribirLocks, createStaffUser, seedDatabase, cleanExpiredLocks
-  };
-
-  return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={contextValue}>
+      {children}
+    </AppContext.Provider>
+  );
 };
