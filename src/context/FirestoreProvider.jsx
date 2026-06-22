@@ -1,4 +1,4 @@
-// @build: 2026-06-21.FASE3 | id: FIRESTORE-PROVIDER | desc: Hook de datos Firestore extraído del AppContext monolítico
+// @build: 2026-06-21.FASE3 | id: FIRESTORE-PROVIDER | desc: Hook de datos Firestore con suscripción a notificaciones para admin y estudiantes
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -46,15 +46,12 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
   const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
+
+  // ✅ Notificaciones: admin ve todas, estudiante filtra por userId
   const notifCondition = isAdmin || !!user?.uid;
-const notifQuery = isAdmin ? null : where('userId', '==', user?.uid || '');
-const [notifications, saveNotificacion] = useFirebaseCollection(
-  'notificaciones', 
-  [], 
-  true, 
-  isAdmin ? null : where('userId', '==', user?.uid || ''),
-  true
-);
+  const notifQuery = isAdmin ? null : where('userId', '==', user?.uid || '');
+  const [notifications, saveNotificacion] = useFirebaseCollection('notificaciones', [], notifCondition, notifQuery, true);
+
   const saveMovimiento = useCallback(async (item) => {
     const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
     await saveMovimientoRaw(itemConUsuario);

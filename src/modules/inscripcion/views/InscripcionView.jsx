@@ -780,7 +780,7 @@ export const InscripcionView = () => {
       </div>
       {/* Contacto de emergencia */}
       <div>
-        <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Contacto emergencia</label>
+        <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Contac. emergencia</label>
         <input type="tel" value={form.contactoEmergencia} onChange={e => setForm({...form, contactoEmergencia: e.target.value.replace(/\D/g,'').slice(0,11)})} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
       </div>
       {/* Correo electrónico */}

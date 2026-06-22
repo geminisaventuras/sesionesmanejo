@@ -1,5 +1,5 @@
-// @build: 2026-06-22 | id: AJUSTES-INDEPENDIENTE | desc: Ajustes generales como página independiente
-import { useContext, useState, useCallback, memo } from 'react';
+// @build: 2026-06-22 | id: AJUSTES-FEEDBACK | desc: Ajustes generales con feedback de guardado y manejo de errores
+import { useContext, useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Input, Select } from '../../../components/UI';
@@ -8,17 +8,20 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   Activity, DollarSign, Wallet, CreditCard, Check, ChevronUp, ChevronDown,
-  BookOpen, Calendar, Settings
+  BookOpen, Calendar, Settings, Loader
 } from 'lucide-react';
 
 const AdminAjustes = memo(() => {
   const { config, saveConfig, showToast, user, logoutUser } = useContext(AppContext);
   const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
+
+  // Estado local inicializado con config actual o valores por defecto
   const [localCfg, setLocalCfg] = useState(() => ({
     monedaPagoStaff: 'USD',
     monedaCobroClientes: 'EUR',
-    tasaUSD: 36.50,
-    tasaEUR: 39.10,
+    tasaUSD: 600,
+    tasaEUR: 700,
     precioBase: 35,
     recargoGuarenas: 5,
     recargoSinBici: 10,
@@ -30,16 +33,62 @@ const AdminAjustes = memo(() => {
     promocionActiva: false,
     pagoMovilEscuela: {
       banco: 'Banesco',
-      telefono: '04141234567',
-      cedula: '12345678',
+      telefono: '04127185256',
+      cedula: '19497344',
       codigo: '0134',
       ...(config?.pagoMovilEscuela || {})
     },
     ...(config || {})
   }));
+
+  // Sincronizar con Firestore cuando lleguen los datos
+  useEffect(() => {
+    if (config && Object.keys(config).length > 0) {
+      setLocalCfg(prev => ({
+        ...prev,
+        monedaPagoStaff: config.monedaPagoStaff || prev.monedaPagoStaff,
+        monedaCobroClientes: config.monedaCobroClientes || prev.monedaCobroClientes,
+        tasaUSD: config.tasaUSD || prev.tasaUSD,
+        tasaEUR: config.tasaEUR || prev.tasaEUR,
+        precioBase: config.precioBase ?? prev.precioBase,
+        recargoGuarenas: config.recargoGuarenas ?? prev.recargoGuarenas,
+        recargoSinBici: config.recargoSinBici ?? prev.recargoSinBici,
+        descuentoMotoPropia: config.descuentoMotoPropia ?? prev.descuentoMotoPropia,
+        descuentoPromo: config.descuentoPromo ?? prev.descuentoPromo,
+        pagoInstructor: config.pagoInstructor ?? prev.pagoInstructor,
+        pagoProveedor: config.pagoProveedor ?? prev.pagoProveedor,
+        autoTasas: config.autoTasas ?? prev.autoTasas,
+        promocionActiva: config.promocionActiva ?? prev.promocionActiva,
+        pagoMovilEscuela: {
+          banco: config.pagoMovilEscuela?.banco || prev.pagoMovilEscuela?.banco,
+          telefono: config.pagoMovilEscuela?.telefono || prev.pagoMovilEscuela?.telefono,
+          cedula: config.pagoMovilEscuela?.cedula || prev.pagoMovilEscuela?.cedula,
+          codigo: config.pagoMovilEscuela?.codigo || prev.pagoMovilEscuela?.codigo,
+        }
+      }));
+    }
+  }, [config]);
+
   const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false });
   const toggleSeccion = (sec) => setSecciones(prev => ({ ...prev, [sec]: !prev[sec] }));
-  const doSave = useCallback(async () => { await saveConfig(localCfg); showToast('Ajustes guardados'); }, [localCfg, saveConfig, showToast]);
+
+  const configListo = config && Object.keys(config).length > 0;
+
+  const doSave = useCallback(async () => {
+    if (!configListo) {
+      showToast('Configuración no disponible. Intenta de nuevo.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveConfig(localCfg);
+      showToast('Ajustes guardados correctamente', 'success');
+    } catch (error) {
+      showToast('Error al guardar: ' + (error.message || 'falló la conexión'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [localCfg, saveConfig, showToast, configListo]);
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -54,8 +103,9 @@ const AdminAjustes = memo(() => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title="Ajustes Generales" onBack={() => navigate('/admin/config')} onLogout={handleLogout} notifications={notifications} />;  const footer = <DashboardFooter
+  const { notifications } = useContext(AppContext);
+  const header = <DashboardHeader title="Ajustes Generales" onBack={() => navigate('/admin/config')} onLogout={handleLogout} notifications={notifications} />;
+  const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="config"
     onTabChange={(id) => {
@@ -155,7 +205,15 @@ const header = <DashboardHeader title="Ajustes Generales" onBack={() => navigate
           )}
         </div>
 
-        <Button type="button" onClick={doSave} variant="success" icon={Check}>Guardar Ajustes</Button>
+        <Button
+          type="button"
+          onClick={doSave}
+          variant="success"
+          icon={saving ? Loader : Check}
+          disabled={!configListo || saving}
+        >
+          {saving ? 'Guardando...' : 'Guardar Ajustes'}
+        </Button>
       </div>
     </AppShell>
   );

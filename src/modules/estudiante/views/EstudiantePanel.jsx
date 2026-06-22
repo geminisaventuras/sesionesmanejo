@@ -1,5 +1,5 @@
-// @build: 2026-06-22 | id: ESTUDIANTE-DASHBOARD | desc: Dashboard del estudiante con control de acceso y modo corrección (hooks fijos)
-import { useContext, useState, useEffect, useCallback } from 'react';
+// @build: 2026-06-22 | id: ESTUDIANTE-NOTIFICACIONES | desc: Panel del estudiante con campana de notificaciones e input de referencia blindado
+import { useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Spinner } from '../../../components/UI';
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { db } from '../../../firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import ReferenciaInput from '../../shared/components/ReferenciaInput';
+
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const MESES_CORTOS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
@@ -42,7 +44,6 @@ export function EstudiantePanel() {
   const { showToast } = useToast();
   const navigate = useNavigate();
 
-  // ========== TODOS LOS HOOKS (orden fijo) ==========
   const [tab, setTab] = useState('miCurso');
   const [isSearching, setIsSearching] = useState(true);
   const [localReserva, setLocalReserva] = useState(null);
@@ -52,19 +53,14 @@ export function EstudiantePanel() {
   const [cursoDetalle, setCursoDetalle] = useState(null);
   const [redirigido, setRedirigido] = useState(false);
 
-  const [tick, setTick] = useState(0);
-  useEffect(() => { const interval = setInterval(() => setTick(t => t + 1), 1000); return () => clearInterval(interval); }, []);
-
-  // Extraer datos del contexto después de todos los hooks
   const {
     reservas = [], cursos = [], horarios = [], instructores = [], sedes = [],
-    user, fbUser, saveReserva, logoutUser
+    user, fbUser, saveReserva, logoutUser, notifications = []
   } = ctx;
 
   const uid = fbUser?.uid || user?.uid;
 
-  // Reserva actual
-  const reservaContext = reservas.find(r => {
+  const reservaContext = useMemo(() => reservas.find(r => {
     if (String(r.userId) !== String(uid)) return false;
     if (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') return true;
     if (r.estadoPago === 'Rechazado') {
@@ -72,9 +68,8 @@ export function EstudiantePanel() {
       return true;
     }
     return false;
-  });
+  }), [reservas, uid]);
 
-  // Buscar reserva si no está en contexto
   useEffect(() => {
     if (!uid) { setIsSearching(false); return; }
     if (reservaContext) { setIsSearching(false); return; }
@@ -92,7 +87,6 @@ export function EstudiantePanel() {
     return () => { cancel = true; };
   }, [uid, reservaContext]);
 
-  // Curso asociado
   const buscarCurso = useCallback(async () => {
     const r = reservaContext || localReserva;
     if (!r || !r.cursoId) { setBusquedaCursoFallida(true); return; }
@@ -108,7 +102,6 @@ export function EstudiantePanel() {
 
   const reservaActual = reservaContext || localReserva;
 
-  // Control de acceso (useEffect fijo, siempre se ejecuta)
   useEffect(() => {
     if (isSearching || redirigido) return;
     if (!user || user.role !== 'estudiante') return;
@@ -131,20 +124,25 @@ export function EstudiantePanel() {
     }
   }, [isSearching, reservaActual, reservas, uid, user, redirigido]);
 
-  // Logout y compartir
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
+
+  const handleGuardarReferencia = useCallback(async (ref) => {
+    if (!reservaActual) return;
+    await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' });
+    showToast('Referencia enviada', 'success');
+  }, [reservaActual, saveReserva, showToast]);
+
   const compartirCurso = () => {
     const texto = `¡Completé el curso "${cursoDetalle?.cursoNombre || 'MotoEscuela'}" en MotoEscuela App! 🏍️`;
     if (navigator.share) navigator.share({ title: 'MotoEscuela App', text: texto, url: window.location.origin }).catch(() => {});
     else { navigator.clipboard.writeText(texto).then(() => showToast('Enlace copiado', 'success')); }
   };
 
-  // ========== RENDERIZADO ==========
   if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
 
   const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && !reservas.some(r => String(r.userId) === String(uid) && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado'));
 
-  const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} />;
+  const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
     tabs={modoCorreccion
       ? [{ id: 'miCurso', icon: BookOpen, label: 'Mi Curso' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]
@@ -167,7 +165,6 @@ export function EstudiantePanel() {
 
   const irAlAula = () => { if (reservaActual?.id) navigate(`/aula/${reservaActual.id}`); };
 
-  // Vista Mi Curso
   const VistaMiCurso = () => {
     if (!reservaActual) {
       return (
@@ -229,23 +226,7 @@ export function EstudiantePanel() {
                   <p className="text-[10px] text-gray-600">{reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef}</p>
                 </div>
                 {reservaActual.estadoPago === 'Rechazado' && (
-                  <div className="flex gap-1">
-<input
-  type="text"
-  inputMode="numeric"
-  pattern="[0-9]*"
-  maxLength={4}
-  placeholder="0000"
-  autoComplete="off"
-  className="w-20 py-2 px-3 rounded-lg border-2 border-red-300 text-sm font-bold text-center bg-white outline-none focus:border-red-500"
-  id="nuevaRef"
-/>                    <Button type="button" variant="dark" className="!py-1 !px-2 !text-[10px]" onClick={async () => {
-                      const ref = document.getElementById('nuevaRef')?.value;
-                      if (!ref || ref.length !== 4) return showToast('Debe tener 4 dígitos', 'error');
-                      await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' });
-                      showToast('Referencia enviada', 'success');
-                    }}>OK</Button>
-                  </div>
+                  <ReferenciaInput onGuardar={handleGuardarReferencia} />
                 )}
               </div>
             </div>
