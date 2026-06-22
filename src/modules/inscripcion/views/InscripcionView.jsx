@@ -727,15 +727,17 @@ export const InscripcionView = () => {
   };
 
   return (
-    <AppShell header={
-      <DashboardHeader nombre={titulosPasos[step] || 'Inscripción'} role="estudiante" onLogout={() => { limpiarSesionInscripcion(); navigate('/'); }}>
-        <div className="flex items-center gap-3 w-full">
-          <button onClick={handleBack} className="p-2 bg-white/10 rounded-full"><ChevronLeft size={20} className="text-white" /></button>
-          <span className="text-sm font-bold text-white truncate">{titulosPasos[step] || 'Inscripción'}</span>
-          <div className="flex-1" />
-          <button type="button" onClick={() => { limpiarSesionInscripcion(); navigate('/'); }} className="p-2 bg-white/10 rounded-full relative z-10 hover:bg-white/20 transition-colors" style={{ minWidth: '40px', minHeight: '40px' }}><X size={20} className="text-white" /></button>
-        </div>
-      </DashboardHeader>
+ <AppShell header={
+  <DashboardHeader 
+    title={titulosPasos[step] || 'Inscripción'} 
+    onBack={handleBack}
+    onLogout={async () => {
+      limpiarSesionInscripcion();
+      if (logoutUser) await logoutUser();
+      navigate('/');
+    }}
+    showNotifications={false}
+  />
     } footer={
       <div className="bg-white border-t p-4"><Button onClick={handleNext} icon={step === '4' ? Check : ArrowRight} disabled={isSubmitting || (step === '3' && !fbUser) || (step === '3' && lockId && !form.horaId) || (step === '4' && lockExpirado)}>{isSubmitting ? 'Procesando...' : step === '4' ? 'Confirmar y Enviar Pago' : step === '3' ? 'Continuar a Pago' : step === '2' ? 'Continuar a Horario' : 'Continuar'}</Button></div>
     } bgColor="bg-white">

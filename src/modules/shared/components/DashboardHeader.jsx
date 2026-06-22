@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: HEADER-FINAL-FIX | desc: Header con campana y logout 100% funcionales, obtiene rol del contexto
+// @build: 2026-06-22 | id: HEADER-FINAL-FIX | desc: Header con campana opcional y logout siempre visible si onLogout existe
 import { useState, useCallback, useContext } from 'react';
 import { ChevronLeft, User, LogOut, Bell } from 'lucide-react';
 import NotificationDropdown from './NotificationDropdown';
@@ -11,7 +11,7 @@ const ROLE_LABELS = {
   estudiante: 'Estudiante',
 };
 
-export default function DashboardHeader({ nombre, children, onBack, title, onLogout, notifications = [] }) {
+export default function DashboardHeader({ nombre, children, onBack, title, onLogout, notifications = [], showNotifications = true }) {
   const { user } = useContext(AppContext);
   const [mostrarNotificaciones, setMostrarNotificaciones] = useState(false);
 
@@ -24,7 +24,6 @@ export default function DashboardHeader({ nombre, children, onBack, title, onLog
   }, []);
 
   const handleLogoutClick = useCallback(() => {
-    console.log('Logout clickeado'); // Depuración
     if (onLogout) onLogout();
   }, [onLogout]);
 
@@ -36,7 +35,7 @@ export default function DashboardHeader({ nombre, children, onBack, title, onLog
         children
       ) : (
         <>
-          {/* Bloque izquierdo */}
+          {/* Bloque izquierdo: volver + título o nombre */}
           {onBack && title ? (
             <div className="flex items-center gap-3 flex-1 relative z-10">
               <button onClick={onBack} className="p-2 bg-white/10 rounded-full">
@@ -57,21 +56,25 @@ export default function DashboardHeader({ nombre, children, onBack, title, onLog
             </div>
           )}
 
-          {/* Bloque derecho (campana + logout) */}
+          {/* Bloque derecho: campana (opcional) + logout */}
           <div className="flex items-center gap-2 relative z-10">
-            <button onClick={handleNotificationClick} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors relative">
-              <Bell size={18} className="text-gray-300" />
-              {noLeidas > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                  {noLeidas > 9 ? '9+' : noLeidas}
-                </span>
-              )}
-            </button>
-            {mostrarNotificaciones && (
-              <NotificationDropdown
-                notifications={notifications}
-                onClose={() => setMostrarNotificaciones(false)}
-              />
+            {showNotifications && (
+              <>
+                <button onClick={handleNotificationClick} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors relative">
+                  <Bell size={18} className="text-gray-300" />
+                  {noLeidas > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                      {noLeidas > 9 ? '9+' : noLeidas}
+                    </span>
+                  )}
+                </button>
+                {mostrarNotificaciones && (
+                  <NotificationDropdown
+                    notifications={notifications}
+                    onClose={() => setMostrarNotificaciones(false)}
+                  />
+                )}
+              </>
             )}
             {onLogout && (
               <button onClick={handleLogoutClick} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors">

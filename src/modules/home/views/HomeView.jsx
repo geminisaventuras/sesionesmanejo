@@ -1,13 +1,18 @@
-// @build: 2026-06-20 | id: SISTEMA-HOME-UPDATE | desc: Botón Portal de Estudiantes reemplazado por Chat (próximamente) + detección de sesión activa
+// @build: 2026-06-20 | id: SISTEMA-HOME-UPDATE | desc: Home con botón de cerrar sesión visible para usuarios autenticados
 import { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
-import { Zap, Calendar, ArrowRight, User, Lock, MessageCircle } from 'lucide-react';
+import { Zap, Calendar, ArrowRight, User, Lock, MessageCircle, LogOut } from 'lucide-react';
 import AppShell from '../../shared/components/AppShell';
 
 const HomeView = () => {
   const navigate = useNavigate();
-  const { user } = useContext(AppContext);
+  const { user, logoutUser } = useContext(AppContext);
+
+  const handleLogout = async () => {
+    if (logoutUser) await logoutUser();
+    navigate('/');
+  };
 
   return (
     <AppShell bgColor="bg-gray-100" maxWidth="max-w-md" className="sm:rounded-[40px] sm:shadow-2xl sm:max-h-[90vh]">
@@ -25,7 +30,7 @@ const HomeView = () => {
             <ArrowRight size={24} className="text-white" />
           </button>
           <div className="grid grid-cols-2 gap-4 mt-2">
-            {/* Chat (próximamente) – reemplaza al antiguo Portal de Estudiantes */}
+            {/* Chat (próximamente) */}
             <button disabled className="bg-white py-6 px-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-sm border border-gray-100 opacity-60 cursor-not-allowed">
               <div className="w-12 h-12 rounded-full border-2 border-gray-300 flex items-center justify-center text-gray-800">
                 <MessageCircle size={20} />
@@ -57,6 +62,13 @@ const HomeView = () => {
               </button>
             )}
           </div>
+          {/* Botón de Cerrar Sesión (solo si hay sesión activa) */}
+          {user && (
+            <button onClick={handleLogout} className="w-full bg-red-50 hover:bg-red-100 text-red-600 py-4 rounded-2xl flex items-center justify-center gap-2 border border-red-200 transition-all active:scale-[0.98]">
+              <LogOut size={18} />
+              <span className="text-sm font-bold">Cerrar Sesión</span>
+            </button>
+          )}
         </div>
       </div>
     </AppShell>

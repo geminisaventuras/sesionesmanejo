@@ -230,8 +230,16 @@ export function EstudiantePanel() {
                 </div>
                 {reservaActual.estadoPago === 'Rechazado' && (
                   <div className="flex gap-1">
-                    <input type="number" placeholder="Ref" className="w-14 p-1 rounded-lg border border-red-200 text-xs outline-none bg-white font-bold text-center" id="nuevaRef" maxLength="4" />
-                    <Button type="button" variant="dark" className="!py-1 !px-2 !text-[10px]" onClick={async () => {
+<input
+  type="text"
+  inputMode="numeric"
+  pattern="[0-9]*"
+  maxLength={4}
+  placeholder="0000"
+  autoComplete="off"
+  className="w-20 py-2 px-3 rounded-lg border-2 border-red-300 text-sm font-bold text-center bg-white outline-none focus:border-red-500"
+  id="nuevaRef"
+/>                    <Button type="button" variant="dark" className="!py-1 !px-2 !text-[10px]" onClick={async () => {
                       const ref = document.getElementById('nuevaRef')?.value;
                       if (!ref || ref.length !== 4) return showToast('Debe tener 4 dígitos', 'error');
                       await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' });

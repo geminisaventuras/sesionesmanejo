@@ -1,4 +1,4 @@
-// @build: 2026-06-21.FASE3-CORREGIDO | id: AUTH-PROVIDER | desc: Restaurada búsqueda directa del admin (sin índices)
+// @build: 2026-06-22 | id: AUTH-LOGOUT-ROBUSTO | desc: Cierre de sesión a prueba de fallos, limpia estado local siempre
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -11,6 +11,7 @@ export function useAuthProvider(showToast) {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState(null);
   const [autoLoginData, setAutoLoginData] = useState(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const restoreUserRole = useCallback(async (currentUser) => {
     if (!currentUser || !currentUser.email) return;
@@ -18,7 +19,6 @@ export function useAuthProvider(showToast) {
     const basePath = `artifacts/${APP_ID}/public/data`;
 
     try {
-      // 1. Buscar admin por documento fijo (sin índices)
       const adminDocRef = doc(db, basePath, 'admins', 'admin1');
       const adminSnap = await getDoc(adminDocRef);
       if (adminSnap.exists()) {
@@ -29,7 +29,6 @@ export function useAuthProvider(showToast) {
         }
       }
 
-      // 2. Buscar instructor
       const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
       const instSnap = await getDocs(instQuery);
       if (!instSnap.empty) {
@@ -43,7 +42,6 @@ export function useAuthProvider(showToast) {
         return;
       }
 
-      // 3. Buscar proveedor
       const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
       const provSnap = await getDocs(provQuery);
       if (!provSnap.empty) {
@@ -57,7 +55,6 @@ export function useAuthProvider(showToast) {
         return;
       }
 
-      // 4. Si no es nada, asumir estudiante
       const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
       setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
 
@@ -68,6 +65,7 @@ export function useAuthProvider(showToast) {
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthChange((currentUser) => {
+      if (loggingOut) return; // Ignorar cambios durante el logout manual
       setFbUser(currentUser);
       if (currentUser) {
         restoreUserRole(currentUser).finally(() => setAuthReady(true));
@@ -77,7 +75,7 @@ export function useAuthProvider(showToast) {
       }
     });
     return () => unsubscribe();
-  }, [restoreUserRole]);
+  }, [restoreUserRole, loggingOut]);
 
   const loginWithGoogle = useCallback(async () => {
     const res = await AuthService.loginConGoogle();
@@ -104,9 +102,19 @@ export function useAuthProvider(showToast) {
   }, [showToast]);
 
   const logoutUser = useCallback(async () => {
-    const res = await AuthService.logout();
-    if (res.success) { setUser(null); }
-    else showToast(res.error.message, 'error');
+    setLoggingOut(true);
+    try {
+      await AuthService.logout();
+    } catch (error) {
+      console.warn('Error al cerrar sesión en Firebase:', error);
+    } finally {
+      setUser(null);
+      setFbUser(null);
+      setAutoLoginData(null);
+      setLoggingOut(false);
+      setAuthReady(true);
+      showToast('Has cerrado sesión correctamente', 'success');
+    }
   }, [showToast]);
 
   return {

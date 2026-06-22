@@ -1,5 +1,5 @@
-// @build: 2026-06-20.19-00-00 | id: AULA-RESERVA | desc: Botones de reserva, FilaTiempo ampliada, relojes autónomos + protección de acceso
-import { useContext, useState, useEffect, useMemo } from 'react';
+// @build: 2026-06-22 | id: AULA-BLOQUEO-INSTRUCTOR | desc: Aula virtual con bloqueo de acceso para instructor si pago no aprobado
+import { useContext, useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Spinner } from '../../../components/UI';
@@ -16,6 +16,7 @@ import { MOTIVOS_PAUSA } from '../../sesiones/constants';
 import { alertas } from '../../shared/utils/alertas';
 import { formatearRangoCorto, obtenerMesCortoYAnio } from '../../shared/utils/fechas';
 import { ChevronLeft, Calendar, Clock, MapPin, Bike, BookOpen, Award, Pause, User, Library, MessageCircle, Siren, X } from 'lucide-react';
+
 const MATERIAL_APOYO = {
   senales: [{ nombre: 'Pare', descripcion: 'Detenerse completamente antes de la intersección.' }, { nombre: 'Ceda el Paso', descripcion: 'Reducir velocidad y ceder el paso.' }, { nombre: 'Velocidad Máxima', descripcion: 'Límite de velocidad permitido.' }],
   leyes: [{ titulo: 'Artículo 154', texto: 'Los conductores deben mantener la distancia de seguridad.' }, { titulo: 'Artículo 169', texto: 'Está prohibido el uso de dispositivos móviles al conducir.' }],
@@ -38,20 +39,32 @@ export default function AulaVirtualView() {
 
   useEffect(() => { alertas.inicializar(); }, []);
 
-  const { reserva, sgta, modalConfirmacion, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast);
+  const opcionesRef = useRef({ curso: null, hor: null });
 
-  // ✅ Protección de acceso: si la reserva existe pero el pago no está aprobado, redirigir al portal
-  useEffect(() => {
-    if (reserva && reserva.estadoPago !== 'Aprobado' && esEstudiante) {
-      showToast('Tu pago aún no ha sido aprobado. Espera la validación del administrador.', 'error');
-      navigate('/portal-reservas', { replace: true });
-    }
-  }, [reserva, esEstudiante, showToast, navigate]);
+  const { reserva, sgta, modalConfirmacion, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef);
 
   const curso = useMemo(() => { if (!reserva) return { nombre: '', modulos: [], duracionTotal: 240 }; return (cursos || []).find(c => String(c.id) === String(reserva.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 }; }, [cursos, reserva]);
   const hor = useMemo(() => reserva ? (horarios || []).find(h => String(h.id) === String(reserva.horaId)) : null, [horarios, reserva]);
   const sede = useMemo(() => reserva ? (sedes || []).find(s => String(s.id) === String(reserva.sedeId)) : null, [sedes, reserva]);
   const inst = useMemo(() => reserva ? (instructores || []).find(i => String(i.id) === String(reserva.instructorId)) : null, [instructores, reserva]);
+
+  useEffect(() => {
+    opcionesRef.current = { curso, hor };
+  }, [curso, hor]);
+
+  // Bloqueo por pago no aprobado – tanto estudiante como instructor
+  useEffect(() => {
+    if (!reserva) return;
+    if (reserva.estadoPago !== 'Aprobado') {
+      if (esEstudiante) {
+        showToast('Tu pago aún no ha sido aprobado. Espera la validación del administrador.', 'error');
+        navigate('/portal-reservas', { replace: true });
+      } else if (esInstructor) {
+        showToast('El pago de esta reserva aún no ha sido aprobado. No puedes iniciar la clase.', 'error');
+        navigate('/instructor', { replace: true });
+      }
+    }
+  }, [reserva, esEstudiante, esInstructor, showToast, navigate]);
 
   const cantCompletados = Object.keys(reserva?.modulosEstado || {}).filter(k => (reserva?.modulosEstado || {})[k]?.fecha).length;
   const totalModulos = curso.modulos.length;
@@ -67,11 +80,10 @@ export default function AulaVirtualView() {
   const modulosPendientes = curso.modulos.filter(mod => !(reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha);
 
   const handleVolver = () => navigate(esInstructor ? '/instructor' : '/portal-reservas');
-  const handleEmergencia = () => { showToast('Emergencia reportada.', 'error'); if (reserva && saveReserva) saveReserva({ emergencia: { timestamp: Date.now(), reportadoPor: rol } }); };
+  const handleEmergencia = () => { showToast('Emergencia reportada.', 'error'); if (reserva && saveReserva) saveReserva({ ...reserva, emergencia: { timestamp: Date.now(), reportadoPor: rol } }); };
 
   if (!reserva) return (<AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando aula..." /></div></AppShell>);
 
-  // Si la reserva existe pero el pago no está aprobado y no es instructor, mostrar mensaje
   if (reserva.estadoPago !== 'Aprobado' && esEstudiante) {
     return (
       <AppShell bgColor="bg-gray-50">

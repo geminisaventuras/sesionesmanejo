@@ -188,3 +188,27 @@ Esto garantiza un punto de restauración antes de cada modificación.
 - **Corrección de hooks en EstudiantePanel:** Error "Rendered more hooks" corregido.
 - **Corrección de typo `today` → `todayStr` en bloques.**
 - **Protección contra `activeLocks = null` en `calcularDisponibilidadBloque`.**
+
+
+---
+### SESIÓN 21-22/06/2026 – PWA, Restricciones de Sesión y Mejoras del Instructor
+
+**Decisiones clave:**
+- **PWA:** Instalada `vite-plugin-pwa`, creados `manifest.json` e iconos. App instalable en Android/iOS.
+- **Restricciones de inicio de módulo:** El instructor no puede iniciar si el pago no está aprobado, el estudiante no está presente, o es antes de la fecha/hora del curso.
+- **Límite diario dinámico:** Calculado según hora de fin del bloque contratado.
+- **Presencia del estudiante:** Se escribe `estudiantePresente` al entrar al Aula Virtual y se limpia al salir (2 escrituras, plan Spark respetado).
+- **Relojes corregidos:** Tick estable sin dependencia de reserva, reloj diario se reinicia en D2, reloj general continúa.
+- **Pausa en tiempo real:** `pausaTotalAcumulada` se actualiza cada segundo durante pausas.
+- **InstructorPanel:** Tarjetas con etiqueta "Verificando pago" para cursos no aprobados, header dinámico con botón volver.
+- **Cierre de sesión robusto:** Limpia estado local incluso si Firebase falla. Botón en Home e Inscripción.
+
+**Archivos modificados/creados:**
+- `src/modules/sesiones/hooks/useSessionTimer.js` (reestructuración completa)
+- `src/modules/aula/views/AulaVirtualView.jsx`
+- `src/modules/instructor/views/InstructorPanel.jsx`
+- `src/modules/shared/components/DashboardHeader.jsx`
+- `src/context/AuthProvider.jsx`
+- `public/manifest.json` (nuevo)
+- `vite.config.js`
+- `index.html`

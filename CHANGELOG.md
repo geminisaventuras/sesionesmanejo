@@ -126,3 +126,29 @@
 - Corrección de error "Rendered more hooks".
 - Corrección de typo `today` → `todayStr`.
 - Protección contra `activeLocks = null`.
+
+---
+### Sesión 21-22/06/2026 – PWA, Restricciones y Estabilización
+
+**PWA:**
+- Instalación de `vite-plugin-pwa`.
+- Creación de `manifest.json` e iconos.
+- App instalable en Android e iOS.
+
+**Aula Virtual:**
+- Restricción: no iniciar sin pago aprobado.
+- Restricción: no iniciar sin estudiante presente.
+- Restricción: no iniciar antes de fecha/hora del curso.
+- Límite diario dinámico según hora de fin del bloque.
+- Tick del reloj corregido (estable, sin reinicios).
+- Pausa acumulada en tiempo real.
+- Reloj diario se reinicia en D2, general continúa.
+
+**Instructor:**
+- Tarjetas con "Verificando pago" para cursos no aprobados.
+- Header dinámico con botón volver en vista pendientes.
+- Bloqueo de acceso al Aula Virtual si pago no aprobado.
+
+**Autenticación:**
+- Cierre de sesión robusto (funciona incluso sin conexión).
+- Botón de cerrar sesión en Home e Inscripción.

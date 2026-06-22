@@ -238,3 +238,20 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - B66: Validación de edad máxima (110 años).
 - B106: `buscarProximaFechaDisponible` sin AbortController.
 - B109: Selectores de Sexo y Estado no usan componente Select personalizado.
+
+---
+### Actualización 22/06/2026 – PWA y Restricciones de Sesión
+
+**Bugs cerrados:**
+- ✅ Reloj diario no se detenía a los 120 min.
+- ✅ Instructor podía iniciar curso sin pago aprobado.
+- ✅ Instructor podía iniciar curso antes de la fecha/hora programada.
+- ✅ Pausa acumulada no se actualizaba en tiempo real.
+- ✅ Instructor sin botón para volver de vista "Pendientes".
+- ✅ Reloj no avanzaba en tiempo real (tick roto).
+
+**Nuevas funcionalidades:**
+- ✅ PWA instalable en celular.
+- ✅ Presencia del estudiante requerida para iniciar módulo.
+- ✅ Límite diario ajustado al horario del bloque.
+- ✅ Tarjetas del instructor con etiqueta "Verificando pago".
