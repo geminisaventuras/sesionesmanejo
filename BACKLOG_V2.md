@@ -270,3 +270,32 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - **[MEDIA] B122** – Doble PIN (regeneración en paso 4) no implementado.
 - **[MEDIA] B123** – Recuperación de PIN olvidado (flujo automatizado vía correo).
 - **[BAJA] B124** – Tipado fuerte de lockId en useDisponibilidad.
+
+---
+### Actualización 23/06/2026 – Consolidación Post-Auditoría Centinela V4.0
+
+**Deuda técnica registrada durante la auditoría (Fases 1-4):**
+
+- **[MEDIA] B125** – Optimización de consultas N+1 en `restoreUserRole` (AuthProvider.js). Actualmente ejecuta 3 consultas secuenciales a Firestore. Migrar a Cloud Function con Custom Claims o colección unificada `users/{uid}`.
+- **[MEDIA] B126** – Externalización de la identidad del Operador. El email `armandoaventurasve@gmail.com` está hardcodeado en `firestore.rules` y `AuthProvider.js`. Debe moverse a variable de entorno o Remote Config.
+- **[BAJA] B127** – Ofuscación de topología de rutas administrativas. Todas las rutas del panel admin están expuestas en el bundle JS del cliente. Evaluar extraer el panel admin a un chunk separado con lazy loading condicionado por rol.
+- **[MEDIA] B128** – Migrar limpieza global de locks expirados a Cloud Function + Cloud Scheduler. Actualmente `limpiarLocksExpirados` se ejecuta desde el cliente con filtro por `userId`. La limpieza global (sin filtrar por usuario) requiere backend.
+- **[BAJA] B129** – Mitigación de Clock Skew en `crearLock`. La expiración del lock se calcula con `Date.now()` del cliente. Si el reloj del dispositivo está adelantado, la regla `expiresAt <= request.time + 900s` puede rechazar locks legítimos. Evaluar uso de `serverTimestamp()`.
+- **[BAJA] B130** – Mapeo de errores de concurrencia de locks a mensajes de negocio amigables. Cuando `crearLock` falla por colisión (`permission-denied` porque `allow update: if false`), el usuario ve un error genérico. Debe mostrarse "Este horario acaba de ser separado por otro usuario".
+- **[MEDIA] B132** – Implementación de Focus Trap en modales (WCAG 2.1.2). `ModalPIN`, `ModalExpiracion` y `ModalConfirmacion` no atrapan el foco ni se cierran con Escape. Crear custom hook `useFocusTrap` o componente `ModalBase`.
+- **[BAJA] B133** – Adición de atributos `autocomplete` en formularios de inscripción (WCAG 1.3.5). Los campos de nombre, apellido, teléfono, correo carecen de `autocomplete="given-name"`, `autocomplete="tel"`, etc.
+- **[MEDIA] B134** – Configuración de headers HTTP de seguridad en `firebase.json`: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. Previene Clickjacking.
+
+**Deuda técnica cancelada durante la auditoría:**
+- ~~B131~~ – Falso positivo de WCAG 2.5.8 en círculos de módulo. El botón padre supera los 40px de altura.
+
+**Deuda preexistente que permanece vigente:**
+- B66: Validación de edad máxima (110 años).
+- B82: Color del reloj SVG (contraste del número).
+- B89-B99: Calificación mutua, logros, chat, insignias, accesibilidad, orden secuencial configurable, nota del instructor por módulo, registro de instructorId en modulosEstado.
+- B100-B103: ClaseService.js, trazabilidad W3C, input type="date" nativo, módulo de Servicios.
+- B104-B107: Curso 1 día vs 2 días, pausar reloj al límite diario, división visual de sesiones, módulo de fotos y videos.
+- B108-B113: Posponer/cancelar curso, registro de asistencia, términos y condiciones, pago de tiempo extra, división de receso.
+- B114: Reemplazar `window.confirm` por modal personalizado.
+- B115-B121: Material como página independiente, restricción de reversión de módulos, clases virtuales online, flujo de reserva de tiempo, cambio automático D1→D2, registro de tiempo excedente, reset administrativo de contadores de sesión.
+- B122-B124: Doble PIN, recuperación de PIN olvidado, tipado fuerte de lockId.

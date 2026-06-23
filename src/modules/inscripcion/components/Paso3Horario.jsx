@@ -1,4 +1,3 @@
-// @build: 2026-06-22.REFACTOR | id: PASO3-HORARIO | desc: Componente puro del paso 3 (selección de horario). Recibe datos calculados por el hook y callbacks.
 import React, { useMemo } from 'react';
 import { Calendar, Eye, ArrowRight } from 'lucide-react';
 import { Spinner } from '../../../components/UI';
@@ -74,7 +73,6 @@ export function Paso3Horario({
         </button>
       </div>
 
-      {/* ✅ Mensajes según estado */}
       {!fbUser ? (
         <div className="flex-1 flex items-center justify-center">
           <Spinner message="Cargando horarios..." />
@@ -117,6 +115,8 @@ export function Paso3Horario({
                       <>
                         {b.isLunch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">ALMUERZO</span>}
                         {b.reason === 'CERRADO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">CERRADO</span>}
+                        {b.reason === 'RESERVADO' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black">Reservado</span>}
+                        {b.reason === 'EN_ESPERA_PAGO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">En espera de pago</span>}
                         {b.reason === 'OCUPADO' && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
                         {b.reason === 'SIN_MOTO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">SIN MOTO</span>}
                         {!b.disponible && !b.reason && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}

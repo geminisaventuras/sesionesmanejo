@@ -1,5 +1,5 @@
-// @build: 2026-06-22 | id: TIMER-PAUSA-DINAMICA | desc: Tick actualiza pausaTotalAcumulada y tiempoEfectivo en tiempo real. Botón de reserva visible dinámicamente.
-import { useState, useEffect, useRef, useCallback } from 'react';
+// @build: 2026-06-23 | id: CENTINELA-FASE3-CORRECCION-BLOQUEO-Y-RESILIENCIA | desc: Bloqueo optimista en pausarSesion y reanudarSesion. Listeners de visibilidad y red para heartbeat. Variable conexionPerdida expuesta.
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
 import { SGTA_DEFAULTS } from '../constants';
@@ -20,222 +20,196 @@ function parseHora(str) {
 
 export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef) {
   const [reserva, setReserva] = useState(null);
-  const [sgta, setSgta] = useState(() => ({
-    ...SGTA_DEFAULTS,
-    _moduloExcedido: false,
-    reservaActiva: false,
-    reservaRestante: 0,
-    pausaAlIniciarReserva: null,
-    sesionIniciada: false
-  }));
-  const sgtaRef = useRef(sgta);
-  useEffect(() => { sgtaRef.current = sgta; }, [sgta]);
-
-  // Refs para valores que necesita el tick (evitan dependencia de 'reserva')
-  const tickDataRef = useRef({
-    sesionIniciada: false,
-    totalCompletado: false,
-    diarioCompletado: false,
-    limiteTotal: 240,
-    limiteDiario: 120,
-    pausaActiva: false,
-    pausaInicio: null,
-    pausaAcumuladaBase: 0,      // lo guardado en Firestore (sin la pausa actual)
-    moduloActivo: false,
-    _moduloExcedido: false,
-  });
-
+  const [tick, setTick] = useState(0);
   const [modalConfirmacion, setModalConfirmacion] = useState(null);
-  const pedirConfirmacion = useCallback((titulo, mensaje) => {
-    return new Promise((resolve) => {
-      setModalConfirmacion({ titulo, mensaje, onConfirm: () => { setModalConfirmacion(null); resolve(true); }, onCancel: () => { setModalConfirmacion(null); resolve(false); } });
-    });
-  }, []);
 
-  // Suscripción a Firestore
+  const [localPausaActiva, setLocalPausaActiva] = useState(false);
+  const [localPausaInicio, setLocalPausaInicio] = useState(null);
+  const [localPausaMotivo, setLocalPausaMotivo] = useState('');
+  const [localReservaActiva, setLocalReservaActiva] = useState(false);
+  const [localReservaRestante, setLocalReservaRestante] = useState(0);
+  const [localRecesoAlerta, setLocalRecesoAlerta] = useState(false);
+
+  // CORRECCIÓN FASE 3: Estado de conexión para propagar a RelojSesion
+  const [conexionPerdida, setConexionPerdida] = useState(!navigator.onLine);
+
+  // ── Suscripción a Firestore ──
   useEffect(() => {
     if (!reservaId) return;
     const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaId);
-    const unsub = onSnapshot(ref, (snap) => { if (snap.exists()) setReserva({ id: snap.id, ...snap.data() }); }, () => {});
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setReserva({ id: snap.id, ...data });
+        setLocalPausaActiva(!!data.pausaActiva);
+        setLocalPausaInicio(data.pausaActiva?.inicio || null);
+        setLocalPausaMotivo(data.pausaActiva?.motivo || '');
+        if (data.reservaActiva !== undefined) setLocalReservaActiva(data.reservaActiva);
+        if (data.reservaRestante !== undefined) setLocalReservaRestante(data.reservaRestante);
+      }
+    }, () => {});
     return () => unsub();
   }, [reservaId]);
 
-  // Presencia del estudiante (solo si NO es instructor)
-  const presenciaEscrita = useRef(false);
+  // ── Heartbeat de presencia del estudiante (CORRECCIÓN FASE 3: Resiliencia) ──
   useEffect(() => {
-    if (esInstructor || !reservaId || presenciaEscrita.current) return;
+    if (esInstructor || !reservaId) return;
     const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaId);
-    updateDoc(ref, { estudiantePresente: Date.now() }).then(() => { presenciaEscrita.current = true; });
+
+    const enviarHeartbeat = () => {
+      if (navigator.onLine) {
+        updateDoc(ref, { estudiantePresente: Date.now() }).catch(() => {});
+      }
+    };
+
+    enviarHeartbeat();
+    const interval = setInterval(enviarHeartbeat, 60000);
+
+    // CORRECCIÓN FASE 3: Forzar heartbeat al volver a primer plano (mitiga throttling)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        enviarHeartbeat();
+      }
+    };
+    const handleOnline = () => { setConexionPerdida(false); enviarHeartbeat(); };
+    const handleOffline = () => setConexionPerdida(true);
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       updateDoc(ref, { estudiantePresente: null }).catch(() => {});
     };
   }, [reservaId, esInstructor]);
 
-  // Sincronizar tickDataRef con los últimos valores derivados, incluyendo pausa acumulada base
+  // ── Tick cada segundo ──
   useEffect(() => {
-    if (!reserva) return;
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── Cálculos derivados ──
+  const derivados = useMemo(() => {
+    if (!reserva) {
+      return {
+        generalSegundos: 0, diarioSegundos: 0, moduloSegundos: 0, pausaSegundos: 0,
+        pausaTotalAcumulada: 0, tiempoEfectivo: 0, totalCompletado: false, diarioCompletado: false,
+        moduloActivo: false, moduloExcedido: false, limiteDiario: 120, limiteTotal: 240,
+        diaActual: 1, sesionIniciada: false,
+      };
+    }
     const ahora = Date.now();
-    const pausaActiva = !!reserva.pausaActiva;
     const tieneSesionDiaria = !!reserva.sesionDiariaInicio;
     const tieneSesionTotal = !!reserva.sesionTotalInicio;
+    const tieneModulo = !!reserva.moduloEnProgreso?.inicio;
 
     const curso = opcionesRef.current?.curso;
     const limiteDiario = reserva.sesionDiariaLimite || 120;
     const limiteTotal = reserva.sesionTotalLimite || curso?.duracionTotal || 240;
 
-    const diarioCompletado = tieneSesionDiaria && (Math.max(0, Math.floor((ahora - reserva.sesionDiariaInicio) / 1000)) >= limiteDiario * 60);
-    const totalCompletado = tieneSesionTotal && (Math.max(0, Math.floor((ahora - reserva.sesionTotalInicio) / 1000)) >= limiteTotal * 60);
+    let diarioSegundos = 0;
+    if (tieneSesionDiaria) {
+      diarioSegundos = Math.floor((ahora - reserva.sesionDiariaInicio) / 1000);
+      if (diarioSegundos > limiteDiario * 60) diarioSegundos = limiteDiario * 60;
+    }
 
-    // Pausa acumulada base = lo que ya está guardado (sin contar la pausa actual)
-    const pausaAcumuladaBase = reserva.pausaTotalAcumulada ?? (reserva.pausas || []).reduce((acc, p) => acc + (p.duracion || 0) * 60, 0);
+    let generalSegundos = 0;
+    if (tieneSesionTotal) {
+      generalSegundos = Math.floor((ahora - reserva.sesionTotalInicio) / 1000);
+      if (generalSegundos > limiteTotal * 60) generalSegundos = limiteTotal * 60;
+    }
 
-    tickDataRef.current = {
-      sesionIniciada: tieneSesionDiaria,
-      totalCompletado,
-      diarioCompletado,
-      limiteTotal,
-      limiteDiario,
-      pausaActiva,
-      pausaInicio: reserva.pausaActiva?.inicio || null,
-      pausaAcumuladaBase,
-      moduloActivo: !!reserva.moduloEnProgreso && !pausaActiva && !sgtaRef.current._moduloExcedido,
-      _moduloExcedido: sgtaRef.current._moduloExcedido,
+    const pausaActiva = localPausaActiva;
+    let pausaSegundos = 0;
+    if (pausaActiva && localPausaInicio) {
+      pausaSegundos = Math.floor((ahora - localPausaInicio) / 1000);
+    }
+
+    let moduloSegundos = 0;
+    if (tieneModulo) {
+      const inicioReal = reserva.moduloEnProgreso.inicio -
+        (reserva.modulosEstado?.[reserva.moduloEnProgreso.modulo]?.duracionParcial || 0) * 60000;
+      moduloSegundos = Math.max(0, Math.floor((ahora - inicioReal) / 1000));
+      if (pausaActiva) {
+        moduloSegundos = Math.max(0, moduloSegundos - pausaSegundos);
+      }
+    }
+
+    const pausaAcumuladaBase = reserva.pausaTotalAcumulada ??
+      (reserva.pausas || []).reduce((acc, p) => acc + (p.duracionSegundos || (p.duracion || 0) * 60), 0);
+    const pausaTotalAcumulada = pausaAcumuladaBase + pausaSegundos;
+    const tiempoEfectivo = Math.max(0, limiteTotal * 60 - pausaTotalAcumulada);
+
+    const totalCompletado = generalSegundos >= limiteTotal * 60;
+    const diarioCompletado = diarioSegundos >= limiteDiario * 60;
+    const moduloActivo = tieneModulo && !pausaActiva && moduloSegundos < 3600;
+    const moduloExcedido = tieneModulo && moduloSegundos >= 3600;
+
+    return {
+      generalSegundos, diarioSegundos, moduloSegundos, pausaSegundos,
+      pausaTotalAcumulada, tiempoEfectivo, totalCompletado, diarioCompletado,
+      moduloActivo, moduloExcedido, limiteDiario, limiteTotal,
+      diaActual: reserva.diaActual || 1, sesionIniciada: tieneSesionDiaria,
     };
-  }, [reserva, opcionesRef]);
+  }, [tick, reserva, localPausaActiva, localPausaInicio, opcionesRef]);
 
-  // Tick estable: ahora calcula pausaTotalAcumulada y tiempoEfectivo en tiempo real
-  useEffect(() => {
-    if (!reservaId) return;
-    const interval = setInterval(() => {
-      const d = tickDataRef.current;
-      setSgta(prev => {
-        const nuevo = { ...prev };
-        const ahora = Date.now();
+  const sgta = useMemo(() => ({
+    ...SGTA_DEFAULTS,
+    ...derivados,
+    pausaActiva: localPausaActiva,
+    pausaInicio: localPausaInicio,
+    pausaMotivo: localPausaMotivo,
+    moduloEnProgreso: reserva?.moduloEnProgreso?.modulo || null,
+    reservaActiva: localReservaActiva,
+    reservaRestante: localReservaRestante,
+    _moduloExcedido: derivados.moduloExcedido,
+    _recesoAlerta: localRecesoAlerta,
+    generalActivo: derivados.sesionIniciada && !localPausaActiva && !derivados.totalCompletado && !derivados.diarioCompletado,
+  }), [derivados, localPausaActiva, localPausaInicio, localPausaMotivo, localReservaActiva, localReservaRestante, localRecesoAlerta, reserva]);
 
-        // Reloj general (continúa hasta completar total)
-        if (d.sesionIniciada && !d.totalCompletado) {
-          nuevo.generalSegundos = (prev.generalSegundos || 0) + 1;
-          if (nuevo.generalSegundos >= d.limiteTotal * 60) {
-            nuevo.generalSegundos = d.limiteTotal * 60;
-            nuevo.totalCompletado = true;
-          }
-        }
+  const sgtaRef = useRef(sgta);
+  useEffect(() => { sgtaRef.current = sgta; }, [sgta]);
 
-        // Reloj diario
-        if (d.sesionIniciada && !d.diarioCompletado) {
-          nuevo.diarioSegundos = (prev.diarioSegundos || 0) + 1;
-          if (nuevo.diarioSegundos >= d.limiteDiario * 60) {
-            nuevo.diarioSegundos = d.limiteDiario * 60;
-            nuevo.diarioCompletado = true;
-          }
-        }
-
-        // Módulo actual
-        if ((d.moduloActivo || d._moduloExcedido) && !d.pausaActiva) {
-          nuevo.moduloSegundos = (prev.moduloSegundos || 0) + 1;
-          if (nuevo.moduloSegundos === 3300 && !prev._recesoAlerta) {
-            alertas.recesoAutomatico();
-            showToast('⏳ Receso automático en 5 minutos', 'info');
-            nuevo._recesoAlerta = true;
-          }
-          if (nuevo.moduloSegundos >= 3600 && !prev._moduloExcedido) {
-            alertas.limiteModulo();
-            showToast(`⏰ Tiempo agotado. El módulo "${prev.moduloEnProgreso}" alcanzó su límite de 60 min.`, 'error');
-            nuevo._moduloExcedido = true;
-            nuevo.moduloActivo = false;
-          }
-        }
-
-        // Pausa: calcular segundos actuales y total acumulado en tiempo real
-        if (d.pausaActiva && d.pausaInicio) {
-          nuevo.pausaSegundos = Math.floor((ahora - d.pausaInicio) / 1000);
-          nuevo.pausaTotalAcumulada = d.pausaAcumuladaBase + nuevo.pausaSegundos;
-        } else {
-          nuevo.pausaSegundos = 0;
-          nuevo.pausaTotalAcumulada = d.pausaAcumuladaBase;
-        }
-        // Tiempo efectivo = límite total - acumulado total de pausa
-        nuevo.tiempoEfectivo = Math.max(0, (d.limiteTotal * 60) - nuevo.pausaTotalAcumulada);
-
-        // Reserva activa (botón naranja)
-        if (prev.reservaActiva && prev.reservaRestante > 0) {
-          nuevo.reservaRestante = prev.reservaRestante - 1;
-          nuevo.generalSegundos = (prev.generalSegundos || 0) + 1;
-          if (nuevo.reservaRestante <= 0) {
-            nuevo.reservaActiva = false;
-            nuevo.reservaRestante = 0;
-            nuevo.pausaTotalAcumulada = 0;
-            nuevo.tiempoEfectivo = d.limiteTotal * 60;
-          }
-        }
-
-        return nuevo;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [reservaId]); // Solo depende de reservaId
-
-  const actualizar = async (campos) => {
+  const actualizar = useCallback(async (campos) => {
     if (!reserva?.id) return;
     await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reserva.id), campos);
-  };
+  }, [reserva]);
 
   const iniciarModulo = useCallback(async (nombre) => {
     if (!reserva) return;
     const curso = opcionesRef.current?.curso;
     const horario = opcionesRef.current?.hor;
-
-    if (!curso || !horario) {
-      showToast('Datos del curso no disponibles. Intenta de nuevo.', 'error');
-      return;
-    }
-
-    if (reserva.estadoPago !== 'Aprobado') {
-      showToast('El pago no ha sido aprobado. No se puede iniciar el curso.', 'error');
-      return;
-    }
-
+    if (!curso || !horario) { showToast('Datos del curso no disponibles.', 'error'); return; }
+    if (reserva.estadoPago !== 'Aprobado') { showToast('Pago no aprobado.', 'error'); return; }
     if (!reserva.estudiantePresente || (Date.now() - reserva.estudiantePresente) > 2 * 60 * 1000) {
-      showToast('El estudiante no está presente. Pídele que abra el Aula Virtual.', 'error');
-      return;
+      showToast('Estudiante no presente.', 'error'); return;
     }
-
     const hoy = new Date().toISOString().split('T')[0];
-    const fechaCurso = reserva.fecha;
-    const fecha2Curso = reserva.fecha2;
-    if (hoy < fechaCurso) {
-      showToast(`El curso está programado para el ${fechaCurso}. No puedes iniciarlo antes.`, 'error');
-      return;
+    if (hoy < reserva.fecha) { showToast(`Curso programado para ${reserva.fecha}.`, 'error'); return; }
+    if ((reserva.fecha2 && hoy > reserva.fecha2) || (!reserva.fecha2 && hoy > reserva.fecha)) {
+      showToast('Curso vencido.', 'error'); return;
     }
-    if (fecha2Curso && hoy > fecha2Curso) {
-      showToast('El curso ha vencido. Contacta al administrador para reprogramar.', 'error');
-      return;
-    }
-    if (!fecha2Curso && hoy > fechaCurso) {
-      showToast('El curso ha vencido. Contacta al administrador para reprogramar.', 'error');
-      return;
-    }
-
     const horaInicioLabel = horario?.label?.split('-')[0]?.trim();
     const horaInicioMinutos = horaInicioLabel ? parseHora(horaInicioLabel) : null;
     if (horaInicioMinutos !== null) {
       const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
       if (ahoraMinutos < horaInicioMinutos) {
-        showToast(`El bloque comienza a las ${horaInicioLabel}. Espera hasta esa hora.`, 'error');
-        return;
+        showToast(`Bloque comienza a las ${horaInicioLabel}.`, 'error'); return;
       }
     }
 
     const duracionTotalCurso = curso?.duracionTotal || 240;
+    const fecha2Curso = reserva.fecha2;
     const duracionDiariaCurso = fecha2Curso ? Math.floor(duracionTotalCurso / 2) : duracionTotalCurso;
     let diaActual = reserva.diaActual || 1;
-
-    if (fecha2Curso && hoy === fecha2Curso && reserva.diaActual === 1) {
-      diaActual = 2;
-    }
+    if (fecha2Curso && hoy === fecha2Curso && reserva.diaActual === 1) diaActual = 2;
 
     const primerInicioDia = !reserva.sesionDiariaInicio || (diaActual === 2 && reserva.diaActual === 1);
-
     let limiteDiario = duracionDiariaCurso;
     if (primerInicioDia) {
       const horaFinLabel = horario?.label?.split('-')[1]?.trim();
@@ -244,9 +218,7 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
         const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
         const minutosRestantesBloque = horaFinMinutos - ahoraMinutos;
         limiteDiario = Math.min(duracionDiariaCurso, Math.max(0, minutosRestantesBloque));
-        if (limiteDiario < 30) {
-          showToast(`Solo quedan ${limiteDiario} min antes del cierre del bloque.`, 'info');
-        }
+        if (limiteDiario < 30) showToast(`Solo quedan ${limiteDiario} min del bloque.`, 'info');
       }
     } else {
       limiteDiario = reserva.sesionDiariaLimite || duracionDiariaCurso;
@@ -256,10 +228,7 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
     const duracionExtraPrevia = (reserva.modulosEstado || {})[nombre]?.duracionExtraParcial || 0;
     const segundosIniciales = (duracionPrevia + duracionExtraPrevia) * 60;
 
-    const campos = {
-      moduloEnProgreso: { modulo: nombre, inicio: Date.now() - segundosIniciales * 1000 }
-    };
-
+    const campos = { moduloEnProgreso: { modulo: nombre, inicio: Date.now() - segundosIniciales * 1000 } };
     if (primerInicioDia) {
       campos.sesionDiariaInicio = Date.now();
       campos.sesionDiariaLimite = limiteDiario;
@@ -271,18 +240,9 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
     }
 
     alertas.inicioModulo();
-    setSgta(prev => ({
-      ...prev,
-      moduloEnProgreso: nombre,
-      moduloSegundos: segundosIniciales,
-      moduloActivo: true,
-      generalActivo: true,
-      _recesoAlerta: false,
-      _moduloExcedido: segundosIniciales >= 3600,
-      sesionIniciada: true
-    }));
+    setLocalRecesoAlerta(false);
     await actualizar(campos);
-  }, [reserva, showToast, actualizar, opcionesRef]);
+  }, [reserva, opcionesRef, showToast, actualizar]);
 
   const finalizarModulo = useCallback(async (nombre) => {
     if (!reserva) return;
@@ -292,82 +252,158 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
     delete modulosEstado[nombre].duracionParcial; delete modulosEstado[nombre].duracionExtraParcial;
     alertas.moduloCompletado();
     await actualizar({ modulosEstado, moduloEnProgreso: null });
-    setSgta(prev => ({ ...prev, moduloEnProgreso: null, moduloSegundos: 0, moduloActivo: false, _moduloExcedido: false }));
     showToast(`"${nombre}" completado (${dur} min)`, 'success');
   }, [reserva, showToast, actualizar]);
 
+  // CORRECCIÓN FASE 3: Bloqueo optimista en pausarSesion
   const pausarSesion = useCallback(async (motivo) => {
     if (!reserva) return;
+    if (sgtaRef.current.pausaActiva) return; // Prevenir doble pausa
     alertas.sesionPausada();
-    setSgta(prev => ({ ...prev, pausaActiva: true, pausaInicio: Date.now(), pausaMotivo: motivo, pausaSegundos: 0, moduloActivo: false }));
-    await actualizar({ pausaActiva: { motivo, inicio: Date.now() } });
-  }, [reserva, actualizar]);
-
-  const reanudarSesion = useCallback(async () => {
-    if (!reserva) return;
-    const pausaInicio = sgtaRef.current.pausaInicio;
-    if (pausaInicio) {
-      const durMin = Math.floor((Date.now() - pausaInicio) / 60000);
-      if (durMin > 60) {
-        alertas.pausaExcedida();
-        showToast('Pausa excedió 60 min. Sesión finalizada.', 'error');
-        setSgta(prev => ({ ...prev, pausaActiva: false }));
-        await actualizar({ pausaActiva: null, moduloEnProgreso: null });
-        return;
-      }
-      const pausas = [...(reserva.pausas || []), { inicio: pausaInicio, fin: Date.now(), motivo: sgtaRef.current.pausaMotivo, duracion: durMin }];
-      const totalAcumulado = (sgtaRef.current.pausaTotalAcumulada || 0); // Ya incluye lo que se acumuló durante la pausa
-      const tiempoEfectivo = Math.max(0, (sgtaRef.current.limiteTotal || 240) * 60 - totalAcumulado);
-      await actualizar({ pausas, pausaActiva: null, pausaTotalAcumulada: totalAcumulado, tiempoEfectivo });
-      setSgta(prev => ({ ...prev, pausaTotalAcumulada: totalAcumulado, tiempoEfectivo }));
+    const ahora = Date.now();
+    // Limpiar/actualizar estado local antes de la red
+    setLocalPausaActiva(true);
+    setLocalPausaInicio(ahora);
+    setLocalPausaMotivo(motivo);
+    try {
+      await actualizar({ pausaActiva: { motivo, inicio: ahora } });
+    } catch (error) {
+      // Rollback en caso de fallo
+      setLocalPausaActiva(false);
+      setLocalPausaInicio(null);
+      setLocalPausaMotivo('');
+      showToast('Error al pausar. Intente de nuevo.', 'error');
     }
-    alertas.sesionReanudada();
-    setSgta(prev => ({ ...prev, pausaActiva: false, pausaInicio: null, pausaMotivo: '', pausaSegundos: 0, moduloActivo: !!prev.moduloEnProgreso && !prev._moduloExcedido }));
+  }, [reserva, actualizar, showToast]);
+
+  // CORRECCIÓN FASE 3: Bloqueo optimista en reanudarSesion
+  const reanudarSesion = useCallback(async () => {
+    if (!reserva || !sgtaRef.current.pausaActiva || !sgtaRef.current.pausaInicio) return;
+    
+    // Capturar valores actuales antes de limpiar estado
+    const pausaInicio = sgtaRef.current.pausaInicio;
+    const motivo = sgtaRef.current.pausaMotivo;
+    
+    // BLOQUEO OPTIMISTA: Limpiar estado local inmediatamente para prevenir doble-clic
+    setLocalPausaActiva(false);
+    setLocalPausaInicio(null);
+    setLocalPausaMotivo('');
+
+    const durSegundos = Math.floor((Date.now() - pausaInicio) / 1000);
+    if (durSegundos > 3600) {
+      alertas.pausaExcedida();
+      showToast('Pausa excedió 60 min. Sesión finalizada.', 'error');
+      try {
+        await actualizar({ pausaActiva: null, moduloEnProgreso: null });
+      } catch (e) {
+        // Si falla la red, al menos el estado local ya está limpio
+      }
+      return;
+    }
+
+    const pausas = [...(reserva.pausas || []), { inicio: pausaInicio, fin: Date.now(), motivo, duracionSegundos: durSegundos }];
+    const totalAcumulado = sgtaRef.current.pausaTotalAcumulada;
+    const tiempoEfectivo = Math.max(0, (sgtaRef.current.limiteTotal || 240) * 60 - totalAcumulado);
+
+    try {
+      await actualizar({ pausas, pausaActiva: null, pausaTotalAcumulada: totalAcumulado, tiempoEfectivo });
+      alertas.sesionReanudada();
+    } catch (error) {
+      // Rollback en caso de fallo de red
+      setLocalPausaActiva(true);
+      setLocalPausaInicio(pausaInicio);
+      setLocalPausaMotivo(motivo);
+      showToast('Error al reanudar. Intente de nuevo.', 'error');
+    }
   }, [reserva, showToast, actualizar]);
 
   const toggleModulo = useCallback(async (nombre) => {
     if (!reserva) return;
     const modulosEstado = { ...(reserva.modulosEstado || {}) };
     if (modulosEstado[nombre]?.fecha) {
-      const confirmado = await pedirConfirmacion('Revertir módulo', `¿Desea revertir "${nombre}"? El tiempo acumulado se conservará.`);
+      const confirmado = await new Promise(resolve => {
+        setModalConfirmacion({ titulo: 'Revertir módulo', mensaje: `¿Revertir "${nombre}"?`, onConfirm: () => { setModalConfirmacion(null); resolve(true); }, onCancel: () => { setModalConfirmacion(null); resolve(false); } });
+      });
       if (!confirmado) return;
       const duracionParcial = modulosEstado[nombre].duracion || 0;
       const duracionExtraParcial = modulosEstado[nombre].duracionExtra || 0;
       delete modulosEstado[nombre]; modulosEstado[nombre] = { duracionParcial, duracionExtraParcial };
       await actualizar({ modulosEstado });
       const segundosIniciales = (duracionParcial + duracionExtraParcial) * 60;
-      setSgta(prev => ({ ...prev, moduloEnProgreso: nombre, moduloSegundos: segundosIniciales, moduloActivo: true, generalActivo: true, _recesoAlerta: false, _moduloExcedido: segundosIniciales >= 3600 }));
+      setLocalRecesoAlerta(false);
       await actualizar({ moduloEnProgreso: { modulo: nombre, inicio: Date.now() - segundosIniciales * 1000 } });
-      showToast('Módulo reversado. Tiempo conservado.', 'info'); return;
+      showToast('Módulo reversado.', 'info');
+      return;
     }
     if (sgtaRef.current.moduloEnProgreso === nombre && (sgtaRef.current.moduloActivo || sgtaRef.current._moduloExcedido)) {
       const durMinutos = Math.ceil((sgtaRef.current?.moduloSegundos || 0) / 60);
-      const confirmado = await pedirConfirmacion('Finalizar módulo', `¿Está seguro de finalizar "${nombre}"? Duró ${durMinutos} minutos.`);
+      const confirmado = await new Promise(resolve => {
+        setModalConfirmacion({ titulo: 'Finalizar módulo', mensaje: `¿Finalizar "${nombre}"? Duró ${durMinutos} min.`, onConfirm: () => { setModalConfirmacion(null); resolve(true); }, onCancel: () => { setModalConfirmacion(null); resolve(false); } });
+      });
       if (!confirmado) return;
       await finalizarModulo(nombre);
       return;
     }
     await iniciarModulo(nombre);
-  }, [reserva, showToast, iniciarModulo, finalizarModulo, pedirConfirmacion, actualizar]);
+  }, [reserva, iniciarModulo, finalizarModulo, actualizar, showToast]);
 
   const activarReserva = useCallback(async () => {
     if (!sgtaRef.current.totalCompletado && !sgtaRef.current.diarioCompletado) return;
     if (sgtaRef.current.pausaTotalAcumulada <= 0) return;
-    setSgta(prev => ({ ...prev, reservaActiva: true, reservaRestante: prev.pausaTotalAcumulada, pausaAlIniciarReserva: prev.pausaTotalAcumulada, totalCompletado: false }));
-  }, []);
-  const pausarReserva = useCallback(() => { setSgta(prev => ({ ...prev, reservaActiva: false })); }, []);
-  const reanudarReserva = useCallback(() => { setSgta(prev => prev.reservaRestante > 0 ? { ...prev, reservaActiva: true } : prev); }, []);
+    setLocalReservaActiva(true);
+    setLocalReservaRestante(sgtaRef.current.pausaTotalAcumulada);
+    await actualizar({ reservaActiva: true, reservaRestante: sgtaRef.current.pausaTotalAcumulada });
+  }, [actualizar]);
+  const pausarReserva = useCallback(async () => { setLocalReservaActiva(false); await actualizar({ reservaActiva: false }); }, [actualizar]);
+  const reanudarReserva = useCallback(async () => {
+    if (localReservaRestante <= 0) return;
+    setLocalReservaActiva(true);
+    await actualizar({ reservaActiva: true, reservaRestante: localReservaRestante });
+  }, [localReservaRestante, actualizar]);
   const detenerReserva = useCallback(async () => {
-    const restante = sgtaRef.current.reservaRestante;
-    setSgta(prev => ({ ...prev, reservaActiva: false, pausaTotalAcumulada: restante, tiempoEfectivo: Math.max(0, (prev.limiteTotal || 240) * 60 - restante), totalCompletado: true }));
-    if (reserva) await actualizar({ pausaTotalAcumulada: restante, tiempoEfectivo: Math.max(0, (sgtaRef.current.limiteTotal || 240) * 60 - restante) });
-  }, [reserva, actualizar]);
+    setLocalReservaActiva(false); setLocalReservaRestante(0);
+    await actualizar({ reservaActiva: false, reservaRestante: 0, pausaTotalAcumulada: 0, tiempoEfectivo: sgtaRef.current.limiteTotal * 60 });
+  }, [actualizar]);
+
+  useEffect(() => {
+    if (!derivados.moduloSegundos) return;
+    if (derivados.moduloSegundos >= 3300 && derivados.moduloSegundos < 3600 && !localRecesoAlerta) {
+      alertas.recesoAutomatico();
+      showToast('Receso automático en 5 minutos', 'info');
+      setLocalRecesoAlerta(true);
+    }
+    if (derivados.moduloSegundos >= 3600) {
+      if (!sgtaRef.current._moduloExcedido) {
+        alertas.limiteModulo();
+        showToast('Módulo excedido (60 min).', 'error');
+      }
+    }
+  }, [derivados.moduloSegundos, localRecesoAlerta, showToast]);
+
+  useEffect(() => {
+    if (!localReservaActiva || localReservaRestante <= 0) return;
+    const interval = setInterval(() => {
+      setLocalReservaRestante(prev => {
+        if (prev <= 1) {
+          setLocalReservaActiva(false);
+          actualizar({ reservaActiva: false, reservaRestante: 0, pausaTotalAcumulada: 0, tiempoEfectivo: derivados.limiteTotal * 60 });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [localReservaActiva, derivados.limiteTotal, actualizar]);
 
   return {
     reserva, sgta, modalConfirmacion,
+    conexionPerdida, // CORRECCIÓN FASE 3: Expuesto para propagar a RelojSesion
     toggleModulo: esInstructor ? toggleModulo : () => {},
     pausarSesion: esInstructor ? pausarSesion : () => {},
     reanudarSesion: esInstructor ? reanudarSesion : () => {},
-    activarReserva, pausarReserva, reanudarReserva, detenerReserva
+    activarReserva: esInstructor ? activarReserva : () => {},
+    pausarReserva: esInstructor ? pausarReserva : () => {},
+    reanudarReserva: esInstructor ? reanudarReserva : () => {},
+    detenerReserva: esInstructor ? detenerReserva : () => {},
   };
 }

@@ -1,11 +1,9 @@
-// @build: 2026-06-22.REFACTOR | id: ORQUESTADOR-CORREGIDO | desc: Orquestador con bifurcación de ModalPIN (paso 1 vs paso 4).
 import { useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { ReservaService } from '../../../services/ReservaService';
 import { LockService } from '../../../services/LockService';
 import { AuthService } from '../../../services/AuthService';
-import ModalPIN from '../../../components/ModalPIN';
 import ModalConfirmacion from '../../shared/components/ModalConfirmacion';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
@@ -23,7 +21,7 @@ import { FormularioSalud } from '../components/FormularioSalud';
 import { CalendarioNacimiento } from '../components/CalendarioNacimiento';
 import { LockTimerFlotante } from '../components/LockTimerFlotante';
 import { ModalExpiracion } from '../components/ModalExpiracion';
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight, Check, Award, Bike } from 'lucide-react';
 
 const LOCK_DURATION = 10 * 60 * 1000;
 const MAX_REINTENTOS_EXPIRACION = 3;
@@ -41,7 +39,6 @@ export const InscripcionView = () => {
     limpiarSesion
   } = useInscripcionState();
 
-  const [modalPIN, setModalPIN] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
@@ -64,14 +61,30 @@ export const InscripcionView = () => {
   const [reintentosExpiracion, setReintentosExpiracion] = useState(0);
   const [mostrarModalExpiracion, setMostrarModalExpiracion] = useState(false);
 
-  const locksSnapshotRef = useRef(ctx.activeLocks);
+  const [activeLocks, setActiveLocks] = useState([]);
   const calendarioRef = useRef(null);
   const generatedPinRef = useRef(null);
   const [generatedPin, setGeneratedPin] = useState(() => {
     return sessionStorage.getItem('inscripcion_generatedPin') || null;
   });
 
+  // Pantalla de éxito final (PIN visible permanentemente)
+  const [mostrarPantallaExito, setMostrarPantallaExito] = useState(false);
+  const [pinFinal, setPinFinal] = useState(null);
+
   useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+
+  useEffect(() => {
+    if (!form.fecha1) return;
+    useEffect(() => {
+  if (!form.fecha1 || !ctx.fbUser) return;
+  const cleanup = LockService.escucharOcupacionTemporal(form.fecha1, (locks) => {
+    setActiveLocks(locks);
+  });
+  return () => cleanup();
+}, [form.fecha1, ctx.fbUser]);
+    return () => cleanup();
+  }, [form.fecha1]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -120,8 +133,7 @@ export const InscripcionView = () => {
   const { diasDisponibles, bloques, fecha2Calc, maxDate, buscarProximaFechaDisponible, cargando } = useDisponibilidad({
     form, selectingBlockId, lockId,
     instructores: ctx.instructores, motos: ctx.motos,
-    reservas: ctx.reservas, horarios: ctx.horarios,
-    activeLocks: ctx.activeLocks, isSelectingHorario, locksSnapshotRef,
+    reservas: ctx.reservas, activeLocks, horarios: ctx.horarios,
     getTodayStr: ctx.getTodayStr
   });
 
@@ -130,13 +142,11 @@ export const InscripcionView = () => {
   const precioFinalVES = (baseUSD * (Number(tasaCobro) || 1)).toFixed(2);
   const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? `${form.anoNac}-${String(form.mesNac).padStart(2,'0')}-${String(form.diaNac).padStart(2,'0')}` : '';
 
-  const handlePinConfirmado = useCallback(async () => {
-    if (!modalPIN || !lockId) {
+  const handleConfirmarPago = useCallback(async () => {
+    if (!lockId) {
       showToast('Error: No se encontró el bloqueo del horario.', 'error');
-      setModalPIN(null);
       return;
     }
-    setModalPIN(null);
     setIsSubmitting(true);
     const result = await ReservaService.crearReserva({
       ...form, userId: ctx.fbUser.uid, fecha: form.fecha1, fecha2: fecha2Calc,
@@ -145,13 +155,18 @@ export const InscripcionView = () => {
     setIsSubmitting(false);
     if (result.success) {
       limpiarSesion();
-      showToast('¡Inscripción completada! Bienvenido a tu panel.', 'success');
-      ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: ctx.fbUser.uid });
-      navigate('/portal-reservas');
+      // Mostrar pantalla de éxito con PIN en lugar de navegar directamente
+      setPinFinal(generatedPinRef.current || generatedPin);
+      setMostrarPantallaExito(true);
     } else {
       showToast(result.error.message || 'Error al crear la reserva', 'error');
     }
-  }, [modalPIN, lockId, form, ctx.fbUser, fecha2Calc, fechaNacimiento, baseUSD, precioFinalVES, limpiarSesion, showToast, ctx.setUser, navigate]);
+  }, [lockId, form, ctx.fbUser, fecha2Calc, fechaNacimiento, baseUSD, precioFinalVES, limpiarSesion, showToast, generatedPin]);
+
+  const handleIrAlPanel = useCallback(() => {
+    ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: ctx.fbUser.uid });
+    navigate('/portal-reservas');
+  }, [ctx, form, navigate]);
 
   const handleSelectHorario = useCallback(async (bloque) => {
     if (lockId && form.horaId === bloque.id) { setModalLiberar({ bloque }); return; }
@@ -160,7 +175,6 @@ export const InscripcionView = () => {
     if (!bloque.instructorId || (form.traeMoto !== 'Sí' && !bloque.motoAsignadaId)) {
       showToast('Este bloque no tiene recursos asignados.', 'error'); return;
     }
-    locksSnapshotRef.current = ctx.activeLocks;
     setIsSelectingHorario(true); setSelectingBlockId(bloque.id);
     if (lockId && !renovacionUsada) { await LockService.liberarLock(lockId).catch(() => {}); }
     const motoId = bloque.motoAsignadaId || 'sinmoto';
@@ -176,10 +190,17 @@ export const InscripcionView = () => {
       setLockExpirado(false); setReintentosExpiracion(0); setRenovacionUsada(false);
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success');
     } else {
-      showToast(result.error.message || 'No se pudo bloquear el horario', 'error');
+      const codigo = result.error?.code;
+      if (codigo === 'permission-denied') {
+        showToast('Este horario acaba de ser separado por otro usuario. Por favor, selecciona otro bloque.', 'error');
+      } else if (codigo === 'network-error' || codigo === 'unavailable') {
+        showToast('Error de conexión. Intente de nuevo.', 'error');
+      } else {
+        showToast(result.error?.message || 'No se pudo bloquear el horario', 'error');
+      }
     }
     setIsSelectingHorario(false); setSelectingBlockId(null);
-  }, [lockId, form, ctx.fbUser, ctx.activeLocks, isSelectingHorario, renovacionUsada, updateLockId, updateForm, updateLockExpiresAt, showToast]);
+  }, [lockId, form, ctx.fbUser, isSelectingHorario, renovacionUsada, updateLockId, updateForm, updateLockExpiresAt, showToast]);
 
   const handleRenovarLock = useCallback(async () => {
     if (!lockId || renovacionUsada) return;
@@ -242,7 +263,8 @@ export const InscripcionView = () => {
           generatedPinRef.current = result.data.pin;
           setGeneratedPin(result.data.pin);
           sessionStorage.setItem('inscripcion_generatedPin', result.data.pin);
-          setModalPIN({ pin: result.data.pin });
+          // Sin toast ni modal. El PIN se mostrará en la pantalla de éxito final.
+          setStep('2');
         } else if (result.error.code === 'auth/email-already-in-use' || result.error.code === 'already-enrolled') {
           showToast('Este correo ya está registrado. Si olvidaste tu PIN, contacta al administrador.', 'error');
         } else {
@@ -267,7 +289,7 @@ export const InscripcionView = () => {
         setCaptchaValue('');
         showToast('Resultado incorrecto', 'error'); return;
       }
-      setModalPIN({ pin: generatedPinRef.current || generatedPin });
+      handleConfirmarPago();
     }
   };
 
@@ -279,6 +301,34 @@ export const InscripcionView = () => {
   };
 
   if (!ctx.authReady) return <Spinner message="Cargando..." />;
+
+  // Pantalla de éxito final (PIN visible permanentemente)
+  if (mostrarPantallaExito) {
+    return (
+      <AppShell header={<DashboardHeader title="Inscripción Completada" showNotifications={false} />} bgColor="bg-white">
+        <div className="flex flex-col items-center justify-center min-h-full p-6 text-center">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+            <Award size={48} className="text-green-600" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900 mb-2">¡Inscripción Completada!</h2>
+          <p className="text-sm text-gray-500 mb-8">Bienvenido a MotoEscuela. Guarda tu PIN de acceso.</p>
+          
+          <div className="bg-gray-50 border-2 border-gray-200 rounded-2xl p-6 mb-8 w-full max-w-xs">
+            <p className="text-sm text-gray-600 mb-3">Tu PIN de acceso es:</p>
+            <p className="text-5xl font-black text-blue-600 tracking-[0.5rem] font-mono">{pinFinal}</p>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-8 w-full max-w-xs">
+            <p className="text-sm font-bold text-yellow-800">⚠️ Anota este PIN. No se volverá a mostrar.</p>
+          </div>
+
+          <Button onClick={handleIrAlPanel} variant="primary" icon={Bike}>
+            Ir a mi panel
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
 
   const titulosPasos = { '1': 'Datos Personales', '2': 'Configurar Clase', '3': 'Fechas y Horarios', '4': 'Realizar Pago' };
 
@@ -311,23 +361,6 @@ export const InscripcionView = () => {
       {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponibles} maxDate={maxDate} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} buscarProximaFechaDisponible={buscarProximaFechaDisponible} showToast={showToast} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}
       {mostrarCalendarioNacimiento && <CalendarioNacimiento tempFechaNacimiento={tempFechaNacimiento} setTempFechaNacimiento={setTempFechaNacimiento} onConfirm={() => { updateForm({ diaNac: tempFechaNacimiento.dia, mesNac: tempFechaNacimiento.mes, anoNac: tempFechaNacimiento.ano }); setMostrarCalendarioNacimiento(false); }} onClose={() => setMostrarCalendarioNacimiento(false)} />}
-
-      {/* ✅ CORRECCIÓN: Bifurcación de ModalPIN según el paso */}
-      {modalPIN && (
-        <ModalPIN 
-          pin={modalPIN.pin} 
-          onConfirm={() => {
-            if (step === '1') {
-              // Modo Acuse de Recibo (Paso 1)
-              setModalPIN(null);
-              setStep('2');
-            } else {
-              // Modo Confirmación Final (Paso 4)
-              handlePinConfirmado();
-            }
-          }} 
-        />
-      )}
 
       {modalLiberar && <ModalConfirmacion titulo="Liberar horario" mensaje="¿Deseas liberar este horario? Si lo haces, deberás seleccionar otro bloque para continuar." onConfirm={handleLiberarHorario} onCancel={() => setModalLiberar(null)} />}
       {mostrarModalExpiracion && <ModalExpiracion reintentosExpiracion={reintentosExpiracion} maxReintentos={MAX_REINTENTOS_EXPIRACION} onSeleccionarBloque={handleSeleccionarBloqueDesdeExpiracion} onSalirSistema={handleSalirDesdeExpiracion} />}

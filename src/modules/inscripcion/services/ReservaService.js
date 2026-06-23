@@ -1,6 +1,5 @@
-// @build: 2026-06-22 | id: RESERVA-CAMPOS-COMPLETOS | desc: Agregar correo, apellido, contactoEmergencia, totales y pin a CAMPOS_PERMITIDOS
 import { db } from '../../shared/firebase/firebase';
-import { collection, doc, runTransaction, Timestamp } from 'firebase/firestore';
+import { collection, doc, runTransaction, updateDoc, query, where, getDocs, Timestamp } from 'firebase/firestore';
 
 const appId = 'motoescuela-pro-v1';
 
@@ -34,13 +33,13 @@ const CAMPOS_PERMITIDOS = {
   pagoTelefono: { tipo: 'string', maxLength: 11 },
   pagoCedula: { tipo: 'string', maxLength: 10 },
   pagoRef: { tipo: 'string', maxLength: 4 },
-  pin: { tipo: 'string', maxLength: 6 },
   pagoTotalMoneda: { tipo: 'number' },
   pagoTotalVES: { tipo: 'number' },
   pagoInstructor: { tipo: 'number' },
   pagoProveedor: { tipo: 'number' },
   expiraEn: { tipo: 'number' },
-  modulosEstado: { tipo: 'array', maxLength: 10, elemento: 'string' }
+  modulosEstado: { tipo: 'array', maxLength: 10, elemento: 'string' },
+  precio: { tipo: 'number' }
 };
 
 function validarCampo(campo, valor, esquema) {
@@ -87,6 +86,8 @@ export const ReservaService = {
       if (reservaData[campo] !== undefined)
         datosSaneados[campo] = reservaData[campo];
 
+    datosSaneados.precio = datosSaneados.pagoTotalMoneda || 0;
+
     const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
     const reservaDoc = doc(reservasRef);
     const lockRef = doc(db, 'locks', lockId);
@@ -110,5 +111,37 @@ export const ReservaService = {
     } catch (error) {
       return { success: false, error: { code: 'transaction-failed', message: error.message } };
     }
-  }
+  },
+
+  async obtenerReservaPorUsuario(uid) {
+    if (!uid) return { success: false, error: { code: 'missing-uid', message: 'Falta el UID del usuario' } };
+    try {
+      const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
+      const q = query(reservasRef, where('userId', '==', String(uid)));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        return { success: true, data: { id: snap.docs[0].id, ...data } };
+      }
+      return { success: true, data: null };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  async corregirReferenciaPago(reservaId, nuevaRef) {
+    if (!reservaId || !nuevaRef || nuevaRef.length !== 4) {
+      return { success: false, error: { code: 'invalid-args', message: 'Referencia inválida' } };
+    }
+    try {
+      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', reservaId);
+      await updateDoc(ref, {
+        pagoRef: nuevaRef,
+        estadoPago: 'Pendiente'
+      });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
 };

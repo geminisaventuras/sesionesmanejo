@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: AULA-BLOQUEO-INSTRUCTOR | desc: Aula virtual con bloqueo de acceso para instructor si pago no aprobado
+// @build: 2026-06-23 | id: CENTINELA-FASE3-CORRECCION-CONEXIONPERDIDA | desc: Recibe conexionPerdida del hook y la transmite a RelojSesion.
 import { useContext, useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -41,7 +41,7 @@ export default function AulaVirtualView() {
 
   const opcionesRef = useRef({ curso: null, hor: null });
 
-  const { reserva, sgta, modalConfirmacion, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef);
+  const { reserva, sgta, modalConfirmacion, conexionPerdida, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef);
 
   const curso = useMemo(() => { if (!reserva) return { nombre: '', modulos: [], duracionTotal: 240 }; return (cursos || []).find(c => String(c.id) === String(reserva.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 }; }, [cursos, reserva]);
   const hor = useMemo(() => reserva ? (horarios || []).find(h => String(h.id) === String(reserva.horaId)) : null, [horarios, reserva]);
@@ -115,7 +115,7 @@ export default function AulaVirtualView() {
                   <div className="flex items-center gap-2"><Clock size={12} className="text-blue-300" /><span className="font-bold">Hora: {horaInicio} - {horaFin}</span></div>
                   <div className="flex items-center gap-2"><Bike size={12} className="text-blue-300" /><span className="font-bold">{reserva.traeMoto === 'Sí' ? 'Propia' : 'Escuela'} · {reserva.tipoMoto}</span></div>
                 </div>
-                <RelojSesion generalSegundos={sgta.generalSegundos} pausaActiva={sgta.pausaActiva} pausaMotivo={sgta.pausaMotivo} tiempoMaximoCurso={tiempoMaximoCurso} tiempoConsumido={tiempoConsumido} />
+                <RelojSesion generalSegundos={sgta.generalSegundos} pausaActiva={sgta.pausaActiva} pausaMotivo={sgta.pausaMotivo} tiempoMaximoCurso={tiempoMaximoCurso} tiempoConsumido={tiempoConsumido} conexionPerdida={conexionPerdida} />
               </div>
               <div className="flex items-end justify-between mt-2">
                 <FilaTiempo diaActual={sgta.diaActual} generalSegundos={sgta.diarioSegundos || sgta.generalSegundos}

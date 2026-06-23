@@ -1,4 +1,3 @@
-// @build: 2026-06-22 | id: RESERVAS-HOME-VACIO | desc: Página principal de reservas con mensaje visible cuando no hay reservas activas
 import { useContext, useMemo, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -63,8 +62,8 @@ const AdminReservasHome = () => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
+  const { notifications } = useContext(AppContext);
+  const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="reservas"

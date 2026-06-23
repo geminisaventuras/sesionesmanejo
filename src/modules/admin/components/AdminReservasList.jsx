@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: LISTADO-RESERVAS | desc: Listado de reservas con búsqueda universal, filtro, orden y paginación + header unificado
+// @build: 2026-06-23 | id: NOMBRES-AMIGABLES-LISTA | desc: Muestra nombres amigables de Sede, Curso y Horario, y fechas en formato dd/mm/aa.
 import { useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -8,11 +8,11 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   Search, Calendar, Clock, ArrowLeft, ArrowRight,
-  BookOpen, Activity, Wallet, Settings
+  BookOpen, Activity, Wallet, Settings, MapPin, Bike
 } from 'lucide-react';
 
 const AdminReservasList = () => {
-  const { reservas, instructores, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, cursos, horarios, sedes, user, logoutUser } = useContext(AppContext);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const filtroInicial = searchParams.get('filtro') || 'Todas';
@@ -23,6 +23,13 @@ const AdminReservasList = () => {
   const POR_PAGINA = 5;
 
   const res = reservas || [];
+
+  // Función para formatear fecha ISO a dd/mm/aa
+  const formatearFechaCorta = (fechaStr) => {
+    if (!fechaStr) return '—';
+    const [y, m, d] = fechaStr.split('-');
+    return `${d}/${m}/${y?.slice(2)}`;
+  };
 
   const reservasFiltradas = useMemo(() => {
     let filtradas = res;
@@ -90,7 +97,7 @@ const AdminReservasList = () => {
   ];
 
   const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title="Gestión Reservas" onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;
+  const header = <DashboardHeader title="Gestión Reservas" onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;
 
   const footer = <DashboardFooter
     tabs={footerTabs}
@@ -128,6 +135,10 @@ const header = <DashboardHeader title="Gestión Reservas" onBack={() => navigate
         <div className="space-y-2">
           {reservasPagina.map(r => {
             const instr = (instructores || []).find(i => String(i.id) === String(r.instructorId));
+            // CORRECCIÓN 23/06/2026: Nombres amigables para sede, curso y horario
+            const sede = (sedes || []).find(s => String(s.id) === String(r.sedeId));
+            const curso = (cursos || []).find(c => String(c.id) === String(r.cursoId));
+            const horario = (horarios || []).find(h => String(h.id) === String(r.horaId));
             return (
               <button key={r.id} onClick={() => navigate(`/admin/reserva/${r.id}`)} className="w-full bg-white p-3 rounded-xl shadow-sm border border-gray-100 text-left hover:border-blue-300 transition-colors active:scale-[0.99]">
                 <div className="flex items-center justify-between mb-1">
@@ -138,13 +149,14 @@ const header = <DashboardHeader title="Gestión Reservas" onBack={() => navigate
                   <span className="text-[10px] text-gray-400">CI: {r.cedula}</span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] text-gray-500">
-                  <span className="flex items-center gap-1"><Calendar size={11} />{r.fecha || r.fecha1} – {r.fecha2}</span>
-                  <span className="flex items-center gap-1"><Clock size={11} />{r.horaId}</span>
+                  <span className="flex items-center gap-1"><Calendar size={11} />{formatearFechaCorta(r.fecha || r.fecha1)} – {formatearFechaCorta(r.fecha2)}</span>
+                  <span className="flex items-center gap-1"><Clock size={11} />{horario?.label || r.horaId}</span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
                   <span>👤 {instr ? `${instr.nombre} ${instr.apellido || ''}` : 'Sin instructor'}</span>
-                  <span>📍 {r.sedeId || '—'}</span>
-                  <span>🏍️ {r.tipoMoto}</span>
+                  <span className="flex items-center gap-1"><MapPin size={11} />{sede?.nombre || r.sedeId || '—'}</span>
+                  <span className="flex items-center gap-1"><BookOpen size={11} />{curso?.nombre || r.cursoId || '—'}</span>
+                  <span className="flex items-center gap-1"><Bike size={11} />{r.tipoMoto}</span>
                 </div>
               </button>
             );

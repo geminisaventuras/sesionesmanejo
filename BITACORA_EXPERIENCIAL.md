@@ -198,65 +198,86 @@
 **Impacto y Deuda:**
 > Registrada deuda B121 para implementar el reseteo administrativo de contadores de sesiÃ³n.
 
-## [Arquitecto] – 20/06/2026 – Selector de fecha con tres ruedas
+## [Arquitecto] ï¿½ 20/06/2026 ï¿½ Selector de fecha con tres ruedas
 
-**Decisión/Lección Clave:**
-La implementación de selectores de fecha con arrastre y snap requiere medición real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programático vs. scroll del usuario.
+**Decisiï¿½n/Lecciï¿½n Clave:**
+La implementaciï¿½n de selectores de fecha con arrastre y snap requiere mediciï¿½n real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programï¿½tico vs. scroll del usuario.
 
 **Contexto:**
-Se necesitaba un selector de fecha de nacimiento que fuera fácil de usar en móviles, evitando los problemas de navegación del <input type="date"> nativo para años lejanos. Se probaron múltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con medición real.
+Se necesitaba un selector de fecha de nacimiento que fuera fï¿½cil de usar en mï¿½viles, evitando los problemas de navegaciï¿½n del <input type="date"> nativo para aï¿½os lejanos. Se probaron mï¿½ltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con mediciï¿½n real.
 
 **Alternativas Consideradas:**
-- Opción A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar años lejanos en móviles.
-- Opción B: Tres inputs separados (día, mes, año) ? funcional pero poco atractivo visualmente.
-- Opción C: Tres ruedas con scroll infinito ? causaba movimientos erráticos y problemas de rendimiento.
-- Opción D (elegida): Tres ruedas con medición real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
+- Opciï¿½n A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar aï¿½os lejanos en mï¿½viles.
+- Opciï¿½n B: Tres inputs separados (dï¿½a, mes, aï¿½o) ? funcional pero poco atractivo visualmente.
+- Opciï¿½n C: Tres ruedas con scroll infinito ? causaba movimientos errï¿½ticos y problemas de rendimiento.
+- Opciï¿½n D (elegida): Tres ruedas con mediciï¿½n real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
 
 **Impacto y Deuda:**
 - Componente SelectorColumna reutilizable en el modal de fecha de nacimiento.
-- Deuda técnica: no se aplicó trampa de foco en modales (B103).
-- Deuda técnica: uscarProximaFechaDisponible carece de AbortController (B106).
+- Deuda tï¿½cnica: no se aplicï¿½ trampa de foco en modales (B103).
+- Deuda tï¿½cnica: uscarProximaFechaDisponible carece de AbortController (B106).
 
 **Para el Futuro:**
-Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un módulo compartido para usar en otros formularios.
+Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un mï¿½dulo compartido para usar en otros formularios.
 
-## [Arquitecto] – 20/06/2026 – Selector de fecha con tres ruedas
+## [Arquitecto] ï¿½ 20/06/2026 ï¿½ Selector de fecha con tres ruedas
 
-**Decisión/Lección Clave:**
-La implementación de selectores de fecha con arrastre y snap requiere medición real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programático vs. scroll del usuario.
+**Decisiï¿½n/Lecciï¿½n Clave:**
+La implementaciï¿½n de selectores de fecha con arrastre y snap requiere mediciï¿½n real de elementos (getBoundingClientRect) y manejo cuidadoso de scroll programï¿½tico vs. scroll del usuario.
 
 **Contexto:**
-Se necesitaba un selector de fecha de nacimiento que fuera fácil de usar en móviles, evitando los problemas de navegación del <input type="date"> nativo para años lejanos. Se probaron múltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con medición real.
+Se necesitaba un selector de fecha de nacimiento que fuera fï¿½cil de usar en mï¿½viles, evitando los problemas de navegaciï¿½n del <input type="date"> nativo para aï¿½os lejanos. Se probaron mï¿½ltiples enfoques: calendario nativo, calendario desplegable tipo dropdown, tres inputs separados, tres ruedas con scroll infinito, y finalmente tres ruedas con mediciï¿½n real.
 
 **Alternativas Consideradas:**
-- Opción A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar años lejanos en móviles.
-- Opción B: Tres inputs separados (día, mes, año) ? funcional pero poco atractivo visualmente.
-- Opción C: Tres ruedas con scroll infinito ? causaba movimientos erráticos y problemas de rendimiento.
-- Opción D (elegida): Tres ruedas con medición real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
+- Opciï¿½n A: Calendario nativo (<input type="date">) ? descartado por dificultad para seleccionar aï¿½os lejanos en mï¿½viles.
+- Opciï¿½n B: Tres inputs separados (dï¿½a, mes, aï¿½o) ? funcional pero poco atractivo visualmente.
+- Opciï¿½n C: Tres ruedas con scroll infinito ? causaba movimientos errï¿½ticos y problemas de rendimiento.
+- Opciï¿½n D (elegida): Tres ruedas con mediciï¿½n real usando ResizeObserver, getBoundingClientRect y event listeners (scrollend, touch). Ofrece control preciso y buen rendimiento.
 
 **Impacto y Deuda:**
 - Componente SelectorColumna reutilizable en el modal de fecha de nacimiento.
-- Deuda técnica: no se aplicó trampa de foco en modales (B103).
-- Deuda técnica: uscarProximaFechaDisponible carece de AbortController (B106).
+- Deuda tï¿½cnica: no se aplicï¿½ trampa de foco en modales (B103).
+- Deuda tï¿½cnica: uscarProximaFechaDisponible carece de AbortController (B106).
 
 **Para el Futuro:**
-Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un módulo compartido para usar en otros formularios.
+Encapsular el selector de fecha en un paquete independiente con pruebas unitarias. Considerar extraerlo a un mï¿½dulo compartido para usar en otros formularios.
 
-## [Arquitecto] – 20/06/2026 – Persistencia offline de Firestore
+## [Arquitecto] ï¿½ 20/06/2026 ï¿½ Persistencia offline de Firestore
 
-**Decisión/Lección Clave:**
-Habilitar enableIndexedDbPersistence garantiza que la configuración financiera (tasas, precios) nunca se reinicie a los valores por defecto, incluso sin conexión.
+**Decisiï¿½n/Lecciï¿½n Clave:**
+Habilitar enableIndexedDbPersistence garantiza que la configuraciï¿½n financiera (tasas, precios) nunca se reinicie a los valores por defecto, incluso sin conexiï¿½n.
 
 **Contexto:**
-La tasa EUR se reiniciaba a 39.10 al perder la conexión con Firestore o al recargar la aplicación. Se probó con sessionStorage, pero la solución más robusta fue la persistencia offline nativa de Firestore, que guarda en IndexedDB el último valor leído y lo sincroniza automáticamente.
+La tasa EUR se reiniciaba a 39.10 al perder la conexiï¿½n con Firestore o al recargar la aplicaciï¿½n. Se probï¿½ con sessionStorage, pero la soluciï¿½n mï¿½s robusta fue la persistencia offline nativa de Firestore, que guarda en IndexedDB el ï¿½ltimo valor leï¿½do y lo sincroniza automï¿½ticamente.
 
 **Alternativas Consideradas:**
-- Opción A: sessionStorage ? frágil, se pierde al cerrar la pestaña.
-- Opción B (elegida): enableIndexedDbPersistence ? nativa, sobrevive a cierres de pestaña, no requiere lógica manual.
+- Opciï¿½n A: sessionStorage ? frï¿½gil, se pierde al cerrar la pestaï¿½a.
+- Opciï¿½n B (elegida): enableIndexedDbPersistence ? nativa, sobrevive a cierres de pestaï¿½a, no requiere lï¿½gica manual.
 
 **Impacto y Deuda:**
-- El motor financiero queda blindado contra reinicios inesperados de configuración.
-- Deuda técnica: no se implementó trampa de foco en modales (B103).
+- El motor financiero queda blindado contra reinicios inesperados de configuraciï¿½n.
+- Deuda tï¿½cnica: no se implementï¿½ trampa de foco en modales (B103).
 
 **Para el Futuro:**
 Considerar localStorage o Firestore bundles para datos que deban persistir entre sesiones de usuario.
+
+
+#### [ARQUITECTO] â€“ 2026-06-23 â€“ AuditorÃ­a Centinela V4.0 (Fases 1-4)
+
+**DecisiÃ³n/LecciÃ³n Clave:**
+> La auditorÃ­a Zero-Trust revelÃ³ que la seguridad no depende solo de las reglas de Firestore, sino de la sincronizaciÃ³n entre reglas, servicios y estado local del cliente. La restricciÃ³n del plan Spark obligÃ³ a soluciones creativas sin backend, priorizando privacidad sobre UX en tiempo real.
+
+**Contexto:**
+> El sistema migrÃ³ de MVP a Proyecto EstÃ¡ndar. El Centinela ejecutÃ³ un escrutinio en 4 fases: reglas de seguridad (BÃ³veda), transacciones financieras (Motor), sesiones (NÃºcleo Operativo) y UI/Accesibilidad (Hardening). Cada fase tuvo hallazgos crÃ­ticos que requirieron correcciones antes de aprobar.
+
+**Alternativas Consideradas:**
+> - Fase 1 (Lock Poisoning): lÃ­mite de 15 minutos anclado a `request.time`. Descarta usar `serverTimestamp()` por complejidad.
+> - Fase 2 (Fuga de PII en locks): restringir lectura solo al propietario. Degrada disponibilidad en tiempo real (falsos positivos), compensado por transacciÃ³n atÃ³mica.
+> - Fase 3 (Doble-clic en pausas): bloqueo optimista con limpieza de estado antes de la red y rollback. Alternativa de debounce descartada por latencia.
+> - Fase 4 (Focus trap): aceptado como deuda tÃ©cnica (B132) por no ser bloqueante para producciÃ³n.
+
+**Impacto y Deuda:**
+> 8 archivos modificados. 4 fases aprobadas. 9 nuevas deudas tÃ©cnicas registradas (B125-B130, B132-B134). El sistema estÃ¡ listo para producciÃ³n con seguridad verificada bajo estÃ¡ndar Zero-Trust.
+
+**Para el Futuro:**
+> Evaluar migraciÃ³n al plan Blaze cuando el negocio lo justifique, para habilitar Cloud Functions y resolver deuda B125, B128, B129. Implementar focus trap (B132) y headers de seguridad (B134) en el siguiente sprint.

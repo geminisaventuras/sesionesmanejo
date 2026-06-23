@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Lock, Check } from 'lucide-react';
 import { Button } from '../../shared/components/UI';
+import { useFocusTrap } from "../../shared/hooks/useFocusTrap";
 
 const ModalPIN = ({ pin, onConfirm }) => {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef, onConfirm);
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 transform transition-all">
+      <div ref={containerRef} className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 transform transition-all">
         <div className="text-center">
           <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock size={32} className="text-blue-600" />

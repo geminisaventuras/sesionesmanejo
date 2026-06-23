@@ -1,14 +1,15 @@
-import { Button } from './UI';
+import React, { useRef } from 'react';
+import { Button } from '../../../components/UI';
 import { AlertTriangle, X } from 'lucide-react';
+import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
 
-/**
- * Modal de confirmación reutilizable.
- * Hereda el diseño de los modales del Aula Virtual (overlay oscuro, tarjeta blanca redondeada).
- */
 export default function ModalConfirmacion({ titulo, mensaje, onConfirm, onCancel }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef, onCancel);
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-5 text-center">
+      <div ref={containerRef} className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-5 text-center">
         <div className="flex justify-end mb-2">
           <button onClick={onCancel} className="p-1 bg-gray-100 rounded-full"><X size={16} /></button>
         </div>

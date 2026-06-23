@@ -1,12 +1,16 @@
-// @build: 2026-06-22.REFACTOR | id: MODAL-EXPIRACION | desc: Modal de expiración del lock con dos botones de acción.
-import React from 'react';
+import React, { useRef } from 'react';
 import { Button } from '../../../components/UI';
 import { AlertTriangle, Clock, LogOut } from 'lucide-react';
+import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
+
 
 export function ModalExpiracion({ reintentosExpiracion, maxReintentos, onSeleccionarBloque, onSalirSistema }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef, onSalirSistema);
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+      <div ref={containerRef} className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
         <AlertTriangle size={40} className="text-red-500 mx-auto mb-4" />
         <h3 className="font-black text-gray-900 text-lg mb-2">Tiempo Expirado</h3>
         <p className="text-sm text-gray-600 mb-6">

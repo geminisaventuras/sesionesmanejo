@@ -1,4 +1,3 @@
-// @build: 2026-06-22.REFACTOR | id: PASO1-DATOS | desc: Componente puro del paso 1 (datos personales). Recibe form y updateForm.
 import React from 'react';
 import { User, Contact, Calendar, Phone, Mail, Users, MapPin, Heart } from 'lucide-react';
 
@@ -11,15 +10,15 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
       <div className="grid grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><User size={14} className="text-gray-500" /> Nombres</label>
-          <input type="text" value={form.nombre} onChange={e => updateForm({ nombre: e.target.value })} placeholder="Ej: Juan" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="text" value={form.nombre} onChange={e => updateForm({ nombre: e.target.value })} placeholder="Ej: Juan" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="given-name" />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><User size={14} className="text-gray-500" /> Apellidos</label>
-          <input type="text" value={form.apellido} onChange={e => updateForm({ apellido: e.target.value })} placeholder="Ej: Pérez" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="text" value={form.apellido} onChange={e => updateForm({ apellido: e.target.value })} placeholder="Ej: Pérez" maxLength={50} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="family-name" />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Contact size={14} className="text-gray-500" /> Cédula</label>
-          <input type="tel" value={form.cedula} onChange={e => updateForm({ cedula: e.target.value.replace(/\D/g,'').slice(0,10) })} placeholder="Ej: 12345678" inputMode="numeric" pattern="\d{7,10}" maxLength={10} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="tel" value={form.cedula} onChange={e => updateForm({ cedula: e.target.value.replace(/\D/g,'').slice(0,10) })} placeholder="Ej: 12345678" inputMode="numeric" pattern="\d{7,10}" maxLength={10} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="off" />
         </div>
         <div onClick={onOpenFechaNacimiento} className="cursor-pointer">
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Calendar size={14} className="text-gray-500" /> Fecha de Nac.</label>
@@ -32,33 +31,33 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Teléfono</label>
-          <input type="tel" value={form.telefono} onChange={e => updateForm({ telefono: e.target.value.replace(/\D/g,'').slice(0,11) })} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="tel" value={form.telefono} onChange={e => updateForm({ telefono: e.target.value.replace(/\D/g,'').slice(0,11) })} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="tel-national" />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Phone size={14} className="text-gray-500" /> Contac. emergencia</label>
-          <input type="tel" value={form.contactoEmergencia} onChange={e => updateForm({ contactoEmergencia: e.target.value.replace(/\D/g,'').slice(0,11) })} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="tel" value={form.contactoEmergencia} onChange={e => updateForm({ contactoEmergencia: e.target.value.replace(/\D/g,'').slice(0,11) })} placeholder="0412..." inputMode="numeric" pattern="\d{11}" maxLength={11} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="off" />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Mail size={14} className="text-gray-500" /> Correo</label>
-          <input type="email" value={form.correo} onChange={e => updateForm({ correo: e.target.value.trim().toLowerCase() })} placeholder="ejemplo@correo.com" className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="email" value={form.correo} onChange={e => updateForm({ correo: e.target.value.trim().toLowerCase() })} placeholder="ejemplo@correo.com" className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="email" />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Users size={14} className="text-gray-500" /> Sexo</label>
-          <select value={form.sexo} onChange={e => updateForm({ sexo: e.target.value })} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required>
+          <select value={form.sexo} onChange={e => updateForm({ sexo: e.target.value })} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="sex">
             <option value="" disabled>Seleccionar</option>
             {SEXOS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Estado</label>
-          <select value={form.estado} onChange={e => updateForm({ estado: e.target.value })} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required>
+          <select value={form.estado} onChange={e => updateForm({ estado: e.target.value })} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="address-level1">
             <option value="" disabled>Seleccionar</option>
             {ESTADOS_VZLA.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Zona</label>
-          <input type="text" value={form.zona} onChange={e => updateForm({ zona: e.target.value })} placeholder="Ej: Petare" maxLength={100} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required />
+          <input type="text" value={form.zona} onChange={e => updateForm({ zona: e.target.value })} placeholder="Ej: Petare" maxLength={100} className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none" required autoComplete="address-level2" />
         </div>
       </div>
 

@@ -212,3 +212,69 @@ Esto garantiza un punto de restauración antes de cada modificación.
 - `public/manifest.json` (nuevo)
 - `vite.config.js`
 - `index.html`
+
+---
+### SESIÓN 22/06/2026 – Refactorización mayor de InscripcionView (Arquitectura Modular)
+
+**Decisiones clave:**
+- **Extracción de hooks:** Creado `useInscripcionState` (estado del formulario, paso, locks, persistencia en sessionStorage) y `useDisponibilidad` (cálculo de bloques, días, delegación a LockService).
+- **Orquestador simplificado:** `InscripcionView.jsx` pasó de 600+ líneas monolíticas a un orquestador que delega estado y disponibilidad a hooks y renderiza subcomponentes puros.
+- **Componentes presentacionales puros:** Creados `Paso1DatosPersonales`, `Paso2Configuracion`, `Paso3Horario`, `Paso4Pago`, `Stepper`, `CalendarioFlotante`, `FormularioSalud`, `CalendarioNacimiento`, `LockTimerFlotante`, `ModalExpiracion`, `BotonCopiarDatos`.
+- **IoC cumplido:** `buscarProximaFechaDisponible` extraído de la UI y delegado a `LockService`.
+- **Corrección ConfigProvider:** Suscripción a Firestore ahora depende de `fbUser` (token listo), eliminando errores de permisos.
+
+**Bugs cerrados:**
+- ✅ Error de permisos en ConfigProvider al iniciar sesión.
+- ✅ Shadow Accounts: PIN mostrado tras Paso 1 (antes solo en Paso 4).
+- ✅ Bloqueo fatal en ModalPIN: corregida bifurcación paso 1 vs paso 4.
+- ✅ Calendario de nacimiento con scroll funcional restaurado.
+- ✅ Toasts en días inhabilitados restaurados.
+
+**Archivos creados (14):**
+- `src/modules/inscripcion/hooks/useInscripcionState.js`
+- `src/modules/inscripcion/hooks/useDisponibilidad.js`
+- `src/modules/inscripcion/views/InscripcionView.jsx` (refactorizado)
+- `src/modules/inscripcion/components/Paso1DatosPersonales.jsx`
+- `src/modules/inscripcion/components/Paso2Configuracion.jsx`
+- `src/modules/inscripcion/components/Paso3Horario.jsx`
+- `src/modules/inscripcion/components/Paso4Pago.jsx`
+- `src/modules/inscripcion/components/Stepper.jsx`
+- `src/modules/inscripcion/components/CalendarioFlotante.jsx`
+- `src/modules/inscripcion/components/FormularioSalud.jsx`
+- `src/modules/inscripcion/components/CalendarioNacimiento.jsx`
+- `src/modules/inscripcion/components/LockTimerFlotante.jsx`
+- `src/modules/inscripcion/components/ModalExpiracion.jsx`
+- `src/modules/inscripcion/components/BotonCopiarDatos.jsx`
+
+**Archivos modificados:**
+- `src/modules/inscripcion/services/LockService.js` (método `buscarProximaFechaDisponible`)
+- `src/context/ConfigProvider.jsx` (corrección de suscripción)
+
+**Validación:** Centinela V4.0 otorgó sello APROBADO (Luz Verde para Producción).
+
+
+
+---
+### SESIÓN 23/06/2026 – Auditoría Centinela V4.0 (Fases 1-4) – Sistema APROBADO
+
+**Decisiones clave:**
+- **Migración a Proyecto Estándar:** El sistema dejó de ser MVP. Se activaron todas las fases del Marco V6.3: SAST/SCA local obligatorio, DAST pasivo, métricas DORA, y bitácora experiencial obligatoria.
+- **Fase 1 – La Bóveda:** Blindaje de creación de reservas en `firestore.rules` (validación de `estadoPago`, `precio > 0`, prohibición de campos de sesión). Mitigación de Lock Poisoning (`expiresAt <= request.time + 900s`). Restricción de lectura de locks al propietario para eliminar fuga de PII.
+- **Fase 2 – Motor Financiero:** Alineación de esquema (`precio` añadido a `CAMPOS_PERMITIDOS` en `ReservaService.js`). Sustitución de polling por `onSnapshot` en `LockService.escucharLocks`. Limpieza de locks por `userId`. `buscarProximaFechaDisponible` sin consultar locks (solo reservas). `try/catch` en `ConfigProvider.saveConfig`.
+- **Fase 3 – Núcleo Operativo:** Bloqueo optimista en `pausarSesion` y `reanudarSesion` (estado local limpiado antes de la red, rollback si falla). Listeners de `visibilitychange`, `online`, `offline` para heartbeat. `conexionPerdida` propagada desde `useSessionTimer` a `AulaVirtualView` y `RelojSesion`.
+- **Fase 4 – UI Hardening y Accesibilidad:** Sanitización determinista de inputs numéricos. Prevención de doble envío con `isSubmitting`. Layout estable con `h-dvh` y `overflow-x-hidden`. Deuda WCAG registrada: focus trap en modales (B132), atributos `autocomplete` (B133), headers HTTP de seguridad (B134).
+
+**Archivos modificados (8):**
+- `firestore.rules`
+- `src/modules/inscripcion/services/ReservaService.js`
+- `src/modules/inscripcion/services/LockService.js`
+- `src/modules/inscripcion/hooks/useDisponibilidad.js`
+- `src/modules/inscripcion/views/InscripcionView.jsx`
+- `src/context/ConfigProvider.js`
+- `src/modules/sesiones/hooks/useSessionTimer.js`
+- `src/modules/aula/views/AulaVirtualView.jsx`
+
+**Deuda técnica nueva:** B125-B130, B132-B134 (ver BACKLOG_V2.md). Deuda B131 cancelada.
+
+**Veredicto final:** APROBADO. El sistema superó el escrutinio Zero-Trust del Centinela en las 4 fases. Autorizado para despliegue en producción.
+

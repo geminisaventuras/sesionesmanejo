@@ -1,7 +1,11 @@
-// @build: 2026-06-22 | id: ESTUDIANTE-DIRECTO-FIRESTORE | desc: Panel del estudiante con consulta directa a Firestore cuando el array de contexto está vacío
-import { useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { useContext, useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
+import { ReservaService } from '../../inscripcion/services/ReservaService';
+import { AuthService } from '../../../services/AuthService';
+import { CursoService } from '../../shared/services/CursoService';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
@@ -9,11 +13,10 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
-  User, AlertCircle, ChevronLeft, Share2, Zap, Lock
+  User, AlertCircle, ChevronLeft, Share2, Zap, Lock, Check, KeyRound
 } from 'lucide-react';
-import { db } from '../../../firebase';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import ReferenciaInput from '../../shared/components/ReferenciaInput';
+
+const APP_ID = 'motoescuela-pro-v1';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_CORTOS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
@@ -36,24 +39,114 @@ const obtenerMesCortoYAnio = (fechaStr) => {
   return { mes: MESES_CORTOS[parseInt(partes[1])-1] || '', anio: partes[0] || '' };
 };
 
+const CorreccionReferencia = memo(({ onGuardar, enviando }) => {
+  const [valor, setValor] = useState('');
+  
+  const handleChange = (e) => {
+    setValor(e.target.value.replace(/\D/g, '').slice(0, 4));
+  };
+  
+  const handleGuardar = () => {
+    const refLimpia = valor.replace(/\D/g, '').slice(0, 4);
+    onGuardar(refLimpia);
+    setValor('');
+  };
+  
+  const valido = valor.replace(/\D/g, '').length === 4;
+  
+  return (
+    <div className="flex gap-2">
+      <input
+        type="tel"
+        value={valor}
+        onChange={handleChange}
+        placeholder="Ej: 8452"
+        inputMode="numeric"
+        pattern="\d{4}"
+        maxLength={4}
+        className="flex-1 bg-white border-2 border-red-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm outline-none"
+      />
+      <Button
+        type="button"
+        onClick={handleGuardar}
+        variant="primary"
+        className="!w-auto !py-2 !px-4 !text-xs"
+        icon={Check}
+        disabled={!valido || enviando}
+      >
+        {enviando ? 'Enviando...' : 'Enviar'}
+      </Button>
+    </div>
+  );
+});
+
 export function EstudiantePanel() {
   const ctx = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
 
   const [tab, setTab] = useState('miCurso');
-  const [isSearching, setIsSearching] = useState(true);
-  const [localReserva, setLocalReserva] = useState(null);
   const [cursoDirecto, setCursoDirecto] = useState(null);
   const [busquedaCursoFallida, setBusquedaCursoFallida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
+  const [enviandoCorreccion, setEnviandoCorreccion] = useState(false);
+  
+  const [reservaRealTime, setReservaRealTime] = useState(null);
+  const [isSearching, setIsSearching] = useState(true);
+  
+  const estadoPagoAnteriorRef = useRef(null);
 
   const {
     reservas = [], cursos = [], horarios = [], instructores = [], sedes = [],
-    user, fbUser, saveReserva, logoutUser, notifications = []
+    user, fbUser, logoutUser, notifications = []
   } = ctx;
 
   const uid = fbUser?.uid || user?.uid;
+
+  useEffect(() => {
+    if (!uid) {
+      setIsSearching(false);
+      return;
+    }
+    
+    const reservasRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'reservas');
+    const q = query(reservasRef, where('userId', '==', String(uid)));
+    
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const orden = { 'Aprobado': 0, 'Pendiente': 1, 'Rechazado': 2, 'Cancelado': 3 };
+        docs.sort((a, b) => (orden[a.estadoPago] || 99) - (orden[b.estadoPago] || 99));
+        const mejorReserva = docs[0] || null;
+        setReservaRealTime(mejorReserva);
+      } else {
+        setReservaRealTime(null);
+      }
+      setIsSearching(false);
+    }, (err) => {
+      setIsSearching(false);
+    });
+    
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!reservaRealTime) return;
+    const estadoActual = reservaRealTime.estadoPago;
+    const estadoAnterior = estadoPagoAnteriorRef.current;
+    
+    if (estadoAnterior && estadoAnterior !== estadoActual) {
+      if (estadoActual === 'Rechazado') {
+        showToast('Tu pago ha sido rechazado. Corrige la referencia.', 'error');
+      } else if (estadoActual === 'Aprobado') {
+        showToast('¡Pago aprobado! Ya puedes entrar al Aula Virtual.', 'success');
+      } else if (estadoActual === 'Pendiente') {
+        showToast('Referencia enviada. Espera la validación.', 'info');
+      }
+    }
+    
+    estadoPagoAnteriorRef.current = estadoActual;
+  }, [reservaRealTime?.estadoPago, showToast]);
 
   const reservaContext = useMemo(() => reservas.find(r => {
     if (String(r.userId) !== String(uid)) return false;
@@ -65,50 +158,44 @@ export function EstudiantePanel() {
     return false;
   }), [reservas, uid]);
 
-  useEffect(() => {
-    if (!uid) { setIsSearching(false); return; }
-    if (reservaContext) { setIsSearching(false); return; }
-
-    let cancel = false;
-    const obtenerReserva = async () => {
-      try {
-        const ref = collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas');
-        const q = query(ref, where('userId', '==', String(uid)));
-        const snap = await getDocs(q);
-        if (!cancel && !snap.empty) {
-          setLocalReserva({ id: snap.docs[0].id, ...snap.docs[0].data() });
-        }
-      } catch (e) {
-        // Silencioso
-      }
-      if (!cancel) setIsSearching(false);
-    };
-    obtenerReserva();
-    return () => { cancel = true; };
-  }, [uid, reservaContext]);
-
   const buscarCurso = useCallback(async () => {
-    const r = reservaContext || localReserva;
+    const r = reservaRealTime || reservaContext;
     if (!r || !r.cursoId) { setBusquedaCursoFallida(true); return; }
     setBusquedaCursoFallida(false);
     try {
-      const snap = await getDoc(doc(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'cursos', String(r.cursoId)));
-      if (snap.exists()) setCursoDirecto({ id: snap.id, ...snap.data() });
-      else { setCursoDirecto(null); setBusquedaCursoFallida(true); }
-    } catch (e) { setCursoDirecto(null); setBusquedaCursoFallida(true); }
-  }, [reservaContext, localReserva]);
+      const result = await CursoService.obtenerCurso(r.cursoId);
+      if (result.success && result.data) {
+        setCursoDirecto(result.data);
+      } else {
+        setCursoDirecto(null);
+        setBusquedaCursoFallida(true);
+      }
+    } catch (e) {
+      setCursoDirecto(null);
+      setBusquedaCursoFallida(true);
+    }
+  }, [reservaRealTime, reservaContext]);
 
   useEffect(() => { buscarCurso(); }, [buscarCurso]);
 
-  const reservaActual = reservaContext || localReserva;
+  const reservaActual = reservaRealTime || reservaContext;
 
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
 
-  const handleGuardarReferencia = useCallback(async (ref) => {
-    if (!reservaActual) return;
-    await saveReserva({ ...reservaActual, pagoRef: ref, estadoPago: 'Pendiente' });
-    showToast('Referencia enviada', 'success');
-  }, [reservaActual, saveReserva, showToast]);
+  const handleGuardarReferencia = useCallback(async (refLimpia) => {
+    if (!reservaActual?.id) return;
+    setEnviandoCorreccion(true);
+    try {
+      const result = await ReservaService.corregirReferenciaPago(reservaActual.id, refLimpia);
+      if (!result.success) {
+        showToast('Error al enviar: ' + (result.error?.message || 'Intente de nuevo.'), 'error');
+      }
+    } catch (e) {
+      showToast('Error de conexión. Intente de nuevo.', 'error');
+    } finally {
+      setEnviandoCorreccion(false);
+    }
+  }, [reservaActual, showToast]);
 
   const compartirCurso = () => {
     const texto = `¡Completé el curso "${cursoDetalle?.cursoNombre || 'MotoEscuela'}" en MotoEscuela App! 🏍️`;
@@ -116,15 +203,7 @@ export function EstudiantePanel() {
     else { navigator.clipboard.writeText(texto).then(() => showToast('Enlace copiado', 'success')); }
   };
 
-  if (isSearching) {
-    return (
-      <AppShell bgColor="bg-gray-50">
-        <div className="flex items-center justify-center min-h-full">
-          <Spinner message="Cargando tus datos..." />
-        </div>
-      </AppShell>
-    );
-  }
+  if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
 
   const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
   const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && misReservas.every(r => r.estadoPago !== 'Aprobado' && r.estadoCurso !== 'Aprobado');
@@ -149,6 +228,7 @@ export function EstudiantePanel() {
   const horaFin = hor?.label ? hor.label.split('-')[1]?.trim() : '--:--';
   const sello = obtenerMesCortoYAnio(reservaActual?.fecha);
   const pagoAprobado = reservaActual?.estadoPago === 'Aprobado';
+  const intentosAgotados = (reservaActual?.intentosCorreccion || 0) >= 3;
 
   const irAlAula = () => { if (reservaActual?.id) navigate(`/aula/${reservaActual.id}`); };
 
@@ -202,20 +282,33 @@ export function EstudiantePanel() {
                 <User size={12} /><span className="font-bold">Inst: {inst ? inst.nombre : 'Asignando'}</span>
               </p>
               {pagoAprobado && modulosFaltantes > 0 && <p className="text-[10px] text-blue-600 font-bold mt-2">Te {modulosFaltantes === 1 ? 'falta' : 'faltan'} {modulosFaltantes} {modulosFaltantes === 1 ? 'módulo' : 'módulos'} para tu certificado</p>}
-              {!pagoAprobado && <p className="text-[10px] text-yellow-600 font-bold mt-2">Esperando la validación del pago por un administrador</p>}
+              {!pagoAprobado && reservaActual.estadoPago === 'Pendiente' && <p className="text-[10px] text-yellow-600 font-bold mt-2">Esperando la validación del pago por un administrador</p>}
             </div>
           </div>
-          {!pagoAprobado && (
-            <div className={`px-4 py-3 border-t ${reservaActual.estadoPago === 'Rechazado' ? 'bg-red-50' : 'bg-orange-50'}`}>
-              <div className="flex items-center gap-2">
-                {reservaActual.estadoPago === 'Rechazado' ? <AlertCircle size={14} className="text-red-600" /> : <Clock size={14} className="text-orange-600" />}
+          {reservaActual.estadoPago === 'Rechazado' && (
+            <div className="px-4 py-3 border-t bg-red-50">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={14} className="text-red-600 mt-0.5" />
                 <div className="flex-1">
-                  <p className={`text-xs font-bold ${reservaActual.estadoPago === 'Rechazado' ? 'text-red-700' : 'text-orange-700'}`}>{reservaActual.estadoPago === 'Rechazado' ? 'Pago Rechazado' : 'Pago Pendiente'}</p>
-                  <p className="text-[10px] text-gray-600">{reservaActual.estadoPago === 'Rechazado' ? 'La referencia no coincide. Corrígela para continuar.' : 'Ref: ' + reservaActual.pagoRef}</p>
+                  <p className="text-xs font-bold text-red-700">Pago Rechazado</p>
+                  {intentosAgotados ? (
+                    <p className="text-[10px] text-gray-600">Has alcanzado el límite de intentos. Contacta al administrador.</p>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-gray-600 mb-2">La referencia no coincide. Ingresa los 4 últimos dígitos de la referencia del pago móvil.</p>
+                      <CorreccionReferencia onGuardar={handleGuardarReferencia} enviando={enviandoCorreccion} />
+                    </>
+                  )}
                 </div>
-                {reservaActual.estadoPago === 'Rechazado' && (
-                  <ReferenciaInput onGuardar={handleGuardarReferencia} />
-                )}
+              </div>
+            </div>
+          )}
+          {reservaActual.estadoPago === 'Pendiente' && (
+            <div className="px-4 py-3 border-t bg-orange-50">
+              <div className="flex items-center gap-2">
+                <Clock size={14} className="text-orange-600" />
+                <p className="text-xs font-bold text-orange-700">Pago Pendiente</p>
+                <p className="text-[10px] text-gray-600">Ref: {reservaActual.pagoRef}</p>
               </div>
             </div>
           )}
@@ -291,7 +384,62 @@ export function EstudiantePanel() {
 
   const Placeholder = ({ icon: Icon, titulo, descripcion }) => (<div className="flex flex-col items-center justify-center min-h-full p-6 text-center"><div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4"><Icon size={32} className="text-gray-400" /></div><h2 className="text-lg font-black text-gray-900 mb-2">{titulo}</h2><p className="text-sm text-gray-500">{descripcion}</p></div>);
 
-  const VistaPerfil = () => (<div className="space-y-4"><h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mi Perfil</h2><div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3"><div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{reservaActual?.nombre} {reservaActual?.apellido}</p></div><div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{reservaActual?.cedula}</p></div><div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{reservaActual?.telefono || 'No registrado'}</p></div><div><p className="text-xs text-gray-500">Curso Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div><div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{sedeActual?.nombre || 'No asignada'}</p></div></div></div>);
+  const VistaPerfil = () => {
+    const [mostrarCambioPin, setMostrarCambioPin] = useState(false);
+    const [pinNuevo, setPinNuevo] = useState('');
+
+    const handleCambiarPin = async () => {
+      if (!pinNuevo || pinNuevo.length < 6) {
+        showToast('El nuevo PIN debe tener 6 dígitos', 'error');
+        return;
+      }
+      try {
+        const result = await AuthService.updatePassword(ctx.fbUser, pinNuevo);
+        if (result.success) {
+          showToast('PIN actualizado correctamente', 'success');
+          setMostrarCambioPin(false);
+          setPinNuevo('');
+        } else if (result.error.code === 'recent-login') {
+          showToast('Por seguridad, cierra sesión y vuelve a entrar para cambiar tu PIN', 'error');
+        } else {
+          showToast(result.error.message || 'Error al cambiar el PIN', 'error');
+        }
+      } catch (e) {
+        showToast('Error de conexión', 'error');
+      }
+    };
+
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mi Perfil</h2>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{reservaActual?.nombre} {reservaActual?.apellido}</p></div>
+          <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{reservaActual?.cedula}</p></div>
+          <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{reservaActual?.telefono || 'No registrado'}</p></div>
+          <div><p className="text-xs text-gray-500">Curso Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div>
+          <div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{sedeActual?.nombre || 'No asignada'}</p></div>
+          
+          <div className="border-t border-gray-100 pt-3">
+            {!mostrarCambioPin ? (
+              <button onClick={() => setMostrarCambioPin(true)} className="flex items-center gap-2 text-blue-600 font-bold text-sm">
+                <KeyRound size={14} />
+                Cambiar PIN
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">Ingresa tu nuevo PIN de 6 dígitos</p>
+                <input type="password" value={pinNuevo} onChange={e => setPinNuevo(e.target.value.replace(/\D/g, ''))} placeholder="Nuevo PIN (6 dígitos)" className="w-full bg-gray-50 border rounded-xl py-2 px-3 text-sm" inputMode="numeric" pattern="\d{6}" maxLength={6} />
+                <div className="flex gap-2">
+                  <Button onClick={handleCambiarPin} variant="primary" className="!py-1.5 !text-xs" disabled={pinNuevo.length < 6}>Guardar</Button>
+                  <Button onClick={() => { setMostrarCambioPin(false); setPinNuevo(''); }} variant="outline" className="!py-1.5 !text-xs">Cancelar</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <AppShell header={header} footer={footer}>
