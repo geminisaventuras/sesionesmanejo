@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: DETALLE-RESERVA | desc: Página de detalle de reserva compacta sin scroll, con navegación completa
+// @build: 2026-06-22 | id: DETALLE-RESERVA-LEGIBLE | desc: Datos de reserva con nombres reales, fechas formateadas y correo visible
 import { useContext, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -12,15 +12,28 @@ import {
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings
 } from 'lucide-react';
 
+// Función para formatear fecha "YYYY-MM-DD" a "22 jun 2026"
+const formatearFecha = (fechaStr) => {
+  if (!fechaStr) return '—';
+  const [y, m, d] = fechaStr.split('-');
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
+};
+
 const AdminReservaDetalle = () => {
   const { reservaId } = useParams();
   const navigate = useNavigate();
-  const { reservas, instructores, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, cursos, horarios, sedes, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
   const [selectedInstructor, setSelectedInstructor] = useState('');
 
   const isAdmin = user?.role === 'admin';
   const res = (reservas || []).find(r => String(r.id) === String(reservaId));
+
+  // Mapeo de IDs a nombres reales
+  const curso = (cursos || []).find(c => String(c.id) === String(res?.cursoId));
+  const horario = (horarios || []).find(h => String(h.id) === String(res?.horaId));
+  const sede = (sedes || []).find(s => String(s.id) === String(res?.sedeId));
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -35,8 +48,9 @@ const AdminReservaDetalle = () => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title={`Reserva: ${res.nombre} ${res.apellido}`} onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;  const footer = <DashboardFooter
+  const { notifications } = useContext(AppContext);
+  const header = <DashboardHeader title={`Reserva: ${res?.nombre || ''} ${res?.apellido || ''}`} onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;
+  const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="reservas"
     onTabChange={(id) => {
@@ -109,6 +123,7 @@ const header = <DashboardHeader title={`Reserva: ${res.nombre} ${res.apellido}`}
         </div>
 
         <div className="flex-1 p-3 space-y-2 overflow-hidden">
+          {/* Datos del Estudiante y Curso */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Datos del Estudiante y Curso</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -118,15 +133,16 @@ const header = <DashboardHeader title={`Reserva: ${res.nombre} ${res.apellido}`}
               <div className="flex items-center gap-1"><Phone size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Emerg: {res.contactoEmergencia || '—'}</span></div>
               <div className="flex items-center gap-1 col-span-2"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">{res.estado || '—'}{res.zona ? `, ${res.zona}` : ''}</span></div>
               <div className="col-span-2 border-t border-gray-100 my-1"></div>
-              <div className="flex items-center gap-1"><BookOpen size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">{res.cursoId || '—'}</span></div>
+              <div className="flex items-center gap-1"><BookOpen size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">{curso?.nombre || res.cursoId || '—'}</span></div>
               <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Inst: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : 'Sin asignar'}</span></div>
-              <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>{res.fecha || res.fecha1} – {res.fecha2}</span></div>
-              <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{res.horaId || '—'}</span></div>
-              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {res.sedeId || '—'}</span></div>
+              <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>{formatearFecha(res.fecha)} – {formatearFecha(res.fecha2)}</span></div>
+              <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || res.horaId || '—'}</span></div>
+              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {sede?.nombre || res.sedeId || '—'}</span></div>
               <div className="flex items-center gap-1"><Bike size={12} className="text-gray-400 flex-shrink-0" /><span>{res.tipoMoto} · {res.traeMoto === 'Sí' ? 'Propia' : 'Escuela'} · Bici: {res.sabeBicicleta}</span></div>
             </div>
           </div>
 
+          {/* Pago */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Pago</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -141,6 +157,7 @@ const header = <DashboardHeader title={`Reserva: ${res.nombre} ${res.apellido}`}
             </div>
           </div>
 
+          {/* Acciones de administrador */}
           {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
               <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Acciones</h3>

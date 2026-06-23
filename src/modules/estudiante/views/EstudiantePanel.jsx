@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: ESTUDIANTE-NOTIFICACIONES | desc: Panel del estudiante con campana de notificaciones e input de referencia blindado
+// @build: 2026-06-22 | id: ESTUDIANTE-DIRECTO-FIRESTORE | desc: Panel del estudiante con consulta directa a Firestore cuando el array de contexto está vacío
 import { useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -7,18 +7,15 @@ import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
-import RelojSesion from '../../shared/components/RelojSesion';
-import FilaTiempo from '../../shared/components/FilaTiempo';
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
-  User, AlertCircle, RefreshCw, ChevronLeft, Share2, Zap, Lock
+  User, AlertCircle, ChevronLeft, Share2, Zap, Lock
 } from 'lucide-react';
 import { db } from '../../../firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import ReferenciaInput from '../../shared/components/ReferenciaInput';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const MESES_CORTOS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
 const formatearRangoCorto = (f1, f2) => {
@@ -49,9 +46,7 @@ export function EstudiantePanel() {
   const [localReserva, setLocalReserva] = useState(null);
   const [cursoDirecto, setCursoDirecto] = useState(null);
   const [busquedaCursoFallida, setBusquedaCursoFallida] = useState(false);
-  const [conexionPerdida, setConexionPerdida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
-  const [redirigido, setRedirigido] = useState(false);
 
   const {
     reservas = [], cursos = [], horarios = [], instructores = [], sedes = [],
@@ -73,15 +68,20 @@ export function EstudiantePanel() {
   useEffect(() => {
     if (!uid) { setIsSearching(false); return; }
     if (reservaContext) { setIsSearching(false); return; }
+
     let cancel = false;
     const obtenerReserva = async () => {
       try {
         const ref = collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas');
         const q = query(ref, where('userId', '==', String(uid)));
         const snap = await getDocs(q);
-        if (!cancel && !snap.empty) setLocalReserva({ id: snap.docs[0].id, ...snap.docs[0].data() });
-      } catch (e) { /* silencioso */ }
-      finally { if (!cancel) setIsSearching(false); }
+        if (!cancel && !snap.empty) {
+          setLocalReserva({ id: snap.docs[0].id, ...snap.docs[0].data() });
+        }
+      } catch (e) {
+        // Silencioso
+      }
+      if (!cancel) setIsSearching(false);
     };
     obtenerReserva();
     return () => { cancel = true; };
@@ -102,28 +102,6 @@ export function EstudiantePanel() {
 
   const reservaActual = reservaContext || localReserva;
 
-  useEffect(() => {
-    if (isSearching || redirigido) return;
-    if (!user || user.role !== 'estudiante') return;
-
-    const tieneAprobadaOCompletada = reservas.some(r => String(r.userId) === String(uid) && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado'));
-    const todasCanceladasORechazadas = reservas.filter(r => String(r.userId) === String(uid)).every(r => r.estadoPago === 'Cancelado' || r.estadoPago === 'Rechazado');
-    const tieneRechazadaEnGracia = reservaActual?.estadoPago === 'Rechazado';
-
-    if (!reservaActual && !tieneAprobadaOCompletada) {
-      setRedirigido(true);
-      showToast('No tienes reservas activas. Debes inscribirte.', 'error');
-      navigate('/inscripcion', { replace: true });
-      return;
-    }
-    if (todasCanceladasORechazadas && !tieneRechazadaEnGracia) {
-      setRedirigido(true);
-      showToast('Tus reservas han sido canceladas. Debes inscribirte nuevamente.', 'error');
-      navigate('/inscripcion', { replace: true });
-      return;
-    }
-  }, [isSearching, reservaActual, reservas, uid, user, redirigido]);
-
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
 
   const handleGuardarReferencia = useCallback(async (ref) => {
@@ -138,9 +116,18 @@ export function EstudiantePanel() {
     else { navigator.clipboard.writeText(texto).then(() => showToast('Enlace copiado', 'success')); }
   };
 
-  if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
+  if (isSearching) {
+    return (
+      <AppShell bgColor="bg-gray-50">
+        <div className="flex items-center justify-center min-h-full">
+          <Spinner message="Cargando tus datos..." />
+        </div>
+      </AppShell>
+    );
+  }
 
-  const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && !reservas.some(r => String(r.userId) === String(uid) && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado'));
+  const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
+  const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && misReservas.every(r => r.estadoPago !== 'Aprobado' && r.estadoCurso !== 'Aprobado');
 
   const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
@@ -173,6 +160,7 @@ export function EstudiantePanel() {
             <Award size={48} className="text-gray-400 mb-4 mx-auto" />
             <h2 className="text-xl font-black text-gray-900 mb-2">Sin reservas activas</h2>
             <p className="text-sm text-gray-500 mb-4">No tienes ninguna reserva activa en este momento.</p>
+            <Button onClick={() => navigate('/inscripcion')} variant="primary">Inscribirse</Button>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">📢 Próximos Cursos</h3><p className="text-xs text-gray-500">Próximamente podrás explorar y reservar nuevos cursos.</p></div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"><h3 className="font-bold text-gray-900 text-sm mb-3">🔧 Servicios</h3><p className="text-xs text-gray-500">Mecánica, motolavado, delivery y más.</p></div>
@@ -238,7 +226,6 @@ export function EstudiantePanel() {
     );
   };
 
-  const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
   const cursosCompletados = misReservas.filter(r => r.estadoCurso === 'Aprobado');
   const cursoActivo = reservaActual && reservaActual.estadoCurso !== 'Aprobado' ? reservaActual : null;
 

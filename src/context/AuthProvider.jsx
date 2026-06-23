@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: AUTH-LOGOUT-ROBUSTO | desc: Cierre de sesión a prueba de fallos, limpia estado local siempre
+// @build: 2026-06-22 | id: AUTH-PROVIDER-BLINDADO | desc: Admin reconocido por email sin depender de documento en Firestore
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -11,7 +11,6 @@ export function useAuthProvider(showToast) {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState(null);
   const [autoLoginData, setAutoLoginData] = useState(null);
-  const [loggingOut, setLoggingOut] = useState(false);
 
   const restoreUserRole = useCallback(async (currentUser) => {
     if (!currentUser || !currentUser.email) return;
@@ -27,6 +26,11 @@ export function useAuthProvider(showToast) {
           setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
           return;
         }
+      }
+
+      if (email === 'armandoaventurasve@gmail.com') {
+        setUser({ role: 'admin', data: { nombre: 'Administrador' }, uid: currentUser.uid });
+        return;
       }
 
       const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
@@ -65,7 +69,6 @@ export function useAuthProvider(showToast) {
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthChange((currentUser) => {
-      if (loggingOut) return; // Ignorar cambios durante el logout manual
       setFbUser(currentUser);
       if (currentUser) {
         restoreUserRole(currentUser).finally(() => setAuthReady(true));
@@ -75,7 +78,7 @@ export function useAuthProvider(showToast) {
       }
     });
     return () => unsubscribe();
-  }, [restoreUserRole, loggingOut]);
+  }, [restoreUserRole]);
 
   const loginWithGoogle = useCallback(async () => {
     const res = await AuthService.loginConGoogle();
@@ -102,19 +105,9 @@ export function useAuthProvider(showToast) {
   }, [showToast]);
 
   const logoutUser = useCallback(async () => {
-    setLoggingOut(true);
-    try {
-      await AuthService.logout();
-    } catch (error) {
-      console.warn('Error al cerrar sesión en Firebase:', error);
-    } finally {
-      setUser(null);
-      setFbUser(null);
-      setAutoLoginData(null);
-      setLoggingOut(false);
-      setAuthReady(true);
-      showToast('Has cerrado sesión correctamente', 'success');
-    }
+    const res = await AuthService.logout();
+    if (res.success) { setUser(null); }
+    else showToast(res.error.message, 'error');
   }, [showToast]);
 
   return {

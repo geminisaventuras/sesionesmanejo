@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: RESERVAS-HOME | desc: Página principal de reservas con filas compactas y header unificado
+// @build: 2026-06-22 | id: RESERVAS-HOME-VACIO | desc: Página principal de reservas con mensaje visible cuando no hay reservas activas
 import { useContext, useMemo, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -6,7 +6,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings
+  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox
 } from 'lucide-react';
 
 const TarjetaMini = memo(({ reserva, onClick }) => {
@@ -48,6 +48,8 @@ const AdminReservasHome = () => {
     return f >= hoy && f <= dentroDe7Dias;
   }).sort((a, b) => new Date(a.fecha || a.fecha1) - new Date(b.fecha || b.fecha1)), [res, hoy, dentroDe7Dias]);
 
+  const sinReservas = pendientes.length === 0 && proximas.length === 0;
+
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
@@ -62,7 +64,8 @@ const AdminReservasHome = () => {
   ];
 
 const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;  const footer = <DashboardFooter
+const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
+  const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="reservas"
     onTabChange={(id) => {
@@ -74,50 +77,64 @@ const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashbo
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
       <div className="p-4 space-y-4">
-        {pendientes.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Pendientes de Aprobación</h3>
-              <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                Ver todas ({pendientes.length}) <ChevronRight size={12} />
-              </button>
+        {sinReservas ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+              <Inbox size={36} className="text-gray-400" />
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {pendientes.slice(0, 4).map(r => (
-                <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
-              ))}
-              {pendientes.length > 4 && (
-                <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
-                  +{pendientes.length - 4}
-                </button>
-              )}
-            </div>
+            <h3 className="text-lg font-black text-gray-900 mb-2">Sin reservas activas</h3>
+            <p className="text-sm text-gray-500 mb-6">No hay reservas pendientes ni próximas para mostrar.</p>
+            <button
+              onClick={() => navigate('/admin/reservas/lista')}
+              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
+            >
+              Ver todas las reservas
+            </button>
           </div>
-        )}
+        ) : (
+          <>
+            {pendientes.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Pendientes de Aprobación</h3>
+                  <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
+                    Ver todas ({pendientes.length}) <ChevronRight size={12} />
+                  </button>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {pendientes.slice(0, 4).map(r => (
+                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
+                  ))}
+                  {pendientes.length > 4 && (
+                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
+                      +{pendientes.length - 4}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
-        {proximas.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Próximas (Aprobadas)</h3>
-              <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                Ver todas ({proximas.length}) <ChevronRight size={12} />
-              </button>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {proximas.slice(0, 4).map(r => (
-                <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
-              ))}
-              {proximas.length > 4 && (
-                <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
-                  +{proximas.length - 4}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {pendientes.length === 0 && proximas.length === 0 && (
-          <p className="text-center text-gray-500 py-6 text-xs">No hay reservas activas.</p>
+            {proximas.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Próximas (Aprobadas)</h3>
+                  <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
+                    Ver todas ({proximas.length}) <ChevronRight size={12} />
+                  </button>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {proximas.slice(0, 4).map(r => (
+                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
+                  ))}
+                  {proximas.length > 4 && (
+                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
+                      +{proximas.length - 4}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppShell>

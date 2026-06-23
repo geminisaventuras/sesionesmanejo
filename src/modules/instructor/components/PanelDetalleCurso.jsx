@@ -1,111 +1,179 @@
-import { memo, useState } from 'react';
-import { Button } from '../../shared/components/UI';
-import RelojSesion from '../../shared/components/RelojSesion';
-import FilaTiempo from '../../shared/components/FilaTiempo';
-import BannerPausa from '../../shared/components/BannerPausa';
-import ModuloItem from '../../shared/components/ModuloItem';
-import CarruselModulos from '../../shared/components/CarruselModulos';
-import { useSessionTimer } from '../../sesiones/hooks/useSessionTimer';
-import { formatearRangoCorto, obtenerMesCortoYAnio } from '../../shared/utils/fechas';
-import { Calendar, Clock, MapPin, Bike, BookOpen, Award, Pause, User } from 'lucide-react';
-import { MOTIVOS_PAUSA } from '../../sesiones/constants';
+// @build: 2026-06-22 | id: INSTRUCTOR-FINAL | desc: Panel del instructor con tarjetas "Verificando pago", header dinámico, notificaciones habilitadas.
+import { useState, useMemo, useCallback, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AppContext } from '../../../context/AppContextValue';
+import { Button, Input, Select, Spinner } from '../../../components/UI';
+import AppShell from '../../shared/components/AppShell';
+import DashboardHeader from '../../shared/components/DashboardHeader';
+import DashboardFooter from '../../shared/components/DashboardFooter';
+import { formatearFechaSinAnio } from '../../shared/utils/fechas';
+import { Calendar, Wallet, Settings, Activity, Filter } from 'lucide-react';
 
-/**
- * Panel de detalle del curso. Contiene la tarjeta azul, reloj, módulos y lógica de pausa.
- * Utiliza el hook useSessionTimer para toda la lógica de negocio y temporización.
- */
-const PanelDetalleCurso = memo(({ reserva, curso, horario, sede, instructor, saveReserva, showToast }) => {
-  const { sgta, toggleModulo, pausarSesion, reanudarSesion } = useSessionTimer(reserva, saveReserva, showToast);
-  const [mostrarSelectorPausa, setMostrarSelectorPausa] = useState(false);
+export default function InstructorPanel() {
+  const { user, reservas, saveInstructor, showToast, logoutUser, notifications = [] } = useContext(AppContext);
+  const navigate = useNavigate();
+  const [tab, setTab] = useState('inicio');
+  const [vistaInicio, setVistaInicio] = useState('resumen');
+  const [filtroFecha, setFiltroFecha] = useState('');
+  const [editandoPerfil, setEditandoPerfil] = useState(false);
+  const [perfil, setPerfil] = useState(user?.data || {});
 
-  const cantCompletados = Object.keys(reserva.modulosEstado || {}).filter(k => (reserva.modulosEstado || {})[k]?.fecha).length;
-  const totalModulos = curso.modulos.length;
-  const todosCompletados = totalModulos > 0 && cantCompletados >= totalModulos;
-  const horaInicio = horario?.label ? horario.label.split('-')[0]?.trim() : '--:--';
-  const horaFin = horario?.label ? horario.label.split('-')[1]?.trim() : '--:--';
-  const sello = obtenerMesCortoYAnio(reserva.fecha);
-  const tiempoMaximoCurso = curso.duracionTotal || 240;
-  const tiempoConsumido = Object.values(reserva.modulosEstado || {}).reduce((acc, mod) => acc + (mod.duracion || 0) + (mod.duracionExtra || 0), 0);
-  const tiempoRestanteCurso = Math.max(0, tiempoMaximoCurso - tiempoConsumido);
+  const misClases = useMemo(() => (reservas || []).filter(r => String(r.instructorId) === String(user?.uid)), [reservas, user?.uid]);
+  const activas = useMemo(() => misClases.filter(c => c.estadoCurso !== 'Aprobado'), [misClases]);
+  const completadas = useMemo(() => misClases.filter(c => c.estadoCurso === 'Aprobado'), [misClases]);
+  const hoy = useMemo(() => {
+    const hoyStr = new Date().toISOString().split('T')[0];
+    return misClases.filter(c => (c.fecha === hoyStr || c.fecha2 === hoyStr) && c.estadoCurso !== 'Aprobado').length;
+  }, [misClases]);
+  const pendientesFiltradas = useMemo(() => {
+    if (!filtroFecha) return activas;
+    return activas.filter(c => c.fecha === filtroFecha || c.fecha2 === filtroFecha);
+  }, [activas, filtroFecha]);
 
-  const modulosCompletados = curso.modulos.filter(mod => {
-    const nombre = typeof mod === 'string' ? mod : mod.nombre;
-    return (reserva.modulosEstado || {})[nombre]?.fecha;
-  }).map(mod => ({ nombre: typeof mod === 'string' ? mod : mod.nombre, duracion: typeof mod === 'string' ? 60 : (mod.duracion || 60) }));
-  
-  const modulosPendientes = curso.modulos.filter(mod => {
-    const nombre = typeof mod === 'string' ? mod : mod.nombre;
-    return !(reserva.modulosEstado || {})[nombre]?.fecha;
-  });
+  const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
+  const guardarPerfil = useCallback(async () => { await saveInstructor({ ...user.data, ...perfil }); showToast('Perfil actualizado', 'success'); setEditandoPerfil(false); }, [saveInstructor, user, perfil, showToast]);
+  const abrirAula = (r) => navigate(`/aula/${r.id}`);
+
+  if (!user) return <Spinner message="Cargando perfil..." />;
+
+  const header = (
+    <DashboardHeader
+      title={vistaInicio === 'pendientes' ? 'Pendientes' : undefined}
+      onBack={vistaInicio === 'pendientes' ? () => setVistaInicio('resumen') : undefined}
+      nombre={vistaInicio !== 'pendientes' ? user?.data?.nombre : undefined}
+      onLogout={handleLogout}
+      notifications={notifications}
+    />
+  );
+
+  const footer = <DashboardFooter tabs={[
+    { id: 'inicio', icon: Activity, label: 'Inicio' },
+    { id: 'finanzas', icon: Wallet, label: 'Finanzas' },
+    { id: 'config', icon: Settings, label: 'Perfil' }
+  ]} activeTab={tab} onTabChange={setTab} />;
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl shadow-xl shadow-blue-600/20 overflow-hidden">
-        <div className="bg-blue-600 text-white p-3 relative">
-          <div className="flex items-center gap-2 mb-2"><Bike size={18} className="text-blue-200" /><p className="text-sm font-bold uppercase tracking-widest flex-1">{curso.nombre || 'Curso'}</p></div>
-          <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {sede?.nombre || 'N/A'}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">Alumno: {reserva.nombre || 'N/A'}</span></div></div>
-          <div className="absolute top-2 right-2 bg-white/20 rounded-lg px-2 py-1 text-center"><p className="text-lg font-black leading-none">{sello.mes}</p><p className="text-[10px] font-bold leading-none">{sello.anio}</p></div>
-          <div className="bg-gray-800/50 p-3 rounded-xl text-xs">
-            <div className="flex items-start gap-3">
-              <div className="flex-1 space-y-1.5">
-                <div className="flex items-center gap-2"><Calendar size={12} className="text-blue-300" /><span className="font-bold">Días: {formatearRangoCorto(reserva.fecha, reserva.fecha2)}</span></div>
-                <div className="flex items-center gap-2"><Clock size={12} className="text-blue-300" /><span className="font-bold">Hora: {horaInicio} - {horaFin}</span></div>
-                <div className="flex items-center gap-2"><Bike size={12} className="text-blue-300" /><span className="font-bold">{reserva.traeMoto === 'Sí' ? 'Propia' : 'Escuela'} · {reserva.tipoMoto}</span></div>
-                <FilaTiempo diaActual={sgta.diaActual} generalSegundos={sgta.generalSegundos} pausaTotal={sgta.pausaTotalAcumulada + (sgta.pausaActiva ? sgta.pausaSegundos : 0)} tiempoExtra={sgta.tiempoExtraAcumulado} />
+    <AppShell header={header} footer={footer}>
+      <div className="p-4 space-y-4">
+        {tab === 'inicio' && (
+          <>
+            {vistaInicio === 'resumen' ? (
+              <>
+                <div className="bg-blue-600 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl transform translate-x-10 -translate-y-10"></div>
+                  <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">Clases hoy</p>
+                  <h2 className="text-4xl font-black mt-1">{hoy}</h2>
+                  <p className="text-blue-200 text-xs mt-2">{activas.length} activas · {completadas.length} completadas</p>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Próximas Clases</h2>
+                    {activas.length > 0 && <button onClick={() => setVistaInicio('pendientes')} className="text-xs text-blue-600 font-bold">Ver todas ({activas.length})</button>}
+                  </div>
+                  {activas.length === 0 && <p className="text-sm text-gray-500 text-center py-4">No tienes clases activas.</p>}
+                  {activas.slice(0, 4).map(r => {
+                    const pagoAprobado = r.estadoPago === 'Aprobado';
+                    return (
+                      <div key={r.id} className="mt-2">
+                        <button
+                          onClick={() => pagoAprobado && abrirAula(r)}
+                          disabled={!pagoAprobado}
+                          className={`w-full bg-white p-3 rounded-xl shadow-sm border text-left ${
+                            pagoAprobado ? 'border-blue-200 hover:border-blue-300' : 'border-yellow-200 bg-yellow-50 opacity-80 cursor-not-allowed'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-black text-sm text-gray-900">{r.nombre} {r.apellido}</h3>
+                            {!pagoAprobado && (
+                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-bold">Verificando pago</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            <span className="flex items-center gap-1"><Calendar size={12} />{formatearFechaSinAnio(r.fecha)}</span>
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {completadas.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mt-4">
+                      <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Últimas Completadas</h2>
+                    </div>
+                    {completadas.slice(-3).reverse().map(r => (
+                      <div key={r.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center mt-2">
+                        <div><p className="font-bold text-sm text-gray-900">{r.nombre} {r.apellido}</p><p className="text-xs text-gray-500">{formatearFechaSinAnio(r.fecha)}</p></div>
+                        <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-1 rounded border border-green-200">Completada</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : vistaInicio === 'pendientes' ? (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <Filter size={16} className="text-gray-500" />
+                  <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none" />
+                  {filtroFecha && <button onClick={() => setFiltroFecha('')} className="text-xs text-red-600 font-bold">Limpiar</button>}
+                </div>
+                {pendientesFiltradas.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Sin resultados.</p>}
+                {pendientesFiltradas.map(r => {
+                  const pagoAprobado = r.estadoPago === 'Aprobado';
+                  return (
+                    <div key={r.id} className="mt-2">
+                      <button
+                        onClick={() => pagoAprobado && abrirAula(r)}
+                        disabled={!pagoAprobado}
+                        className={`w-full bg-white p-3 rounded-xl shadow-sm border text-left ${
+                          pagoAprobado ? 'border-blue-200 hover:border-blue-300' : 'border-yellow-200 bg-yellow-50 opacity-80 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="font-black text-sm text-gray-900">{r.nombre} {r.apellido}</h3>
+                          {!pagoAprobado && (
+                            <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-bold">Verificando pago</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                          <span className="flex items-center gap-1"><Calendar size={12} />{formatearFechaSinAnio(r.fecha)}</span>
+                        </div>
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            ) : null}
+          </>
+        )}
+        {tab === 'finanzas' && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mis Finanzas</h2>
+            <p className="text-sm text-gray-500">Funcionalidad en desarrollo.</p>
+          </div>
+        )}
+        {tab === 'config' && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mi Perfil</h2>
+            {!editandoPerfil ? (
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{user?.data?.nombre} {user?.data?.apellido || ''}</p></div>
+                  <button onClick={() => setEditandoPerfil(true)} className="text-blue-600 text-xs font-bold">Editar</button>
+                </div>
               </div>
-              <RelojSesion generalSegundos={sgta.generalSegundos} pausaActiva={sgta.pausaActiva} pausaMotivo={sgta.pausaMotivo} tiempoMaximoCurso={tiempoMaximoCurso} tiempoConsumido={tiempoConsumido} />
-            </div>
-            <div className="flex items-end justify-between mt-2"><span className="text-[10px] font-bold text-white/70">{tiempoRestanteCurso} min rest.</span></div>
+            ) : (
+              <div className="space-y-3">
+                <Input label="Teléfono" value={perfil.telefono || ''} onChange={e => setPerfil({ ...perfil, telefono: e.target.value })} />
+                <div className="flex gap-2">
+                  <Button type="button" onClick={guardarPerfil} variant="success">Guardar</Button>
+                  <Button type="button" onClick={() => setEditandoPerfil(false)} variant="outline">Cancelar</Button>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="bg-gray-100 -mx-3 -mb-3 px-3 py-2.5 mt-2 border-t border-blue-400/30">
-            <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-700">Avance Académico</span><span className="text-xs font-bold text-blue-600">{cantCompletados}/{totalModulos}</span></div>
-            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div className="h-2 rounded-full transition-all duration-500" style={{ width: totalModulos > 0 ? `${(cantCompletados / totalModulos) * 100}%` : '0%', background: 'repeating-linear-gradient(-45deg, #4ade80, #4ade80 6px, #22c55e 6px, #22c55e 12px)', animation: 'progress-stripes 1s linear infinite' }}></div></div>
-          </div>
-        </div>
+        )}
       </div>
-      {!todosCompletados && sgta.generalActivo && !sgta.pausaActiva && (
-        <Button type="button" onClick={() => setMostrarSelectorPausa(true)} variant="outline" className="!py-2 !text-xs" icon={Pause}>Pausar Sesión</Button>
-      )}
-      {sgta.pausaActiva && <BannerPausa motivo={sgta.pausaMotivo} tiempo={sgta.pausaSegundos} onReanudar={reanudarSesion} />}
-      {modulosCompletados.length > 0 && <CarruselModulos modulos={modulosCompletados} onToggle={toggleModulo} />}
-      {modulosPendientes.length > 0 && (
-        <div className="space-y-1.5">
-          {modulosPendientes.map((mod, i) => {
-            const nombreModulo = typeof mod === 'string' ? mod : mod.nombre;
-            const duracionModulo = typeof mod === 'string' ? 60 : (mod.duracion || 60);
-            const esModuloActivo = sgta.moduloEnProgreso === nombreModulo && sgta.moduloActivo;
-            const esPrimerPendiente = i === 0;
-            const interactuable = esPrimerPendiente && !sgta.pausaActiva;
-            let estado = esPrimerPendiente ? (esModuloActivo ? 'activo' : 'pendiente') : 'bloqueado';
-            const pctTiempo = esModuloActivo ? Math.min(100, ((sgta.moduloSegundos || 0) / (duracionModulo * 60)) * 100) : 0;
-            const esReceso = esModuloActivo && (duracionModulo * 60 - (sgta.moduloSegundos || 0)) <= 300;
-            return (
-              <ModuloItem key={i} nombre={nombreModulo} duracion={duracionModulo} estado={estado}
-                onClick={() => interactuable && toggleModulo(nombreModulo)} disabled={!interactuable}
-                mostrarBarra={esModuloActivo} progreso={pctTiempo} tiempoActual={sgta.moduloSegundos || 0} esReceso={esReceso} />
-            );
-          })}
-        </div>
-      )}
-      {todosCompletados && <Button type="button" onClick={() => { /* completarCurso */ }} variant="success" className="mt-3" icon={Award}>Completar Curso</Button>}
-
-      {/* Modal de pausa */}
-      {mostrarSelectorPausa && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-5">
-            <div className="flex items-center justify-between mb-4"><h3 className="font-black text-gray-900">Motivo de pausa</h3><button onClick={() => setMostrarSelectorPausa(false)} className="p-1 bg-gray-100 rounded-full">✕</button></div>
-            <div className="space-y-2">
-              {MOTIVOS_PAUSA.map(m => (
-                <button key={m.id} onClick={() => { pausarSesion(m.label); setMostrarSelectorPausa(false); }} className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-left">
-                  <m.icon size={18} className="text-gray-500" /><span className="font-bold text-sm">{m.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </AppShell>
   );
-});
-
-export default PanelDetalleCurso;
+}

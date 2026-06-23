@@ -152,3 +152,23 @@
 **Autenticación:**
 - Cierre de sesión robusto (funciona incluso sin conexión).
 - Botón de cerrar sesión en Home e Inscripción.
+
+---
+### Sesión 22/06/2026 – Refactorización de Inscripción (Arquitectura Modular)
+
+**Refactorización:**
+- Extracción de `useInscripcionState` y `useDisponibilidad` (hooks puros).
+- Orquestador `InscripcionView.jsx` simplificado (600 → ~400 líneas).
+- Creación de 9 componentes presentacionales puros.
+- Método `buscarProximaFechaDisponible` delegado a `LockService`.
+
+**Correcciones:**
+- ConfigProvider: suscripción a Firestore ahora requiere `fbUser`.
+- ModalPIN: bifurcación paso 1 (acuse de recibo) vs paso 4 (confirmación final).
+- CalendarioNacimiento: scroll con detección de posición restaurado.
+- Paso3Horario: toasts en días inhabilitados restaurados.
+- Paso4Pago: botón Copiar datos extraído a componente independiente.
+
+**Validación:**
+- Centinela V4.0: APROBADO (Luz Verde para Producción).
+- Flujo completo de inscripción probado exitosamente por el Operador.

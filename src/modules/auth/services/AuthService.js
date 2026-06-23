@@ -1,11 +1,12 @@
-// @build: 2026-06-20 | id: FINAL | desc: AuthService con login estudiante por correo+PIN y staff por email+clave+Google
+// @build: 2026-06-22 | id: AUTHSERVICE-UPDATE-PASSWORD | desc: AuthService con updatePassword para cambiar PIN del usuario
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
-  onAuthStateChanged
+  onAuthStateChanged,
+  updatePassword
 } from 'firebase/auth';
 import { auth } from '../../shared/firebase/firebase';
 
@@ -66,6 +67,15 @@ export const AuthService = {
   async logout() {
     try {
       await signOut(auth);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  async updatePassword(user, newPassword) {
+    try {
+      await updatePassword(user, newPassword);
       return { success: true };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };

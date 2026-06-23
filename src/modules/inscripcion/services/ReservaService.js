@@ -1,4 +1,4 @@
-// @build: 2026-06-17.05-00-00 | id: C1 | desc: Agregar fechaNacimiento a CAMPOS_PERMITIDOS en ReservaService
+// @build: 2026-06-22 | id: RESERVA-CAMPOS-COMPLETOS | desc: Agregar correo, apellido, contactoEmergencia, totales y pin a CAMPOS_PERMITIDOS
 import { db } from '../../shared/firebase/firebase';
 import { collection, doc, runTransaction, Timestamp } from 'firebase/firestore';
 
@@ -12,10 +12,14 @@ const CAMPOS_PERMITIDOS = {
   nombre: { tipo: 'string', maxLength: 50 },
   apellido: { tipo: 'string', maxLength: 50 },
   telefono: { tipo: 'string', maxLength: 11 },
-  fechaNacimiento: { tipo: 'string', maxLength: 10 },  // [C1] AGREGADO
+  correo: { tipo: 'string', maxLength: 100 },
+  fechaNacimiento: { tipo: 'string', maxLength: 10 },
   sexo: { tipo: 'string', maxLength: 20 },
   estado: { tipo: 'string', maxLength: 50 },
   zona: { tipo: 'string', maxLength: 100 },
+  contactoEmergencia: { tipo: 'string', maxLength: 11 },
+  condicionMedica: { tipo: 'string', maxLength: 2 },
+  detalleCondicion: { tipo: 'string', maxLength: 200 },
   sabeBicicleta: { tipo: 'string', maxLength: 2 },
   traeMoto: { tipo: 'string', maxLength: 2 },
   tipoMoto: { tipo: 'string', maxLength: 20 },
@@ -30,6 +34,7 @@ const CAMPOS_PERMITIDOS = {
   pagoTelefono: { tipo: 'string', maxLength: 11 },
   pagoCedula: { tipo: 'string', maxLength: 10 },
   pagoRef: { tipo: 'string', maxLength: 4 },
+  pin: { tipo: 'string', maxLength: 6 },
   pagoTotalMoneda: { tipo: 'number' },
   pagoTotalVES: { tipo: 'number' },
   pagoInstructor: { tipo: 'number' },

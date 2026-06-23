@@ -68,5 +68,46 @@ export const LockService = {
     }).catch(() => {});
 
     return () => clearInterval(interval);
-  }
+  },
+
+// @build: 2026-06-22.REFACTOR | id: LOCK-BUSCAR-FECHA | desc: Método para buscar próxima fecha disponible, extraído de InscripcionView.
+async buscarProximaFechaDisponible(fecha1, today, maxDate, horarios, getTodayStr) {
+  try {
+    const basePath = 'artifacts/motoescuela-pro-v1/public/data';
+    const hastaStr = maxDate;
+    const locksRef = collection(db, 'locks');
+    const locksQ = query(locksRef, where('fecha', '>=', today), where('fecha', '<=', hastaStr));
+    const locksSnap = await getDocs(locksQ);
+    const reservasRef = collection(db, basePath, 'reservas');
+    const reservasQ = query(reservasRef, where('fecha', '>=', today), where('fecha', '<=', hastaStr));
+    const reservasSnap = await getDocs(reservasQ);
+    
+    const ocupacionCache = {};
+    locksSnap.docs.forEach(doc => { const lock = doc.data(); if (lock.fecha && lock.horaId) ocupacionCache[`${lock.fecha}_${lock.horaId}`] = true; });
+    reservasSnap.docs.forEach(doc => { const res = doc.data(); if (res.estadoPago === 'Pendiente' || res.estadoPago === 'Aprobado') { if (res.fecha && res.horaId) ocupacionCache[`${res.fecha}_${res.horaId}`] = true; if (res.fecha2 && res.horaId) ocupacionCache[`${res.fecha2}_${res.horaId}`] = true; } });
+    
+    const hor = (horarios||[]).filter(h => h.activo && !h.isLunch);
+    let inicioBusqueda = new Date(fecha1 + 'T12:00:00');
+    if (isNaN(inicioBusqueda.getTime())) inicioBusqueda = new Date(today + 'T12:00:00');
+    inicioBusqueda.setDate(inicioBusqueda.getDate() + 1);
+    let fechaIter = inicioBusqueda;
+    const fin = new Date(hastaStr + 'T12:00:00');
+    
+    while (fechaIter <= fin) {
+      const fechaStr = fechaIter.toISOString().split('T')[0];
+      if (fechaStr !== fecha1) {
+        const hayDisponible = hor.some(b => {
+          const key = `${fechaStr}_${b.id}`;
+          return !ocupacionCache[key];
+        });
+        if (hayDisponible) return fechaStr;
+      }
+      fechaIter.setDate(fechaIter.getDate() + 1);
+    }
+    return null;
+  } catch (e) { return null; }
+},
+
+
+
 };

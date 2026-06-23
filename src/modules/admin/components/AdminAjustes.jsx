@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: AJUSTES-FEEDBACK | desc: Ajustes generales con feedback de guardado y manejo de errores
+// @build: 2026-06-22 | id: AJUSTES-SIN-DATOS-PRUEBA | desc: Ajustes generales sin valores hardcodeados. Solo carga desde Firestore. Botón deshabilitado hasta que los datos estén listos.
 import { useContext, useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -16,69 +16,43 @@ const AdminAjustes = memo(() => {
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
 
-  // Estado local inicializado con config actual o valores por defecto
-  const [localCfg, setLocalCfg] = useState(() => ({
-    monedaPagoStaff: 'USD',
-    monedaCobroClientes: 'EUR',
-    tasaUSD: 600,
-    tasaEUR: 700,
-    precioBase: 35,
-    recargoGuarenas: 5,
-    recargoSinBici: 10,
-    descuentoMotoPropia: 5,
-    descuentoPromo: 0,
-    pagoInstructor: 15,
-    pagoProveedor: 10,
-    autoTasas: true,
-    promocionActiva: false,
-    pagoMovilEscuela: {
-      banco: 'Banesco',
-      telefono: '04127185256',
-      cedula: '19497344',
-      codigo: '0134',
-      ...(config?.pagoMovilEscuela || {})
-    },
-    ...(config || {})
-  }));
+  // Estado local inicializado VACÍO, sin valores de prueba
+  const [localCfg, setLocalCfg] = useState(null);
 
-  // Sincronizar con Firestore cuando lleguen los datos
+  // Cargar datos desde Firestore cuando estén disponibles
   useEffect(() => {
     if (config && Object.keys(config).length > 0) {
-      setLocalCfg(prev => ({
-        ...prev,
-        monedaPagoStaff: config.monedaPagoStaff || prev.monedaPagoStaff,
-        monedaCobroClientes: config.monedaCobroClientes || prev.monedaCobroClientes,
-        tasaUSD: config.tasaUSD || prev.tasaUSD,
-        tasaEUR: config.tasaEUR || prev.tasaEUR,
-        precioBase: config.precioBase ?? prev.precioBase,
-        recargoGuarenas: config.recargoGuarenas ?? prev.recargoGuarenas,
-        recargoSinBici: config.recargoSinBici ?? prev.recargoSinBici,
-        descuentoMotoPropia: config.descuentoMotoPropia ?? prev.descuentoMotoPropia,
-        descuentoPromo: config.descuentoPromo ?? prev.descuentoPromo,
-        pagoInstructor: config.pagoInstructor ?? prev.pagoInstructor,
-        pagoProveedor: config.pagoProveedor ?? prev.pagoProveedor,
-        autoTasas: config.autoTasas ?? prev.autoTasas,
-        promocionActiva: config.promocionActiva ?? prev.promocionActiva,
+      setLocalCfg({
+        monedaPagoStaff: config.monedaPagoStaff || 'USD',
+        monedaCobroClientes: config.monedaCobroClientes || 'EUR',
+        tasaUSD: config.tasaUSD ?? '',
+        tasaEUR: config.tasaEUR ?? '',
+        precioBase: config.precioBase ?? '',
+        recargoGuarenas: config.recargoGuarenas ?? '',
+        recargoSinBici: config.recargoSinBici ?? '',
+        descuentoMotoPropia: config.descuentoMotoPropia ?? '',
+        descuentoPromo: config.descuentoPromo ?? '',
+        pagoInstructor: config.pagoInstructor ?? '',
+        pagoProveedor: config.pagoProveedor ?? '',
+        autoTasas: config.autoTasas ?? true,
+        promocionActiva: config.promocionActiva ?? false,
         pagoMovilEscuela: {
-          banco: config.pagoMovilEscuela?.banco || prev.pagoMovilEscuela?.banco,
-          telefono: config.pagoMovilEscuela?.telefono || prev.pagoMovilEscuela?.telefono,
-          cedula: config.pagoMovilEscuela?.cedula || prev.pagoMovilEscuela?.cedula,
-          codigo: config.pagoMovilEscuela?.codigo || prev.pagoMovilEscuela?.codigo,
+          banco: config.pagoMovilEscuela?.banco || '',
+          telefono: config.pagoMovilEscuela?.telefono || '',
+          cedula: config.pagoMovilEscuela?.cedula || '',
+          codigo: config.pagoMovilEscuela?.codigo || ''
         }
-      }));
+      });
     }
   }, [config]);
 
   const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false });
   const toggleSeccion = (sec) => setSecciones(prev => ({ ...prev, [sec]: !prev[sec] }));
 
-  const configListo = config && Object.keys(config).length > 0;
+  const configListo = localCfg !== null;
 
   const doSave = useCallback(async () => {
-    if (!configListo) {
-      showToast('Configuración no disponible. Intenta de nuevo.', 'error');
-      return;
-    }
+    if (!configListo) return;
     setSaving(true);
     try {
       await saveConfig(localCfg);
@@ -114,6 +88,20 @@ const AdminAjustes = memo(() => {
     }}
   />;
 
+  // Mientras se carga la configuración, mostrar spinner
+  if (!configListo) {
+    return (
+      <AppShell header={header} footer={footer} bgColor="bg-gray-50">
+        <div className="flex items-center justify-center min-h-full">
+          <div className="text-center">
+            <Loader size={32} className="text-blue-500 animate-spin mx-auto mb-3" />
+            <p className="text-sm text-gray-500">Cargando configuración...</p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
       <div className="p-4 space-y-4">
@@ -125,8 +113,8 @@ const AdminAjustes = memo(() => {
           </button>
           {secciones.tasas && (
             <div className="px-4 pb-4 space-y-3">
-              <Input label="Tasa Dólar (USD)" type="number" step="0.01" value={localCfg.tasaUSD || ''} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} />
-              <Input label="Tasa Euro (EUR BCV)" type="number" step="0.01" value={localCfg.tasaEUR || ''} onChange={e => setLocalCfg({ ...localCfg, tasaEUR: e.target.value })} icon={Activity} />
+              <Input label="Tasa Dólar (USD)" type="number" step="0.01" value={localCfg.tasaUSD} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} />
+              <Input label="Tasa Euro (EUR BCV)" type="number" step="0.01" value={localCfg.tasaEUR} onChange={e => setLocalCfg({ ...localCfg, tasaEUR: e.target.value })} icon={Activity} />
               <Select label="Moneda de Cobro a Clientes" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaCobroClientes || 'EUR'} onChange={e => setLocalCfg({ ...localCfg, monedaCobroClientes: e.target.value })} />
             </div>
           )}
@@ -140,12 +128,12 @@ const AdminAjustes = memo(() => {
           </button>
           {secciones.reglas && (
             <div className="px-4 pb-4 space-y-3">
-              <Input label="Precio Base Curso" type="number" value={localCfg.precioBase || ''} onChange={e => setLocalCfg({ ...localCfg, precioBase: e.target.value })} icon={DollarSign} />
+              <Input label="Precio Base Curso" type="number" value={localCfg.precioBase} onChange={e => setLocalCfg({ ...localCfg, precioBase: e.target.value })} icon={DollarSign} />
               <div className="grid grid-cols-2 gap-3">
-                <Input label="Recargo Sede Guarenas" type="number" value={localCfg.recargoGuarenas || ''} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} />
-                <Input label="Recargo sin Bici" type="number" value={localCfg.recargoSinBici || ''} onChange={e => setLocalCfg({ ...localCfg, recargoSinBici: e.target.value })} />
-                <Input label="Desc. Trae Moto" type="number" value={localCfg.descuentoMotoPropia || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoMotoPropia: e.target.value })} />
-                <Input label="Desc. Promocional" type="number" value={localCfg.descuentoPromo || ''} onChange={e => setLocalCfg({ ...localCfg, descuentoPromo: e.target.value })} disabled={!localCfg.promocionActiva} />
+                <Input label="Recargo Sede Guarenas" type="number" value={localCfg.recargoGuarenas} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} />
+                <Input label="Recargo sin Bici" type="number" value={localCfg.recargoSinBici} onChange={e => setLocalCfg({ ...localCfg, recargoSinBici: e.target.value })} />
+                <Input label="Desc. Trae Moto" type="number" value={localCfg.descuentoMotoPropia} onChange={e => setLocalCfg({ ...localCfg, descuentoMotoPropia: e.target.value })} />
+                <Input label="Desc. Promocional" type="number" value={localCfg.descuentoPromo} onChange={e => setLocalCfg({ ...localCfg, descuentoPromo: e.target.value })} disabled={!localCfg.promocionActiva} />
               </div>
             </div>
           )}
@@ -160,8 +148,8 @@ const AdminAjustes = memo(() => {
           {secciones.comisiones && (
             <div className="px-4 pb-4 space-y-3">
               <Select label="Moneda de Pago a Staff" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaPagoStaff || 'USD'} onChange={e => setLocalCfg({ ...localCfg, monedaPagoStaff: e.target.value })} />
-              <Input label={`Pago a Instructor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoInstructor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoInstructor: e.target.value })} />
-              <Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor || ''} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} />
+              <Input label={`Pago a Instructor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoInstructor} onChange={e => setLocalCfg({ ...localCfg, pagoInstructor: e.target.value })} />
+              <Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} />
             </div>
           )}
         </div>

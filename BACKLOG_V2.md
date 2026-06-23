@@ -255,3 +255,18 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - ✅ Presencia del estudiante requerida para iniciar módulo.
 - ✅ Límite diario ajustado al horario del bloque.
 - ✅ Tarjetas del instructor con etiqueta "Verificando pago".
+
+---
+### Actualización 22/06/2026 – Refactorización de Inscripción
+
+**Deuda técnica cerrada:**
+- ✅ H1: Monolito InscripcionView.jsx (God Component) eliminado.
+- ✅ H2: Shadow Accounts – PIN mostrado tras Paso 1.
+- ✅ H4/H8: Campos faltantes en CAMPOS_PERMITIDOS (apellido, correo, contactoEmergencia, totales).
+- ✅ Brecha IoC: buscarProximaFechaDisponible delegada a LockService.
+- ✅ Error de permisos en ConfigProvider.
+
+**Nueva deuda técnica:**
+- **[MEDIA] B122** – Doble PIN (regeneración en paso 4) no implementado.
+- **[MEDIA] B123** – Recuperación de PIN olvidado (flujo automatizado vía correo).
+- **[BAJA] B124** – Tipado fuerte de lockId en useDisponibilidad.

@@ -18,7 +18,7 @@ export const AppProvider = ({ children }) => {
   const auth = useAuthProvider(showToast);
 
   // 2. Configuración (depende de authReady)
-  const cfg = useConfigProvider(auth.authReady);
+  const cfg = useConfigProvider(auth.authReady,auth.fbUser);
 
   // 3. Datos Firestore (depende de fbUser, authReady, isAdmin, showToast, user)
   const isAdmin = auth.user?.role === 'admin';
