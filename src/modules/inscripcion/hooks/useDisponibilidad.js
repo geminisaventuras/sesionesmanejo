@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { LockService } from '../../../services/LockService';
 
 const MAX_DIAS_RESERVA = 30;
 
@@ -22,7 +21,8 @@ const isPastBlock = (fecha, label, todayStr) => {
 
 const calcularDisponibilidadBloque = (
   bloque, fecha1, fecha2, sedeId, tipoMoto, traeMoto,
-  instructores, motos, reservas, activeLocks, selectingBlockId, todayStr
+  instructores, motos, reservas, activeLocks, selectingBlockId, todayStr,
+  ocupacionCache
 ) => {
   if (bloque.isLunch) return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
   if (fecha1 < todayStr || isPastBlock(fecha1, bloque.label, todayStr))
@@ -30,60 +30,21 @@ const calcularDisponibilidadBloque = (
   if (bloque.id === selectingBlockId)
     return { ...bloque, disponible: true, reason: '', instructorId: null, motoAsignadaId: null, seleccionando: true };
 
-  const locks = activeLocks || [];
-
-  // Instructores ocupados por reservas confirmadas (descuento permanente)
-  const instructoresOcupadosPorReservas = instructores
-    .filter(i => i.activo && (i.sedes || []).includes(sedeId))
-    .filter(i => reservas.some(r => {
-      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
-      if (String(r.horaId) !== String(bloque.id)) return false;
-      const coincideFecha = r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
-      return coincideFecha && String(r.instructorId) === String(i.id);
-    }));
-
-  // Instructores ocupados por locks temporales (descuento temporal)
-  const instructoresOcupadosPorLocks = instructores
-    .filter(i => i.activo && (i.sedes || []).includes(sedeId))
-    .filter(i => !instructoresOcupadosPorReservas.some(oi => String(oi.id) === String(i.id)))
-    .filter(i => locks.some(lock => {
-      return String(lock.horaId) === String(bloque.id) && String(lock.instructorId) === String(i.id);
-    }));
-
-  // Instructores disponibles (ni en reservas ni en locks)
   const instructoresDisponibles = instructores
     .filter(i => i.activo && (i.sedes || []).includes(sedeId))
-    .filter(i => !instructoresOcupadosPorReservas.some(oi => String(oi.id) === String(i.id)))
-    .filter(i => !instructoresOcupadosPorLocks.some(oi => String(oi.id) === String(i.id)));
-
-  // Motos ocupadas por reservas confirmadas
-  const motosOcupadasPorReservas = motos
-    .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
-    .filter(m => reservas.some(r => {
-      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
-      if (String(r.horaId) !== String(bloque.id)) return false;
-      const coincideFecha = r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
-      if (!coincideFecha || r.traeMoto === 'Sí') return false;
-      return String(r.motoAsignadaId) === String(m.id);
-    }));
-
-  // Motos ocupadas por locks temporales
-  const motosOcupadasPorLocks = motos
-    .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
-    .filter(m => !motosOcupadasPorReservas.some(om => String(om.id) === String(m.id)))
-    .filter(m => locks.some(lock => {
-      return String(lock.horaId) === String(bloque.id) && String(lock.motoAsignadaId) === String(m.id);
-    }));
-
-  // Motos disponibles
-  const motosDisponibles = motos
-    .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
-    .filter(m => !motosOcupadasPorReservas.some(om => String(om.id) === String(m.id)))
-    .filter(m => !motosOcupadasPorLocks.some(om => String(om.id) === String(m.id)));
+    .filter(i => !ocupacionCache.instructores[`${fecha1}_${bloque.id}_${i.id}`] &&
+                 !ocupacionCache.instructores[`${fecha2}_${bloque.id}_${i.id}`]);
 
   const necesitaMoto = traeMoto !== 'Sí';
 
-  // Si hay recursos disponibles, el bloque está libre
+  let motosDisponibles = [];
+  if (necesitaMoto) {
+    motosDisponibles = motos
+      .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
+      .filter(m => !ocupacionCache.motos[`${fecha1}_${bloque.id}_${m.id}`] &&
+                   !ocupacionCache.motos[`${fecha2}_${bloque.id}_${m.id}`]);
+  }
+
   if (!necesitaMoto) {
     if (instructoresDisponibles.length > 0)
       return { ...bloque, disponible: true, reason: '', instructorId: instructoresDisponibles[0].id, motoAsignadaId: null };
@@ -92,39 +53,35 @@ const calcularDisponibilidadBloque = (
       return { ...bloque, disponible: true, reason: '', instructorId: instructoresDisponibles[0].id, motoAsignadaId: motosDisponibles[0].id };
   }
 
-  // Si no hay recursos disponibles, determinar la razón
-  // Primero verificamos si las reservas confirmadas ya agotaron los recursos
   const instructoresLibresSinLocks = instructores
     .filter(i => i.activo && (i.sedes || []).includes(sedeId))
-    .filter(i => !instructoresOcupadosPorReservas.some(oi => String(oi.id) === String(i.id)));
+    .filter(i => !ocupacionCache.instructoresReservas[`${fecha1}_${bloque.id}_${i.id}`] &&
+                 !ocupacionCache.instructoresReservas[`${fecha2}_${bloque.id}_${i.id}`]);
 
   const motosLibresSinLocks = motos
     .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
-    .filter(m => !motosOcupadasPorReservas.some(om => String(om.id) === String(m.id)));
+    .filter(m => !ocupacionCache.motosReservas[`${fecha1}_${bloque.id}_${m.id}`] &&
+                 !ocupacionCache.motosReservas[`${fecha2}_${bloque.id}_${m.id}`]);
 
-  // Si sin considerar locks ya no hay recursos, es porque están reservados
   if (!necesitaMoto) {
     if (instructoresLibresSinLocks.length === 0)
       return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
-    // Si hay instructores libres pero los locks los ocupan todos, es "en espera"
     if (instructoresDisponibles.length === 0)
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
   } else {
     if (instructoresLibresSinLocks.length === 0 || motosLibresSinLocks.length === 0)
       return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
-    // Si hay recursos libres sin locks pero los locks los ocupan todos
     if (instructoresDisponibles.length === 0 || motosDisponibles.length === 0)
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
   }
 
-  // Fallback: Ocupado genérico
   return { ...bloque, disponible: false, reason: 'OCUPADO', instructorId: null, motoAsignadaId: null };
 };
 
 export function useDisponibilidad({
   form, selectingBlockId, lockId,
-  instructores, motos, reservas, activeLocks, horarios,
-  getTodayStr
+  instructores, motos, ocupacionConfirmada, activeLocks, horarios,
+  getTodayStr, clockTick
 }) {
   const today = getTodayStr();
   const maxDate = useMemo(() => {
@@ -142,6 +99,43 @@ export function useDisponibilidad({
     return d.toISOString().split('T')[0];
   }, [form.fecha1]);
 
+  const ocupacionCache = useMemo(() => {
+    const cache = {
+      instructores: {},
+      motos: {},
+      instructoresReservas: {},
+      motosReservas: {},
+    };
+
+    (ocupacionConfirmada || []).forEach(r => {
+      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return;
+      const fechas = [r.fecha, r.fecha2].filter(Boolean);
+      fechas.forEach(f => {
+        if (r.instructorId) {
+          const key = `${f}_${r.horaId}_${r.instructorId}`;
+          cache.instructores[key] = true;
+          cache.instructoresReservas[key] = true;
+        }
+        if (r.motoAsignadaId && r.traeMoto !== 'Sí') {
+          const key = `${f}_${r.horaId}_${r.motoAsignadaId}`;
+          cache.motos[key] = true;
+          cache.motosReservas[key] = true;
+        }
+      });
+    });
+
+    (activeLocks || []).forEach(lock => {
+      if (lock.instructorId) {
+        cache.instructores[`${lock.fecha}_${lock.horaId}_${lock.instructorId}`] = true;
+      }
+      if (lock.motoAsignadaId) {
+        cache.motos[`${lock.fecha}_${lock.horaId}_${lock.motoAsignadaId}`] = true;
+      }
+    });
+
+    return cache;
+  }, [ocupacionConfirmada, activeLocks]);
+
   const diasDisponibles = useMemo(() => {
     if (!form.sedeId || !form.tipoMoto) return [];
     const dias = [];
@@ -155,7 +149,8 @@ export function useDisponibilidad({
       const hayAlguno = (horarios || []).filter(h => h.activo && !h.isLunch).some(bloque => {
         const info = calcularDisponibilidadBloque(
           bloque, fechaStr, fecha2Candidate, form.sedeId, form.tipoMoto, form.traeMoto,
-          instructores, motos, reservas, null, selectingBlockId, today
+          instructores, motos, null, activeLocks, selectingBlockId, today,
+          ocupacionCache
         );
         return info.disponible;
       });
@@ -163,7 +158,7 @@ export function useDisponibilidad({
       cursor.setDate(cursor.getDate() + 1);
     }
     return dias;
-  }, [form.sedeId, form.tipoMoto, form.traeMoto, reservas, maxDate, today, horarios, instructores, motos]);
+  }, [form.sedeId, form.tipoMoto, form.traeMoto, maxDate, today, horarios, instructores, motos, ocupacionCache, clockTick]);
 
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
@@ -172,16 +167,13 @@ export function useDisponibilidad({
     return hor.map(b => {
       const info = calcularDisponibilidadBloque(
         b, form.fecha1, fecha2Calc, form.sedeId, form.tipoMoto, form.traeMoto,
-        instructores, motos, reservas, activeLocks, selectingBlockId, today
+        instructores, motos, null, activeLocks, selectingBlockId, today,
+        ocupacionCache
       );
       if (lockId && form.horaId === b.id) return { ...info, disponible: true, reason: '', restaurado: true };
       return info;
     });
-  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, lockId, form.horaId, today, reservas, activeLocks, instructores, motos, horarios, fecha2Calc, selectingBlockId]);
+  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, lockId, form.horaId, today, instructores, motos, horarios, fecha2Calc, selectingBlockId, ocupacionCache, clockTick]);
 
-  const buscarProximaFechaDisponible = async () => {
-    return await LockService.buscarProximaFechaDisponible(form.fecha1, today, maxDate, horarios);
-  };
-
-  return { diasDisponibles, bloques, fecha2Calc, maxDate, buscarProximaFechaDisponible, cargando };
+  return { diasDisponibles, bloques, fecha2Calc, maxDate, cargando };
 }

@@ -299,3 +299,37 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - B114: Reemplazar `window.confirm` por modal personalizado.
 - B115-B121: Material como página independiente, restricción de reversión de módulos, clases virtuales online, flujo de reserva de tiempo, cambio automático D1→D2, registro de tiempo excedente, reset administrativo de contadores de sesión.
 - B122-B124: Doble PIN, recuperación de PIN olvidado, tipado fuerte de lockId.
+
+---
+### Actualización 23/06/2026 – Cierre de deudas de hardening, disponibilidad y rendimiento
+
+**Deuda técnica saldada:**
+- ✅ **B130** – Mensajes amigables en colisión de horario.
+- ✅ **B132** – Focus trap en modales (useFocusTrap).
+- ✅ **B133** – Atributos autocomplete en formularios.
+- ✅ **B134** – Headers HTTP de seguridad en firebase.json.
+- ✅ **B137** – Límite de 3 intentos de corrección de pago.
+- ✅ **B147** – Optimización de disponibilidad con Hash Maps O(1).
+
+**Deuda técnica cancelada (código eliminado):**
+- ~~`buscarProximaFechaDisponible`~~ – Eliminada de LockService y useDisponibilidad.
+
+**Deuda preexistente que permanece vigente:**
+- B66, B82, B89-B99, B100-B103, B104-B107, B108-B113, B114, B115-B121, B122-B124, B125-B129.
+
+
+
+---
+### Actualización 23/06/2026 – Cierre de Arquitectura de Colección Espejo
+
+**Deuda técnica saldada:**
+- ✅ **B147** – Optimización de disponibilidad con Hash Maps O(1).
+- ✅ **B148** – Sincronización de `ocupacionConfirmada` en panel admin (writeBatch al rechazar/cancelar).
+- ✅ **B130** – Mensajes amigables en colisión de horario.
+- ✅ **B132** – Focus trap en modales.
+- ✅ **B133** – Atributos autocomplete en formularios.
+- ✅ **B134** – Headers HTTP de seguridad.
+- ✅ **B137** – Límite de intentos de corrección de pago.
+
+**Deuda preexistente que permanece vigente:**
+- B66, B82, B89-B99, B100-B103, B104-B107, B108-B113, B114, B115-B121, B122-B124, B125-B129.

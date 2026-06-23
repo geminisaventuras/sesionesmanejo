@@ -1,8 +1,8 @@
-// @build: 2026-06-22.REFACTOR | id: PASO4-PAGO | desc: Componente puro del paso 4 (pago). Usa BotonCopiarDatos.
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreditCard, Phone, Contact, Hash, Lock, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { Select, Input } from '../../../components/UI';
 import { BotonCopiarDatos } from './BotonCopiarDatos';
+import { validarPaso4 } from '../../shared/schemas/validations';
 
 const BANCOS = [
   { nombre: 'Banesco', codigo: '0134' },
@@ -21,6 +21,29 @@ export function Paso4Pago({
   captchaA, captchaB, captchaValue, onCaptchaChange,
   showToast
 }) {
+  const [errores, setErrores] = useState({});
+  const [tocados, setTocados] = useState({});
+
+  useEffect(() => {
+    if (Object.keys(tocados).length > 0) {
+      const result = validarPaso4(form);
+      if (!result.success) {
+        setErrores(result.errores);
+      } else {
+        setErrores({});
+      }
+    }
+  }, [form, tocados]);
+
+  const marcarTocado = (campo) => {
+    setTocados(prev => ({ ...prev, [campo]: true }));
+  };
+
+  const handleChange = (campo, valor) => {
+    updateForm({ [campo]: valor });
+    marcarTocado(campo);
+  };
+
   return (
     <div className="space-y-1.5">
       <div className="rounded-xl border border-blue-100 shadow-sm overflow-hidden flex flex-col mt-2">
@@ -66,14 +89,24 @@ export function Paso4Pago({
         )}
       </div>
       <div className="w-full mt-2">
-        <Select label="Banco Emisor" options={BANCOS.map(b => b.nombre)} value={form.pagoBanco} onChange={e => updateForm({ pagoBanco: e.target.value })} icon={CreditCard} />
+        <Select label="Banco Emisor" options={BANCOS.map(b => b.nombre)} value={form.pagoBanco} onChange={e => handleChange('pagoBanco', e.target.value)} icon={CreditCard} />
+        {errores.pagoBanco && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoBanco}</p>}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Input label="Teléfono Origen" type="tel" value={form.pagoTelefono} onChange={e => updateForm({ pagoTelefono: e.target.value.replace(/\D/g,'').slice(0,11) })} icon={Phone} placeholder="04141234567" inputMode="numeric" pattern="\d{11}" maxLength={11} required />
-        <Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => updateForm({ pagoCedula: e.target.value.replace(/\D/g,'').slice(0,10) })} icon={Contact} placeholder="15123456" inputMode="numeric" pattern="\d{7,10}" maxLength={10} required />
+        <div>
+          <Input label="Teléfono Origen" type="tel" value={form.pagoTelefono} onChange={e => handleChange('pagoTelefono', e.target.value.replace(/\D/g,'').slice(0,11))} icon={Phone} placeholder="04141234567" inputMode="numeric" pattern="\d{11}" maxLength={11} required />
+          {errores.pagoTelefono && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoTelefono}</p>}
+        </div>
+        <div>
+          <Input label="Cédula Titular" type="tel" value={form.pagoCedula} onChange={e => handleChange('pagoCedula', e.target.value.replace(/\D/g,'').slice(0,10))} icon={Contact} placeholder="15123456" inputMode="numeric" pattern="\d{7,10}" maxLength={10} required />
+          {errores.pagoCedula && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoCedula}</p>}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => updateForm({ pagoRef: e.target.value.replace(/\D/g,'').slice(0,4) })} icon={Hash} placeholder="8452" inputMode="numeric" pattern="\d{4}" maxLength={4} required />
+        <div>
+          <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => handleChange('pagoRef', e.target.value.replace(/\D/g,'').slice(0,4))} icon={Hash} placeholder="8452" inputMode="numeric" pattern="\d{4}" maxLength={4} required />
+          {errores.pagoRef && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoRef}</p>}
+        </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Lock size={14} className="text-gray-500" /> Captcha</label>
           <div className="bg-gray-50 border-2 border-gray-200 focus-within:border-blue-500 rounded-xl overflow-hidden">

@@ -1,3 +1,7 @@
+// ============================================================
+// Archivo: src/modules/inscripcion/views/InscripcionView.jsx
+// (Sin cambios, solo se elimina el console.log)
+// ============================================================
 import { useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -68,23 +72,26 @@ export const InscripcionView = () => {
     return sessionStorage.getItem('inscripcion_generatedPin') || null;
   });
 
-  // Pantalla de éxito final (PIN visible permanentemente)
   const [mostrarPantallaExito, setMostrarPantallaExito] = useState(false);
   const [pinFinal, setPinFinal] = useState(null);
+
+  const [clockTick, setClockTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClockTick(t => t + 1);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
 
   useEffect(() => {
-    if (!form.fecha1) return;
-    useEffect(() => {
-  if (!form.fecha1 || !ctx.fbUser) return;
-  const cleanup = LockService.escucharOcupacionTemporal(form.fecha1, (locks) => {
-    setActiveLocks(locks);
-  });
-  return () => cleanup();
-}, [form.fecha1, ctx.fbUser]);
+    if (!form.fecha1 || !ctx.fbUser) return;
+    const cleanup = LockService.escucharOcupacionTemporal(form.fecha1, (locks) => {
+      setActiveLocks(locks);
+    });
     return () => cleanup();
-  }, [form.fecha1]);
+  }, [form.fecha1, ctx.fbUser]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -130,12 +137,32 @@ export const InscripcionView = () => {
     }
   }, [form.fecha1]);
 
-  const { diasDisponibles, bloques, fecha2Calc, maxDate, buscarProximaFechaDisponible, cargando } = useDisponibilidad({
+  useEffect(() => {
+    if (step === '3' && !ctx.fbUser) {
+      showToast('Tu sesión ha expirado. Inicia sesión nuevamente.', 'error');
+      if (ctx.logoutUser) ctx.logoutUser();
+      navigate('/login');
+    }
+  }, [step, ctx.fbUser, ctx.logoutUser, showToast, navigate]);
+
+  const { diasDisponibles, bloques, fecha2Calc, maxDate, cargando } = useDisponibilidad({
     form, selectingBlockId, lockId,
     instructores: ctx.instructores, motos: ctx.motos,
-    reservas: ctx.reservas, activeLocks, horarios: ctx.horarios,
-    getTodayStr: ctx.getTodayStr
+    ocupacionConfirmada: ctx.ocupacionConfirmada, activeLocks, horarios: ctx.horarios,
+    getTodayStr: ctx.getTodayStr,
+    clockTick
   });
+
+  useEffect(() => {
+    if (step === '3' && !form.fecha1 && diasDisponibles && diasDisponibles.length > 0) {
+      const primerDiaLibre = diasDisponibles.find(dia => dia.disponible);
+      if (primerDiaLibre) {
+        updateForm({ fecha1: primerDiaLibre.fecha });
+      } else {
+        updateForm({ fecha1: ctx.getTodayStr() });
+      }
+    }
+  }, [step, form.fecha1, diasDisponibles, updateForm, ctx]);
 
   const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto);
   const tasaCobro = ctx.config.monedaCobroClientes === 'USD' ? ctx.config.tasaUSD : ctx.config.tasaEUR;
@@ -155,7 +182,6 @@ export const InscripcionView = () => {
     setIsSubmitting(false);
     if (result.success) {
       limpiarSesion();
-      // Mostrar pantalla de éxito con PIN en lugar de navegar directamente
       setPinFinal(generatedPinRef.current || generatedPin);
       setMostrarPantallaExito(true);
     } else {
@@ -263,7 +289,6 @@ export const InscripcionView = () => {
           generatedPinRef.current = result.data.pin;
           setGeneratedPin(result.data.pin);
           sessionStorage.setItem('inscripcion_generatedPin', result.data.pin);
-          // Sin toast ni modal. El PIN se mostrará en la pantalla de éxito final.
           setStep('2');
         } else if (result.error.code === 'auth/email-already-in-use' || result.error.code === 'already-enrolled') {
           showToast('Este correo ya está registrado. Si olvidaste tu PIN, contacta al administrador.', 'error');
@@ -302,7 +327,6 @@ export const InscripcionView = () => {
 
   if (!ctx.authReady) return <Spinner message="Cargando..." />;
 
-  // Pantalla de éxito final (PIN visible permanentemente)
   if (mostrarPantallaExito) {
     return (
       <AppShell header={<DashboardHeader title="Inscripción Completada" showNotifications={false} />} bgColor="bg-white">
@@ -354,11 +378,17 @@ export const InscripcionView = () => {
       <div className="px-5 pb-4">
         {step === '1' && <Paso1DatosPersonales form={form} updateForm={updateForm} onOpenSalud={() => setMostrarFormularioSalud(true)} onOpenFechaNacimiento={() => { setTempFechaNacimiento({ dia: form.diaNac || '01', mes: form.mesNac || String(new Date().getMonth() + 1).padStart(2, '0'), ano: form.anoNac || String(new Date().getFullYear()) }); setMostrarCalendarioNacimiento(true); }} />}
         {step === '2' && <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} />}
-        {step === '3' && <Paso3Horario form={form} updateForm={updateForm} diasDisponibles={diasDisponibles} bloques={bloques} onSelectHorario={handleSelectHorario} onMostrarCalendario={() => setMostrarCalendario(true)} isSelectingHorario={isSelectingHorario} selectingBlockId={selectingBlockId} fbUser={ctx.fbUser} lockId={lockId} recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0} showToast={showToast} cargando={cargando} />}
+        {step === '3' && !ctx.fbUser ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Spinner message="Verificando sesión y disponibilidad..." />
+          </div>
+        ) : (
+          step === '3' && <Paso3Horario form={form} updateForm={updateForm} diasDisponibles={diasDisponibles} bloques={bloques} onSelectHorario={handleSelectHorario} onMostrarCalendario={() => setMostrarCalendario(true)} isSelectingHorario={isSelectingHorario} selectingBlockId={selectingBlockId} fbUser={ctx.fbUser} lockId={lockId} recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0} showToast={showToast} cargando={cargando} />
+        )}
         {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSD} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} desglosePrecio={() => [ { label: 'Precio', value: `$${ctx.config.precioBase || 0}` }, { label: 'Recargo Sede', value: `+$${ctx.config.recargoGuarenas || 0}` }, { label: 'Recargo sin Bici', value: `+$${ctx.config.recargoSinBici || 0}` }, { label: 'Descuento Moto', value: `-$${ctx.config.descuentoMotoPropia || 0}` }, { label: 'Total USD', value: `$${baseUSD}`, bold: true } ]} lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} />}
       </div>
 
-      {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponibles} maxDate={maxDate} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} buscarProximaFechaDisponible={buscarProximaFechaDisponible} showToast={showToast} />}
+      {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponibles} maxDate={maxDate} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}
       {mostrarCalendarioNacimiento && <CalendarioNacimiento tempFechaNacimiento={tempFechaNacimiento} setTempFechaNacimiento={setTempFechaNacimiento} onConfirm={() => { updateForm({ diaNac: tempFechaNacimiento.dia, mesNac: tempFechaNacimiento.mes, anoNac: tempFechaNacimiento.ano }); setMostrarCalendarioNacimiento(false); }} onClose={() => setMostrarCalendarioNacimiento(false)} />}
 

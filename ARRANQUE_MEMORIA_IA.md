@@ -278,3 +278,42 @@ Esto garantiza un punto de restauración antes de cada modificación.
 
 **Veredicto final:** APROBADO. El sistema superó el escrutinio Zero-Trust del Centinela en las 4 fases. Autorizado para despliegue en producción.
 
+---
+### SESIÓN 23/06/2026 – Correcciones finales de disponibilidad y hardening completo
+
+**Decisiones clave:**
+- **Solución definitiva de disponibilidad (Opción B - SRE Golden Path):** Eliminada la función `buscarProximaFechaDisponible` de `LockService.js` y `useDisponibilidad.js`. La asignación de la primera fecha disponible ahora usa el array `diasDisponibles` del hook `useDisponibilidad`, consolidando la Fuente Única de Verdad (SSOT).
+- **Cinta de fechas restaurada:** El componente `Paso3Horario.jsx` vuelve al diseño original con 3 días antes, el día central y 3 días después.
+- **Mensaje de "sin disponibilidad":** Actualizado con diseño UI del sistema (ícono Calendar + texto estilizado).
+- **Cierre síncrono del candado:** El `useEffect` de búsqueda inicial en `InscripcionView.jsx` usa `!form.fecha1` como candado natural.
+- **Validación isomórfica con Zod:** Restaurados los esquemas en `src/modules/shared/schemas/validations.js` e integrados en `Paso1DatosPersonales`, `Paso4Pago` y `ReservaService`.
+- **Optimización Hash Maps O(1):** Refactorizado `calcularDisponibilidadBloque` con diccionarios precalculados, eliminando bucles anidados O(N²).
+- **Clock Tick:** Añadido `clockTick` cada 60s para refrescar `isPastBlock` sin recargar.
+- **Zona horaria Venezuela:** Todos los cálculos de fechas usan `Intl.DateTimeFormat` con `America/Caracas`.
+
+**Archivos modificados:** `InscripcionView.jsx`, `LockService.js`, `useDisponibilidad.js`, `Paso1DatosPersonales.jsx`, `Paso4Pago.jsx`, `ReservaService.js`, `validations.js`.
+**Deuda técnica saldada:** B130, B132, B133, B134, B137, B147.
+
+---
+### SESIÓN 23/06/2026 – Arquitectura de Colección Espejo y cierre de inconsistencia de disponibilidad
+
+**Decisiones clave:**
+- **Colección Espejo `ocupacionConfirmada`:** Creada para resolver el fallo BOLA que impedía a los estudiantes leer las reservas de otros. Es una colección pública anonimizada que refleja las reservas confirmadas sin PII.
+- **Sincronización atómica:** `ReservaService.crearReserva` ahora usa `runTransaction` para escribir en `reservas` (privada) y `ocupacionConfirmada` (pública) atómicamente.
+- **Limpieza del listener de locks:** Eliminado `Timestamp.now()` estático de `LockService.escucharOcupacionTemporal`. La reactividad se gestiona con filtro en memoria y `clockTick`.
+- **Sincronización en panel admin:** `AdminReservaDetalle.jsx` ahora usa `writeBatch` para actualizar/eliminar documentos en `ocupacionConfirmada` al aprobar, rechazar o cancelar reservas, liberando los horarios inmediatamente.
+- **Migración de datos históricos:** Se añadió botón temporal en `AdminResumen.jsx` para migrar reservas existentes a la colección espejo.
+- **Protección de UI:** El paso 3 muestra un `Spinner` si no hay sesión válida, evitando mostrar disponibilidad falsa.
+
+**Archivos modificados (8):**
+- `firestore.rules`
+- `ReservaService.js`
+- `FirestoreProvider.js`
+- `useDisponibilidad.js`
+- `LockService.js`
+- `InscripcionView.jsx`
+- `AppContext.jsx`
+- `AdminReservaDetalle.jsx`
+
+**Deuda técnica saldada:** B130, B132, B133, B134, B137, B147, B148.
+**Deuda técnica nueva:** Ninguna.

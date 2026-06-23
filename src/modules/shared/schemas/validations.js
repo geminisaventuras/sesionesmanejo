@@ -26,7 +26,7 @@ export const paso4Schema = z.object({
   pagoRef: z.string().regex(/^\d{4}$/, 'Referencia: 4 dígitos'),
 });
 
-// Esquemas de login (sin cambios, ya existían)
+// Esquemas de login
 export const loginEmailSchema = z.object({
   email: z.string().email('Correo inválido'),
   password: z.string().min(6, 'Contraseña: mínimo 6 caracteres'),
@@ -37,7 +37,7 @@ export const loginEstudianteSchema = z.object({
   pin: z.string().regex(/^\d{6}$/, 'PIN: 6 dígitos'),
 });
 
-// Esquema completo de inscripción (para referencia)
+// Esquema completo de inscripción
 export const inscripcionSchema = z.object({
   nombre: z.string().min(2).max(50),
   apellido: z.string().min(2).max(50),
@@ -59,3 +59,43 @@ export const inscripcionSchema = z.object({
   condicionMedica: z.enum(['si', 'no']),
   detalleCondicion: z.string().optional(),
 });
+
+// Funciones de validación
+export function validarPaso1(datos) {
+  const result = paso1Schema.safeParse(datos);
+  if (!result.success) {
+    const errores = {};
+    result.error.issues.forEach(issue => {
+      const campo = issue.path[0];
+      if (!errores[campo]) errores[campo] = issue.message;
+    });
+    return { success: false, errores };
+  }
+  return { success: true, data: result.data };
+}
+
+export function validarPaso4(datos) {
+  const result = paso4Schema.safeParse(datos);
+  if (!result.success) {
+    const errores = {};
+    result.error.issues.forEach(issue => {
+      const campo = issue.path[0];
+      if (!errores[campo]) errores[campo] = issue.message;
+    });
+    return { success: false, errores };
+  }
+  return { success: true, data: result.data };
+}
+
+export function validarInscripcionCompleta(datos) {
+  const result = inscripcionSchema.safeParse(datos);
+  if (!result.success) {
+    const errores = {};
+    result.error.issues.forEach(issue => {
+      const campo = issue.path[0];
+      if (!errores[campo]) errores[campo] = issue.message;
+    });
+    return { success: false, errores };
+  }
+  return { success: true, data: result.data };
+}

@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: DETALLE-RESERVA-LEGIBLE | desc: Datos de reserva con nombres reales, fechas formateadas y correo visible
+// src/modules/admin/components/AdminReservaDetalle.jsx
 import { useContext, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -11,8 +11,9 @@ import {
   ChevronLeft, CheckCircle, AlertCircle, X, User, Phone, Mail, MapPin,
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings
 } from 'lucide-react';
+import { writeBatch, doc } from 'firebase/firestore';
+import { db } from '../../../firebase';
 
-// Función para formatear fecha "YYYY-MM-DD" a "22 jun 2026"
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
   const [y, m, d] = fechaStr.split('-');
@@ -30,7 +31,6 @@ const AdminReservaDetalle = () => {
   const isAdmin = user?.role === 'admin';
   const res = (reservas || []).find(r => String(r.id) === String(reservaId));
 
-  // Mapeo de IDs a nombres reales
   const curso = (cursos || []).find(c => String(c.id) === String(res?.cursoId));
   const horario = (horarios || []).find(h => String(h.id) === String(res?.horaId));
   const sede = (sedes || []).find(s => String(s.id) === String(res?.sedeId));
@@ -77,22 +77,48 @@ const AdminReservaDetalle = () => {
 
   const aprobarPago = async () => {
     if (!isAdmin) return;
-    await saveReserva({ ...res, estadoPago: 'Aprobado', estadoCurso: 'En Curso' });
-    await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
-    showToast('Pago aprobado y curso activado', 'success');
-    navigate('/admin/reservas');
+    const batch = writeBatch(db);
+    
+    // 1. Actualizar reserva privada
+    const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+    batch.update(reservaRef, { estadoPago: 'Aprobado', estadoCurso: 'En Curso' });
+    
+    // 2. Actualizar documento espejo
+    const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
+    batch.update(espejoRef, { estadoPago: 'Aprobado' });
+    
+    try {
+      await batch.commit();
+      await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
+      showToast('Pago aprobado y curso activado', 'success');
+      navigate('/admin/reservas');
+    } catch (error) {
+      showToast('Error al aprobar: ' + error.message, 'error');
+    }
   };
 
   const rechazarPago = async (tipo = 'rechazar') => {
     if (!isAdmin) return;
+    const batch = writeBatch(db);
+    const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+    const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
+    
     if (tipo === 'cancelar') {
-      await saveReserva({ ...res, estadoPago: 'Cancelado' });
-      showToast('Reserva cancelada definitivamente', 'info');
+      batch.update(reservaRef, { estadoPago: 'Cancelado' });
+      batch.delete(espejoRef);
     } else {
-      await saveReserva({ ...res, estadoPago: 'Rechazado', rechazadoEn: Number(new Date()) });
-      showToast('Pago rechazado. El estudiante puede corregir la referencia.', 'info');
+      const intentosActuales = res.intentosCorreccion || 0;
+      batch.update(reservaRef, { estadoPago: 'Rechazado', rechazadoEn: Date.now(), intentosCorreccion: intentosActuales + 1 });
+      batch.delete(espejoRef);
     }
-    navigate('/admin/reservas');
+    
+    try {
+      await batch.commit();
+      showToast(tipo === 'cancelar' ? 'Reserva cancelada definitivamente' : 'Pago rechazado. El estudiante puede corregir la referencia.', tipo === 'cancelar' ? 'info' : 'info');
+      navigate('/admin/reservas');
+    } catch (error) {
+      showToast('Error al rechazar: ' + error.message, 'error');
+    }
   };
 
   const reasignarInstructor = async () => {
@@ -123,7 +149,6 @@ const AdminReservaDetalle = () => {
         </div>
 
         <div className="flex-1 p-3 space-y-2 overflow-hidden">
-          {/* Datos del Estudiante y Curso */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Datos del Estudiante y Curso</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -142,7 +167,6 @@ const AdminReservaDetalle = () => {
             </div>
           </div>
 
-          {/* Pago */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Pago</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -157,7 +181,6 @@ const AdminReservaDetalle = () => {
             </div>
           </div>
 
-          {/* Acciones de administrador */}
           {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
               <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Acciones</h3>

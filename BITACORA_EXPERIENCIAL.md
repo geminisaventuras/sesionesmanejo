@@ -281,3 +281,42 @@ Considerar localStorage o Firestore bundles para datos que deban persistir entre
 
 **Para el Futuro:**
 > Evaluar migración al plan Blaze cuando el negocio lo justifique, para habilitar Cloud Functions y resolver deuda B125, B128, B129. Implementar focus trap (B132) y headers de seguridad (B134) en el siguiente sprint.
+
+
+#### [ARQUITECTO] – 2026-06-23 – Solución definitiva de disponibilidad y cierre de sesión
+
+**Decisión/Lección Clave:**
+> La eliminación de la función `buscarProximaFechaDisponible` y la adopción de la Fuente Única de Verdad (SSOT) en el hook `useDisponibilidad` resolvió definitivamente la inconsistencia de fechas entre dispositivos. La lección es que duplicar lógica de negocio en capas separadas (servicio vs. hook) genera divergencia y bugs difíciles de rastrear. El Freno Táctico es innegociable.
+
+**Contexto:**
+> Tras múltiples iteraciones corrigiendo la búsqueda de la próxima fecha disponible, el problema persistía. El Centinela diagnosticó que `buscarProximaFechaDisponible` no validaba `isPastBlock`, retornando HOY aunque sus bloques ya vencieron. La solución fue eliminar la función duplicada y usar directamente `diasDisponibles` del hook.
+
+**Alternativas Consideradas:**
+> - Opción A: Eliminar el `useEffect` automático → Rechazada por degradar UX.
+> - Opción B (elegida): Usar `diasDisponibles` como fuente única → Aprobada por el Centinela como "SRE Golden Path".
+> - Opción C: Revisar índices de Firestore → Rechazada por no ser la causa raíz.
+
+**Impacto y Deuda:**
+> Se eliminó código duplicado. El sistema ahora asigna la primera fecha con disponibilidad real de forma determinista. La sesión cerró con certificación SRE Master del Centinela V4.0.
+
+**Para el Futuro:**
+> Mantener el principio SSOT. Respetar siempre el Freno Táctico del Manual del Arquitecto V2.1.
+
+#### [ARQUITECTO] – 2026-06-23 – Arquitectura de Colección Espejo y cierre de sesión
+
+**Decisión/Lección Clave:**
+> La creación de una colección espejo anonimizada (`ocupacionConfirmada`) resolvió el problema de BOLA que impedía a los estudiantes ver la disponibilidad real. La lección es que en arquitecturas Zero-Trust sin backend, duplicar datos de forma anonimizada es la única forma de compartir el estado global sin violar la privacidad.
+
+**Contexto:**
+> Los estudiantes veían "TODO DISPONIBLE" porque las reglas de Firestore les impedían leer las reservas de otros. El Centinela Qwen diagnosticó un fallo BOLA y propuso la Colección Espejo. Gemini corrigió la regla de mutabilidad para evitar DDoS Financiero. Se implementó la solución completa en 8 archivos.
+
+**Alternativas Consideradas:**
+> - Opción A (Spinner): rechazada por no resolver la causa raíz.
+> - Opción B (Forzar suscripción sin auth): rechazada por violar reglas de Firestore.
+> - Colección Espejo (elegida): aprobada por ambos Centinelas.
+
+**Impacto y Deuda:**
+> Se modificaron 8 archivos. Se saldaron 7 deudas técnicas. El sistema ahora muestra disponibilidad real a todos los usuarios.
+
+**Para el Futuro:**
+> El patrón de Colección Espejo puede aplicarse a otros casos donde se necesite compartir estado sin exponer PII.

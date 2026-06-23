@@ -1,3 +1,4 @@
+// src/modules/inscripcion/components/Paso3Horario.jsx
 import React, { useMemo } from 'react';
 import { Calendar, Eye, ArrowRight } from 'lucide-react';
 import { Spinner } from '../../../components/UI';
@@ -14,6 +15,7 @@ export function Paso3Horario({
     const reference = form.fecha1 || new Date().toISOString().split('T')[0];
     const list = [];
     const cursor = new Date(reference + 'T12:00:00');
+    // Retroceder 3 días para mostrar 3 antes y 3 después de la fecha seleccionada
     cursor.setDate(cursor.getDate() - 3);
     for (let i = 0; i < 7; i++) {
       const fechaStr = cursor.toISOString().split('T')[0];
@@ -82,8 +84,12 @@ export function Paso3Horario({
           <Spinner message="Cargando instructores y motos..." />
         </div>
       ) : bloques.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-          No hay bloques disponibles para esta fecha. Seleccione otra.
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center p-6">
+            <Calendar size={48} className="text-gray-300 mx-auto mb-3" />
+            <p className="text-sm font-bold text-gray-500">No hay bloques disponibles</p>
+            <p className="text-xs text-gray-400 mt-1">Selecciona otra fecha en el calendario</p>
+          </div>
         </div>
       ) : (
         <div className="flex-1 mt-2">

@@ -1,4 +1,3 @@
-// @build: 2026-06-21.FASE3 | id: FIRESTORE-PROVIDER | desc: Hook de datos Firestore con suscripción a notificaciones para admin y estudiantes
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -11,7 +10,10 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [activeLocks, setActiveLocks] = useState([]);
   const prevReservasRef = useRef([]);
 
-  const buildPath = useCallback((colName) => `artifacts/${APP_ID}/public/data/${colName}`, []);
+  const buildPath = useCallback((colName) => {
+    if (colName === 'ocupacionConfirmada') return colName;
+    return `artifacts/${APP_ID}/public/data/${colName}`;
+  }, []);
 
   const useFirebaseCollection = (colName, initialData = [], condition = true, queryConstraint = null, requireAuth = true) => {
     const [data, setData] = useState(initialData);
@@ -23,7 +25,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
         if (!snap.empty) setData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         else setData([]);
       }, (err) => {
-        // Error en colección (silencioso para permisos denegados)
+        console.warn(`[FirestoreProvider] Error en colección ${colName}:`, err.code);
       });
       return () => unsub();
     }, [fbUser, authReady, condition, colName, requireAuth]);
@@ -46,8 +48,8 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
   const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
+  const [ocupacionConfirmada, saveOcupacion] = useFirebaseCollection('ocupacionConfirmada', [], true, null, true);
 
-  // ✅ Notificaciones: admin ve todas, estudiante filtra por userId
   const notifCondition = isAdmin || !!user?.uid;
   const notifQuery = isAdmin ? null : where('userId', '==', user?.uid || '');
   const [notifications, saveNotificacion] = useFirebaseCollection('notificaciones', [], notifCondition, notifQuery, true);
@@ -170,6 +172,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
+    ocupacionConfirmada,
     notifications, saveNotificacion, markNotificationRead,
     activeLocks, suscribirLocks,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources,

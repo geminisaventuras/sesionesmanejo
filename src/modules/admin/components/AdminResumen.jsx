@@ -1,4 +1,7 @@
+// ============================================================
+// Archivo: src/modules/admin/components/AdminResumen.jsx
 // @build: 2026-06-22 | id: DASHBOARD-COMPACTO | desc: Dashboard sin listados grandes, últimos 4 cursos en fila horizontal compacta
+// ============================================================
 import { useContext, useEffect, useMemo, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -123,8 +126,8 @@ const AdminResumen = () => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-const { notifications } = useContext(AppContext);
-const header = <DashboardHeader title="Panel Administrativo" onLogout={handleLogout} notifications={notifications} />;
+  const { notifications } = useContext(AppContext);
+  const header = <DashboardHeader title="Panel Administrativo" onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="inicio"
