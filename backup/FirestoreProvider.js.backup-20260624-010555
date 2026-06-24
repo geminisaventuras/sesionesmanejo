@@ -1,4 +1,4 @@
-// @build: 2026-06-24 | desc: Corrección de concatenación en buildPath y filtro de reservas por userId
+﻿// @build: 2026-06-24 | desc: Corrección de concatenación en buildPath y filtro de reservas por userId
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
