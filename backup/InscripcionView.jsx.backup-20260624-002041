@@ -1,7 +1,8 @@
-﻿// @build: 2026-06-24 | id: INSC-REFACTOR-FINAL | backup: InscripcionView.jsx.backup-20260623-231934 | desc: Lógica de disponibilidad integrada, eliminados servicios y hooks externos
+﻿// @build: 2026-06-24 | id: INSC-REFACTOR-V2 | backup: InscripcionView.jsx.backup-20260623-234334 | desc: Corrección de zona horaria en isPastBlock y payload completo
 import { useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
+import { auth } from '../../../firebase';
 import { ReservaService } from '../../../services/ReservaService';
 import { LockService } from '../../../services/LockService';
 import { AuthService } from '../../../services/AuthService';
@@ -28,7 +29,13 @@ const LOCK_DURATION = 10 * 60 * 1000;
 const MAX_REINTENTOS_EXPIRACION = 3;
 const MAX_DIAS_RESERVA = 30;
 
-// ─── Función pura de disponibilidad ─────────────────────
+// ─── Blindaje temporal absoluto (America/Caracas) ──────
+const getCaracasTime = () => {
+  const d = new Date();
+  const caracasStr = d.toLocaleString('en-US', { timeZone: 'America/Caracas' });
+  return new Date(caracasStr);
+};
+
 const isPastBlock = (fecha, label, todayStr) => {
   if (fecha !== todayStr || !label) return false;
   try {
@@ -40,12 +47,13 @@ const isPastBlock = (fecha, label, todayStr) => {
     const modifier = parts[3].toUpperCase();
     if (modifier === 'PM' && hours < 12) hours += 12;
     if (modifier === 'AM' && hours === 12) hours = 0;
-    const blockTime = new Date();
+    const blockTime = getCaracasTime();
     blockTime.setHours(hours, mins, 0, 0);
-    return new Date() > blockTime;
+    return getCaracasTime() > blockTime;
   } catch (e) { return false; }
 };
 
+// ─── Función pura de disponibilidad ─────────────────────
 const evaluarDisponibilidad = ({
   form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId
 }) => {
@@ -272,10 +280,12 @@ export const InscripcionView = () => {
   const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
 
   const handleConfirmarPago = useCallback(async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) { showToast('Error: Sesión no encontrada. Recarga la página.', 'error'); return; }
     if (!lockId) { showToast('Error: No se encontró el bloqueo del horario.', 'error'); return; }
     setIsSubmitting(true);
     const result = await ReservaService.crearReserva({
-      ...form, userId: ctx.fbUser.uid, fecha: form.fecha1, fecha2: disponibilidad?.fecha2Calc || '',
+      ...form, userId: uid, fecha: form.fecha1, fecha2: disponibilidad?.fecha2Calc || '',
       fechaNacimiento, pagoTotalMoneda: baseUSD, pagoTotalVES: parseFloat(precioFinalVES)
     }, lockId);
     setIsSubmitting(false);
@@ -288,12 +298,17 @@ export const InscripcionView = () => {
       if (codigo === 'invalid-data') showToast(result.error.message || 'Datos inválidos', 'error');
       else showToast(result.error.message || 'Error al crear la reserva', 'error');
     }
-  }, [lockId, form, ctx.fbUser, disponibilidad, fechaNacimiento, baseUSD, precioFinalVES, limpiarSesion, showToast, generatedPin]);
+  }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, precioFinalVES, limpiarSesion, showToast, generatedPin]);
 
   const handleIrAlPanel = useCallback(() => {
-    ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: ctx.fbUser.uid });
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      showToast('Error de sesión. No se puede acceder al panel.', 'error');
+      return;
+    }
+    ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: uid });
     navigate('/portal-reservas');
-  }, [ctx, form, navigate]);
+  }, [ctx, form, navigate, showToast]);
 
   const handleSelectHorario = useCallback(async (bloque) => {
     if (lockId && form.horaId === bloque.id) { setModalLiberar({ bloque }); return; }
@@ -410,8 +425,10 @@ export const InscripcionView = () => {
     if (step === '2') { setStep('3'); return; }
     if (step === '3') {
       if (!form.horaId || !lockId) { showToast('Selecciona un horario', 'error'); return; }
+      // Renovar el lock antes de avanzar al paso 4
+      await LockService.crearLock(lockId, ctx.fbUser.uid, { fecha: form.fecha1, horaId: form.horaId }).catch(() => {});
       updateLockExpiresAt(Date.now() + LOCK_DURATION);
-      setLockExpirado(false);
+      setLockExpirado(false); setRenovacionUsada(false);
       setStep('4'); return;
     }
     if (step === '4') {
@@ -481,7 +498,36 @@ export const InscripcionView = () => {
         {step === '3' && (!ctx.fbUser || activeLocks === null) ? (
           <div className="flex-1 flex items-center justify-center"><Spinner message="Sincronizando disponibilidad..." /></div>
         ) : (
-step === '3' && disponibilidad && <Paso3Horario form={form} updateForm={updateForm} diasDisponibles={disponibilidad.diasDisponibles} bloques={disponibilidad.bloques} onSelectHorario={handleSelectHorario} onMostrarCalendario={() => setMostrarCalendario(true)} isSelectingHorario={isSelectingHorario} selectingBlockId={selectingBlockId} fbUser={ctx.fbUser} lockId={lockId} recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0} showToast={showToast} cargando={!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length} cursoNombre={(ctx.cursos || []).find(c => String(c.id) === String(form.cursoId))?.nombre || 'Curso'} sedeNombre={(ctx.sedes || []).find(s => String(s.id) === String(form.sedeId))?.nombre || 'Sede'} tipoMoto={form.tipoMoto} traeMoto={form.traeMoto} />        )}
+          step === '3' && disponibilidad && (
+            <>
+              <div className="bg-blue-600 text-white rounded-xl p-4 mb-3 shadow-lg">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-blue-200">Curso:</span>
+                    <p className="font-bold">{(ctx.cursos || []).find(c => String(c.id) === String(form.cursoId))?.nombre || 'No seleccionado'}</p>
+                  </div>
+                  <div>
+                    <span className="text-blue-200">Sede:</span>
+                    <p className="font-bold">{(ctx.sedes || []).find(s => String(s.id) === String(form.sedeId))?.nombre || 'No seleccionada'}</p>
+                  </div>
+                  <div>
+                    <span className="text-blue-200">Tipo de Moto:</span>
+                    <p className="font-bold">{form.tipoMoto || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-blue-200">¿Trae moto?</span>
+                    <p className="font-bold">{form.traeMoto === 'Sí' ? 'Sí' : 'No'}</p>
+                  </div>
+                  <div>
+                    <span className="text-blue-200">¿Sabe bicicleta?</span>
+                    <p className="font-bold">{form.sabeBicicleta === 'Sí' ? 'Sí' : 'No'}</p>
+                  </div>
+                </div>
+              </div>
+              <Paso3Horario form={form} updateForm={updateForm} diasDisponibles={disponibilidad.diasDisponibles} bloques={disponibilidad.bloques} onSelectHorario={handleSelectHorario} onMostrarCalendario={() => setMostrarCalendario(true)} isSelectingHorario={isSelectingHorario} selectingBlockId={selectingBlockId} fbUser={ctx.fbUser} lockId={lockId} recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0} showToast={showToast} cargando={!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length} />
+            </>
+          )
+        )}
         {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSD} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} desglosePrecio={() => [ { label: 'Precio', value: '$' + (ctx.config.precioBase || 0) }, { label: 'Recargo Sede', value: '+$' + (ctx.config.recargoGuarenas || 0) }, { label: 'Recargo sin Bici', value: '+$' + (ctx.config.recargoSinBici || 0) }, { label: 'Descuento Moto', value: '-$' + (ctx.config.descuentoMotoPropia || 0) }, { label: 'Total USD', value: '$' + baseUSD, bold: true } ]} lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} />}
       </div>
       {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={disponibilidad?.diasDisponibles || []} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} />}
@@ -492,3 +538,8 @@ step === '3' && disponibilidad && <Paso3Horario form={form} updateForm={updateFo
     </AppShell>
   );
 };
+
+
+
+
+

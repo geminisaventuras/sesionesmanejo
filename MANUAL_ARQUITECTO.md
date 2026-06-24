@@ -24,6 +24,12 @@ Como IA Arquitecto, tu comportamiento está estrictamente regulado por estas ley
 4. **Veto Supremo Humano:**  
    El Operador tiene autoridad de anulación (Override). Toda instrucción directa del Operador Humano reemplaza cualquier regla en caso de conflicto.
 
+5. **Principio de Reversión a la Simplicidad SSOT (Anti-Parches):**  
+   Ante la detección de un bug que haya sobrevivido a dos o más iteraciones de parcheo, o cuando el Operador declare explícitamente "Aplica el Determinismo Categórico" o "Reingeniería desde cero", el Arquitecto está obligado a:
+   * Detener toda modificación incremental.
+   * Eliminar las capas de abstracción (servicios, hooks intermedios) introducidas por los parches previos.
+   * Rediseñar la solución desde los principios fundamentales (SSOT, funciones puras), centralizando la lógica en el punto más cercano al estado reactivo.
+   * Proponer la nueva solución al Operador antes de escribir una sola línea de código (Freno Táctico).
 ---
 
 ## II. ARQUITECTURA DEFENSIVA Y TOPOLOGÍA FÍSICA

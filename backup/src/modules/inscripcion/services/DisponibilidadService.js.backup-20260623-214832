@@ -1,0 +1,77 @@
+﻿// src/modules/inscripcion/services/DisponibilidadService.js
+// @build: 2026-06-24 | desc: Servicio de Dominio Puro para asignación de recursos. Elimina la condición de carrera de la UI.
+
+const isInstructorOcupado = (instructorId, fecha1, fecha2, reservasConfirmadas, activeLocks) => {
+  const enReserva = (reservasConfirmadas || []).some(r => {
+    if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+    if (r.instructorId !== instructorId) return false;
+    return r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
+  });
+  if (enReserva) return true;
+  
+  const enLock = (activeLocks || []).some(lock => {
+    if (lock.instructorId !== instructorId) return false;
+    return lock.fecha === fecha1 || lock.fecha === fecha2;
+  });
+  return enLock;
+};
+
+const isMotoOcupada = (motoId, fecha1, fecha2, reservasConfirmadas, activeLocks) => {
+  const enReserva = (reservasConfirmadas || []).some(r => {
+    if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+    if (r.motoAsignadaId !== motoId) return false;
+    if (r.traeMoto === 'Sí') return false;
+    return r.fecha === fecha1 || r.fecha === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2;
+  });
+  if (enReserva) return true;
+  
+  const enLock = (activeLocks || []).some(lock => {
+    if (lock.motoAsignadaId !== motoId) return false;
+    return lock.fecha === fecha1 || lock.fecha === fecha2;
+  });
+  return enLock;
+};
+
+export const DisponibilidadService = {
+  asignarRecursos({ fecha1, fecha2, sedeId, tipoMoto, traeMoto, instructores, motos, reservasConfirmadas, activeLocks }) {
+    const necesitaMoto = traeMoto !== 'Sí';
+
+    const instructoresDisponibles = (instructores || [])
+      .filter(i => i.activo && (i.sedes || []).includes(sedeId))
+      .filter(i => !isInstructorOcupado(i.id, fecha1, fecha2, reservasConfirmadas, activeLocks));
+
+    let motosDisponibles = [];
+    if (necesitaMoto) {
+      motosDisponibles = (motos || [])
+        .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
+        .filter(m => !isMotoOcupada(m.id, fecha1, fecha2, reservasConfirmadas, activeLocks));
+    }
+
+    if (!necesitaMoto) {
+      return instructoresDisponibles.length > 0
+        ? { instructorId: instructoresDisponibles[0].id, motoAsignadaId: null }
+        : null;
+    } else {
+      return instructoresDisponibles.length > 0 && motosDisponibles.length > 0
+        ? { instructorId: instructoresDisponibles[0].id, motoAsignadaId: motosDisponibles[0].id }
+        : null;
+    }
+  },
+
+  contarRecursosLibresSinLocks({ fecha1, fecha2, sedeId, tipoMoto, traeMoto, instructores, motos, reservasConfirmadas }) {
+    const necesitaMoto = traeMoto !== 'Sí';
+    
+    const instructoresLibres = (instructores || [])
+      .filter(i => i.activo && (i.sedes || []).includes(sedeId))
+      .filter(i => !isInstructorOcupado(i.id, fecha1, fecha2, reservasConfirmadas, []));
+
+    let motosLibres = [];
+    if (necesitaMoto) {
+      motosLibres = (motos || [])
+        .filter(m => m.activo && m.tipo === tipoMoto && (m.sedes || []).includes(sedeId))
+        .filter(m => !isMotoOcupada(m.id, fecha1, fecha2, reservasConfirmadas, []));
+    }
+
+    return { instructoresLibres: instructoresLibres.length, motosLibres: motosLibres.length };
+  }
+};

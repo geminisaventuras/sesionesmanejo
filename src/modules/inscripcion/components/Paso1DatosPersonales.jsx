@@ -1,3 +1,4 @@
+// src/modules/inscripcion/components/Paso1DatosPersonales.jsx
 import React, { useState, useEffect } from 'react';
 import { User, Contact, Calendar, Phone, Mail, Users, MapPin, Heart } from 'lucide-react';
 import { validarPaso1 } from '../../shared/schemas/validations';
@@ -13,7 +14,14 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
     if (Object.keys(tocados).length > 0) {
       const result = validarPaso1(form);
       if (!result.success) {
-        setErrores(result.errores);
+        // Solo mostramos errores de los campos que el usuario ya ha tocado
+        const erroresFiltrados = {};
+        Object.keys(result.errores).forEach(campo => {
+          if (tocados[campo]) {
+            erroresFiltrados[campo] = result.errores[campo];
+          }
+        });
+        setErrores(erroresFiltrados);
       } else {
         setErrores({});
       }
