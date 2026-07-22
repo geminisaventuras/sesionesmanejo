@@ -85,8 +85,16 @@ const AdminReservaDetalle = () => {
     
     // 2. Actualizar documento espejo
     const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
-    batch.update(espejoRef, { estadoPago: 'Aprobado' });
-    
+batch.set(espejoRef, {
+  userId: res.userId,
+  fecha: res.fecha,
+  fecha2: res.fecha2,
+  horaId: res.horaId,
+  instructorId: res.instructorId,
+  motoAsignadaId: res.motoAsignadaId || null,
+  traeMoto: res.traeMoto || 'No',
+  estadoPago: 'Aprobado'
+}, { merge: true });    
     try {
       await batch.commit();
       await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
@@ -97,24 +105,45 @@ const AdminReservaDetalle = () => {
     }
   };
 
-  const rechazarPago = async (tipo = 'rechazar') => {
+    const rechazarPago = async (tipo = 'rechazar') => {
     if (!isAdmin) return;
     const batch = writeBatch(db);
     const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
     const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
     
     if (tipo === 'cancelar') {
+      // Cancelación definitiva: liberar el horario
       batch.update(reservaRef, { estadoPago: 'Cancelado' });
       batch.delete(espejoRef);
     } else {
+      // Rechazo para corrección: mantener el bloqueo del horario
       const intentosActuales = res.intentosCorreccion || 0;
-      batch.update(reservaRef, { estadoPago: 'Rechazado', rechazadoEn: Date.now(), intentosCorreccion: intentosActuales + 1 });
-      batch.delete(espejoRef);
+      batch.update(reservaRef, { 
+        estadoPago: 'Rechazado', 
+        rechazadoEn: Date.now(), 
+        intentosCorreccion: intentosActuales + 1 
+      });
+      // Mantener el espejo como Pendiente para que el horario NO se libere
+      batch.set(espejoRef, {
+        userId: res.userId,
+        fecha: res.fecha,
+        fecha2: res.fecha2,
+        horaId: res.horaId,
+        instructorId: res.instructorId,
+        motoAsignadaId: res.motoAsignadaId || null,
+        traeMoto: res.traeMoto || 'No',
+        estadoPago: 'Pendiente'  // ← Mantiene el bloqueo durante la corrección
+      }, { merge: true });
     }
     
     try {
       await batch.commit();
-      showToast(tipo === 'cancelar' ? 'Reserva cancelada definitivamente' : 'Pago rechazado. El estudiante puede corregir la referencia.', tipo === 'cancelar' ? 'info' : 'info');
+      showToast(
+        tipo === 'cancelar' 
+          ? 'Reserva cancelada definitivamente. Horario liberado.' 
+          : 'Pago rechazado. El estudiante puede corregir la referencia.', 
+        tipo === 'cancelar' ? 'info' : 'info'
+      );
       navigate('/admin/reservas');
     } catch (error) {
       showToast('Error al rechazar: ' + error.message, 'error');

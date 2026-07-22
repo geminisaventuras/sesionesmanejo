@@ -21,7 +21,7 @@ const HomeView = () => {
           <div className="w-20 h-20 bg-[#1e293b] rounded-3xl flex items-center justify-center mb-6 shadow-lg transform -rotate-6">
             <Zap size={40} className="text-orange-500 transform rotate-6" />
           </div>
-          <h1 className="text-4xl font-black mb-2 tracking-tight">MOTO<span className="text-blue-500">ESCUELA</span></h1>
+          <h1 className="text-4xl font-black mb-2 tracking-tight">MOTO<span className="text-blue-500">ESCUELAPP</span></h1>
           <p className="text-slate-400 text-sm font-medium text-center px-4">Plataforma Integral de Gestión y Aprendizaje.</p>
         </div>
         <div className="px-6 pb-8 space-y-4 relative z-10 -mt-8 shrink-0">
