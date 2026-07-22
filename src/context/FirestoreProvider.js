@@ -1,4 +1,4 @@
-// @build: 2026-06-24 | desc: Corrección de concatenación en buildPath y filtro de reservas por userId
+﻿// @build: 2026-06-24 | desc: Corrección de concatenación en buildPath y filtro de reservas por userId
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -48,9 +48,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, true);
   
   // CORRECCIÓN: Suscripción a reservas filtrada por userId para estudiantes
-  const reservaCondition = true;
-  const reservaQuery = isAdmin ? null : (fbUser?.uid ? where('userId', '==', fbUser.uid) : null);
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], reservaCondition, reservaQuery, true);
+  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
   
   const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
   const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
@@ -186,3 +184,4 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     prevReservasRef
   };
 }
+

@@ -71,6 +71,25 @@ export function validarPaso1(datos) {
     });
     return { success: false, errores };
   }
+  
+  // Validar mayoría de edad
+  const { diaNac, mesNac, anoNac } = result.data;
+  const fechaNac = new Date(`${anoNac}-${mesNac.padStart(2, '0')}-${diaNac.padStart(2, '0')}T12:00:00`);
+  if (isNaN(fechaNac.getTime())) {
+    return { success: false, errores: { fechaNac: 'Fecha de nacimiento inválida' } };
+  }
+  
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - fechaNac.getFullYear();
+  const mes = hoy.getMonth() - fechaNac.getMonth();
+  if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
+    edad--;
+  }
+  
+  if (edad < 18) {
+    return { success: false, errores: { fechaNac: 'Debes ser mayor de 18 años' } };
+  }
+  
   return { success: true, data: result.data };
 }
 

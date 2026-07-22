@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: AUTHSERVICE-UPDATE-PASSWORD | desc: AuthService con updatePassword y validación isomórfica completa.
+// @build: 2026-07-22 | id: AUTHSERVICE-SAVE-PROGRESO | desc: Guardado automático en progresoInscripcion al crear cuenta
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -8,7 +8,10 @@ import {
   onAuthStateChanged,
   updatePassword
 } from 'firebase/auth';
-import { auth } from '../../shared/firebase/firebase';
+import { auth, db } from '../../shared/firebase/firebase';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
+
+const appId = 'motoescuela-pro-v1';
 
 export const AuthService = {
   async loginEstudiante(correo, pin) {
@@ -41,6 +44,21 @@ export const AuthService = {
     
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, correo, pin);
+      const uid = userCredential.user.uid;
+      
+      // Guardar progreso inicial en Firestore
+      const correoKey = correo.replace(/[@.]/g, '_');
+      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'progresoInscripcion', correoKey);
+      await setDoc(ref, {
+        userId: uid,
+        correo,
+        pin,
+        paso: 1,
+        datosFormulario: { cedula, correo },
+        updatedAt: Timestamp.now(),
+        createdAt: Timestamp.now()
+      });
+      
       return { success: true, data: { user: userCredential.user, pin } };
     } catch (error) {
       if (error.code === 'auth/email-already-in-use')

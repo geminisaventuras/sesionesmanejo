@@ -90,6 +90,7 @@ export const LockService = {
       const locks = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(lock => lock.expiresAt && lock.expiresAt.toMillis() > ahora);
+        console.log('[LockService] Locks recibidos:', locks.length, 'Primeros locks:', locks.slice(0, 2).map(l => l.id));
       callback(locks);
     }, (error) => {
       console.warn('[LockService] Error en listener de ocupación temporal:', error);

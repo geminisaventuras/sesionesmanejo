@@ -1,3 +1,4 @@
+// src/modules/inscripcion/components/Paso4Pago.jsx
 import React, { useState, useEffect } from 'react';
 import { CreditCard, Phone, Contact, Hash, Lock, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { Select, Input } from '../../../components/UI';
@@ -28,7 +29,13 @@ export function Paso4Pago({
     if (Object.keys(tocados).length > 0) {
       const result = validarPaso4(form);
       if (!result.success) {
-        setErrores(result.errores);
+        const erroresFiltrados = {};
+        Object.keys(result.errores).forEach(campo => {
+          if (tocados[campo]) {
+            erroresFiltrados[campo] = result.errores[campo];
+          }
+        });
+        setErrores(erroresFiltrados);
       } else {
         setErrores({});
       }

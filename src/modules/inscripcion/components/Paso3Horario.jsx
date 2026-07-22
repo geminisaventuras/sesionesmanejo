@@ -1,6 +1,7 @@
-// src/modules/inscripcion/components/Paso3Horario.jsx
+﻿// src/modules/inscripcion/components/Paso3Horario.jsx
+// @build: 2026-06-24 | id: PASO3-FIX | desc: Exportación corregida, alineación mejorada, cinta de fechas azul oscuro
 import React, { useMemo } from 'react';
-import { Calendar, Eye, ArrowRight } from 'lucide-react';
+import { Calendar, Eye, ArrowRight, BookOpen, MapPin, Bike, Zap } from 'lucide-react';
 import { Spinner } from '../../../components/UI';
 
 export function Paso3Horario({
@@ -9,13 +10,13 @@ export function Paso3Horario({
   onSelectHorario, onMostrarCalendario,
   isSelectingHorario, selectingBlockId,
   fbUser, lockId, recursosListos,
-  showToast, cargando
+  showToast, cargando,
+  cursoNombre, sedeNombre, tipoMoto, traeMoto
 }) {
   const fechasMostradas = useMemo(() => {
     const reference = form.fecha1 || new Date().toISOString().split('T')[0];
     const list = [];
     const cursor = new Date(reference + 'T12:00:00');
-    // Retroceder 3 días para mostrar 3 antes y 3 después de la fecha seleccionada
     cursor.setDate(cursor.getDate() - 3);
     for (let i = 0; i < 7; i++) {
       const fechaStr = cursor.toISOString().split('T')[0];
@@ -34,12 +35,30 @@ export function Paso3Horario({
     <div className="flex flex-col h-full space-y-2">
       <div className="bg-blue-600 text-white rounded-xl shadow-lg shadow-[0_0_25px_rgba(59,130,246,0.5)] overflow-hidden">
         <div className="p-4">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <div className="flex items-center gap-2">
+              <BookOpen size={18} className="text-blue-200 shrink-0" />
+              <span className="font-bold truncate">{cursoNombre || 'Curso'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <MapPin size={18} className="text-blue-200 shrink-0" />
+              <span className="font-bold truncate">{sedeNombre || 'Sede'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Zap size={18} className="text-blue-200 shrink-0" />
+              <span className="font-bold">{tipoMoto}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Bike size={18} className="text-blue-200 shrink-0" />
+              <span className="font-bold">{traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
+            </div>
+          </div>
           <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
             <Calendar size={16} className="text-blue-200" />
             <span className="text-xs font-bold text-center">Fechas con Horas disponibles</span>
           </div>
         </div>
-        <div className="grid grid-cols-7 bg-blue-700/50 border-t border-blue-400/30">
+        <div className="grid grid-cols-7 bg-blue-800 border-t border-blue-400/30">
           {fechasMostradas.map(({ fecha, label, disponible }) => {
             const isSelected = form.fecha1 === fecha;
             return (
@@ -56,8 +75,8 @@ export function Paso3Horario({
                   isSelected
                     ? 'bg-white text-blue-600'
                     : disponible
-                    ? 'bg-blue-500/30 text-white hover:bg-blue-400/40'
-                    : 'bg-blue-800/30 text-blue-200/50 cursor-not-allowed'
+                    ? 'bg-blue-600/40 text-white hover:bg-blue-500/50'
+                    : 'bg-blue-900/30 text-blue-200/50 cursor-not-allowed'
                 }`}
               >
                 {label}
