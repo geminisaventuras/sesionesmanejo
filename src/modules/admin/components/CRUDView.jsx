@@ -2,9 +2,9 @@
 import { useState, useCallback, useContext, memo } from 'react';
 import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
-import { ChevronLeft, Plus, Edit, Power } from 'lucide-react';
+import { ChevronLeft, Plus, Edit, Power, Key } from 'lucide-react';
 
-const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol }) => {
+const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol, onResetPassword }) => {
   const { showToast } = useToast();
   const { user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
@@ -33,7 +33,22 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, on
         return (
           <div key={item.id} className={`bg-white p-4 rounded-2xl shadow-sm border mb-3 flex items-center justify-between ${item.activo ? 'border-gray-100' : 'border-red-100 opacity-60'}`}>
             <div className="flex-1 pr-2"><h4 className="font-bold text-gray-900 text-sm">{itemTitle} {item.apellido || ''}</h4>{item.direccion && <p className="text-xs text-gray-500 mt-1">{item.direccion}</p>}<div className="flex gap-1 flex-wrap mt-1">{!item.activo && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">Inactivo</span>}{item.esPrincipal && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black uppercase">Principal</span>}</div></div>
-            {isAdmin && (<div className="flex gap-2"><button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button><button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiado'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button></div>)}
+            {isAdmin && (
+              <div className="flex gap-2">
+                {onResetPassword && item.email && (
+                  <button
+                    type="button"
+                    onClick={() => onResetPassword(item)}
+                    className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"
+                    title="Restablecer contraseña"
+                  >
+                    <Key size={16} />
+                  </button>
+                )}
+                <button type="button" onClick={() => setItemEdit(item)} className="p-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"><Edit size={16} /></button>
+                <button type="button" onClick={async () => { await saveFn({ ...item, activo: !item.activo }); showToast('Estado cambiado'); }} className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100"><Power size={16} /></button>
+              </div>
+            )}
           </div>
         );
       })}

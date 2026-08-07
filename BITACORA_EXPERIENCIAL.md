@@ -320,3 +320,59 @@ Considerar localStorage o Firestore bundles para datos que deban persistir entre
 
 **Para el Futuro:**
 > El patrón de Colección Espejo puede aplicarse a otros casos donde se necesite compartir estado sin exponer PII.
+#### [ARQUITECTO] – 2026-06-24 – Auditoría de estructura de directorios y elección de arquitectura
+
+**Decisión/Lección Clave:**
+> La estructura híbrida que combina el Mapa Físico del Manual del Arquitecto (controllers, services, schemas, tests) con las necesidades de React (hooks, components) y Firebase (sin backend tradicional) es la arquitectura óptima para este proyecto. La migración desde la estructura actual debe ser progresiva (deuda B152).
+
+**Contexto:**
+> Durante la auditoría post‑mortem, se identificó que la estructura actual no cumple estrictamente con el Mapa Físico del Manual. Se evaluaron tres opciones: mantener la actual, adoptar el Manual puro (que ignora React), o crear una adaptación controlada que respete los principios de separación de capas.
+
+**Alternativas Consideradas:**
+> - Opción A (Manual puro): Crear carpetas `controllers/`, `repositories/`, etc., pero requiere reescribir toda la aplicación.
+> - Opción B (Estructura actual): Funcional, pero difícil de testear y con schemas centralizados.
+> - Opción C (Híbrida - elegida): Adaptar los principios del Manual a React + Firebase, con hooks como complemento y repositorios opcionales.
+
+**Impacto y Deuda:**
+> Se registraron las deudas B150 (TraceID), B151 (alinear al Mapa Físico) y B152 (migración progresiva a la estructura híbrida).
+
+**Para el Futuro:**
+> Implementar la migración en dos fases: Fase 1 (mover schemas, crear routes modularizadas) inmediatamente después del lanzamiento. Fase 2 (repositories, tests) cuando haya tiempo.
+#### [ARQUITECTO] � 2026-06-24 � Auditor�a de Endurecimiento y SRE (Secciones III.2, III.3, IV, V del Manual)
+**Decisi�n/Lecci�n Clave:**
+> La matriz de validaci�n isom�rfica se cumple con equivalencias funcionales. Las principales desviaciones son la falta de TraceID (B150), pruebas unitarias (B153) y rate limiting (limitaci�n del plan Spark).
+
+**Contexto:**
+> Auditor�a completa de las secciones de ciberseguridad, endurecimiento y SRE del Manual del Arquitecto V2.1. Se verificaron los campos de la matriz de validaci�n, la transaccionalidad ACID, la idempotencia, la prevenci�n IDOR, y el formato de errores RFC 7807.
+
+**Alternativas Consideradas:**
+> - Implementar TraceID ahora ? Implica tocar todos los servicios y Firebase. Se posterga como B150.
+> - Implementar pruebas unitarias ahora ? Requiere configurar Jest y escribir tests. Se posterga como B153.
+> - Rate Limiting ? No es viable en plan Spark. Se documenta como limitaci�n.
+
+**Impacto y Deuda:**
+> Se registraron B150 (TraceID), B153 (pruebas unitarias) y ajustes menores de capitalizaci�n y rate limiting.
+
+**Para el Futuro:**
+> Priorizar B153 (pruebas unitarias) en el pr�ximo sprint para alcanzar el 100% de cobertura exigido por el Manual.
+
+
+#### [ARQUITECTO] – 2026-06-24 – Siembra de base de datos de producción con firebase-admin
+**Decisión/Lección Clave:**
+> La siembra automatizada con el SDK Admin de Firebase requiere inicializar Firestore con `getFirestore()` y autenticar con `admin.cert()`. Las versiones modernas del SDK no exponen `admin.firestore()` directamente.
+
+**Contexto:**
+> Se necesitaba poblar la base de datos de producción (`motoescuelapp`) con las colecciones iniciales (configuraciones, sedes, horarios, cursos, instructores, motos, admins). Se creó un script Node.js (`seed.cjs`) que se ejecutó localmente desde la carpeta `motoescuela-pro`.
+
+**Alternativas Consideradas:**
+> - Usar la interfaz gráfica de la consola de Firebase → Lenta y propensa a errores de ruta.
+> - Usar el panel de administración de la app → Requería exponer el contexto en `window`, lo cual no se autorizó.
+> - **Opción elegida:** Script independiente con `firebase-admin`, ejecutado una sola vez desde la terminal.
+
+**Errores encontrados y soluciones:**
+1. **`require is not defined`** → El proyecto usa `"type": "module"`. Se renombró el script a `.cjs` para forzar CommonJS.
+2. **`admin.credential.cert is not a function`** → La versión instalada exporta `cert` directamente como `admin.cert`.
+3. **`admin.firestore is not a function`** → Se reemplazó por `const { getFirestore } = require('firebase-admin/firestore'); const db = getFirestore();`.
+
+**Para el Futuro:**
+> El script `seed.cjs` queda como referencia en la raíz del proyecto `motoescuela-pro`. Para futuras siembras, solo se necesita instalar `firebase-admin` (`npm install firebase-admin`) y ejecutar `node seed.cjs` con el archivo de clave de servicio correcto.

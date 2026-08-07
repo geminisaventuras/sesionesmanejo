@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "motoescuela-139e4"
-  }
+    "default": "motoescuela-139e4",
+    "prod": "motoescuelapp"
+  },
+  "targets": {},
+  "etags": {}
 }

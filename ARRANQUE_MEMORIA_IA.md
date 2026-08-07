@@ -317,3 +317,18 @@ Esto garantiza un punto de restauración antes de cada modificación.
 
 **Deuda técnica saldada:** B130, B132, B133, B134, B137, B147, B148.
 **Deuda técnica nueva:** Ninguna.
+
+### SESIÓN 24/06/2026 – Siembra de base de datos de producción
+
+**Procedimiento para sembrar la base de datos `motoescuelapp` desde cero:**
+1. Asegurarse de tener el archivo de clave de servicio `C:\keys\motoescuelapp-firebase-adminsdk.json`.
+2. Instalar `firebase-admin` en la carpeta de producción (`C:\motoescuela-pro`): `npm install firebase-admin`.
+3. Usar el script `seed.cjs` (ubicado en la raíz de `motoescuela-pro`). El script:
+   - Inicializa Firebase Admin con `admin.cert(serviceAccount)`.
+   - Obtiene Firestore con `const { getFirestore } = require('firebase-admin/firestore'); const db = getFirestore();`.
+   - Crea las colecciones: `configuraciones`, `sedes`, `horarios`, `cursos`, `instructores`, `motos`, `admins`.
+   - Verifica si ya existen datos antes de sembrar.
+4. Ejecutar: `node seed.cjs`.
+5. Confirmar el mensaje `✅ Siembra completada exitosamente.`
+
+**Nota:** El proyecto está configurado como módulo ES (`"type": "module"`), por lo que el script debe tener extensión `.cjs` para usar `require`.

@@ -333,3 +333,25 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 
 **Deuda preexistente que permanece vigente:**
 - B66, B82, B89-B99, B100-B103, B104-B107, B108-B113, B114, B115-B121, B122-B124, B125-B129.
+
+
+### Actualizaci√≥n 24/06/2026 ‚Äì Cierre de sesi√≥n y revisi√≥n del Manual del Arquitecto
+
+**Deuda t√©cnica registrada:**
+- **[BAJA] B150** ‚Äì Implementar generaci√≥n de `TraceID` √∫nico por petici√≥n en el frontend y propagarlo a las transacciones de Firestore para trazabilidad completa (Secci√≥n IV del Manual del Arquitecto).
+---
+---
+### Actualizaci√≥n 24/06/2026 ‚Äì Auditor√≠a de Arquitectura y Cierre de Sesi√≥n
+
+**Deuda t√©cnica registrada:**
+- **[BAJA] B150** ‚Äì Implementar generaci√≥n de TraceID √∫nico por petici√≥n en el frontend y propagarlo a las transacciones de Firestore para trazabilidad completa (Secci√≥n IV del Manual del Arquitecto).
+- **[MEDIA] B151** ‚Äì Alinear la estructura de directorios al Mapa F√≠sico can√≥nico del Manual del Arquitecto (Secci√≥n II). Actualmente no existen las carpetas `routes/`, `controllers/`, `repositories/`, `schemas/` (por m√≥dulo) y `tests/`.
+- **[MEDIA] B152** ‚Äì Migraci√≥n progresiva a la estructura h√≠brida (Manual adaptado a React + Firebase) descrita en la sesi√≥n del 24/06/2026. Incluye mover esquemas a cada m√≥dulo, crear `routes/` modularizadas y renombrar vistas como controladores.
+---
+### ActualizaciÛn 24/06/2026 ñ AuditorÌa de Endurecimiento y SRE
+
+**Deuda tÈcnica registrada:**
+- **[BAJA] B150** ñ Implementar generaciÛn de TraceID ˙nico por peticiÛn en el frontend y propagarlo a las transacciones de Firestore (SecciÛn IV del Manual).
+- **[MEDIA] B153** ñ Implementar pruebas unitarias en el mÛdulo inscripcion (carpeta 	ests/). Actualmente no existen pruebas de caja negra para los flujos HTTP 200, 400 y 409.
+- **[BAJA]** ñ Agregar capitalizaciÛn autom·tica (trim + capitalizar) en el campo Nombre del paso 1 (SecciÛn III.2).
+- **[BAJA]** ñ Evaluar implementaciÛn de Rate Limiting si se migra al plan Blaze de Firebase (SecciÛn III.3).

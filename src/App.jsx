@@ -23,7 +23,7 @@ const AdminOcupacion = React.lazy(() => import('./modules/admin/components/Admin
 const AdminFinanzas = React.lazy(() => import('./modules/admin/components/AdminFinanzas'));
 const AdminConfigHub = React.lazy(() => import('./modules/admin/components/AdminConfigHub'));
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
-
+const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -136,6 +136,13 @@ function App() {
           <Route path="/admin/config/ajustes" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminAjustes />
+            </ProtectedRoute>
+          } />
+
+                    {/* Panel del proveedor */}
+          <Route path="/proveedor" element={
+            <ProtectedRoute allowedRoles={['proveedor']}>
+              <ProveedorPanel />
             </ProtectedRoute>
           } />
 

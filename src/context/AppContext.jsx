@@ -50,7 +50,7 @@ export const AppProvider = ({ children }) => {
     saveInstructor: firestore.saveInstructor,
     handleSaveInstructorSeguro: firestore.handleSaveInstructorSeguro,
     proveedores: firestore.proveedores,
-    saveProveedor: firestore.saveProveedorSeguro,
+    saveProveedorSeguro: firestore.saveProveedorSeguro,    
     motos: firestore.motos,
     saveMoto: firestore.saveMoto,
     reservas: firestore.reservas,
