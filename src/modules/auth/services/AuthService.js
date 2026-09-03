@@ -6,10 +6,11 @@ import {
   signInWithPopup, 
   signOut, 
   onAuthStateChanged,
-  updatePassword
+  updatePassword,
+  fetchSignInMethodsForEmail
 } from 'firebase/auth';
 import { auth, db } from '../../shared/firebase/firebase';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 
 const appId = 'motoescuela-pro-v1';
 
@@ -32,8 +33,19 @@ export const AuthService = {
     }
   },
 
-  async crearEstudiante(cedula, correo) {
-    if (!cedula || !/^\d{6,10}$/.test(cedula))
+      async correoExiste(correo) {
+    if (!correo) return false;
+    try {
+      const metodos = await fetchSignInMethodsForEmail(auth, correo);
+      return metodos && metodos.length > 0;
+    } catch (error) {
+      console.warn('Error al verificar correo:', error);
+      return false;
+    }
+  },
+
+     async crearEstudiante(cedula, correo) {
+    if (!cedula || !/^\d{7,10}$/.test(cedula))
       return { success: false, error: { code: 'invalid-cedula', message: 'Cédula inválida' } };
     if (!correo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo))
       return { success: false, error: { code: 'invalid-email', message: 'Correo inválido' } };
@@ -43,14 +55,38 @@ export const AuthService = {
     const pin = String(array[0] % 900000 + 100000).padStart(6, '0');
     
     try {
+      // 1. Intentar crear la cuenta en Auth
       const userCredential = await createUserWithEmailAndPassword(auth, correo, pin);
-      const uid = userCredential.user.uid;
+      const user = userCredential.user;
       
-      // Guardar progreso inicial en Firestore
+      // 2. Solo para usuarios nuevos: verificar cédula después de creada la cuenta
+      const cedulaRef = doc(db, 'cedulasRegistradas', cedula);
+      const cedulaSnap = await getDoc(cedulaRef);
+      
+      if (cedulaSnap.exists()) {
+        // Cédula duplicada: eliminar el usuario recién creado (rollback)
+        try {
+          await user.delete();
+        } catch (deleteError) {
+          console.error('Error eliminando usuario tras cédula duplicada:', deleteError);
+        }
+        return { 
+          success: false, 
+          error: { code: 'duplicate-cedula', message: 'Esta cédula ya está registrada' } 
+        };
+      }
+      
+      // 3. Cédula disponible: registrar y guardar progreso
+      await setDoc(cedulaRef, {
+        userId: user.uid,
+        correo: correo,
+        createdAt: new Date()
+      });
+      
       const correoKey = correo.replace(/[@.]/g, '_');
       const ref = doc(db, 'artifacts', appId, 'public', 'data', 'progresoInscripcion', correoKey);
       await setDoc(ref, {
-        userId: uid,
+        userId: user.uid,
         correo,
         pin,
         paso: 1,
@@ -59,8 +95,10 @@ export const AuthService = {
         createdAt: Timestamp.now()
       });
       
-      return { success: true, data: { user: userCredential.user, pin } };
+      return { success: true, data: { user, pin } };
+      
     } catch (error) {
+      // 4. Si el correo ya existe, retornar already-enrolled (sin verificar cédula)
       if (error.code === 'auth/email-already-in-use')
         return { success: false, error: { code: 'already-enrolled', message: 'El estudiante ya está inscrito' } };
       if (error.code === 'auth/weak-password')

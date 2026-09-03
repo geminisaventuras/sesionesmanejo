@@ -2,6 +2,8 @@ import { doc, setDoc, query, collection, where, Timestamp, deleteDoc, getDocs, o
 import { db } from '../../shared/firebase/firebase';
 
 const MAX_LIMPIEZA = 10;
+const LOCK_DURATION_MS = 10 * 60 * 1000;
+const CLOCK_SKEW_MARGIN_MS = 10 * 1000;
 
 export const LockService = {
   async crearLock(lockId, userId, metadata = {}) {
@@ -11,8 +13,7 @@ export const LockService = {
     const batch = writeBatch(db);
     const lockRef = doc(db, 'locks', lockId);
     const ocupacionRef = doc(db, 'ocupacionTemporal', lockId);
-    const expiresAt = Timestamp.fromDate(new Date(Date.now() + 10 * 60 * 1000));
-
+const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
     batch.set(lockRef, {
       expiresAt,
       userId,
@@ -24,6 +25,7 @@ export const LockService = {
 
     batch.set(ocupacionRef, {
       expiresAt,
+      userId,
       fecha: metadata.fecha,
       horaId: metadata.horaId,
       instructorId: metadata.instructorId || null,
@@ -38,6 +40,27 @@ export const LockService = {
     }
   },
 
+  async renovarLock(lockId) {
+    if (!lockId)
+      return { success: false, error: { code: 'missing-fields', message: 'Falta el ID del lock' } };
+
+    const batch = writeBatch(db);
+    const lockRef = doc(db, 'locks', lockId);
+    const ocupacionRef = doc(db, 'ocupacionTemporal', lockId);
+    const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
+
+    batch.update(lockRef, { expiresAt });
+    batch.update(ocupacionRef, { expiresAt });
+
+    try {
+      await batch.commit();
+      return { success: true, data: { lockId } };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+
   async liberarLock(lockId) {
     if (!lockId)
       return { success: false, error: { code: 'missing-fields', message: 'Falta el ID del lock' } };
@@ -51,6 +74,94 @@ export const LockService = {
       return { success: true };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+    /**
+   * Valida estructura de un lock
+   * @param {Object} lock - Datos del lock
+   * @returns {Object} { valido: boolean, razon?: string }
+   */
+  validarLock(lock) {
+    if (!lock) return { valido: false, razon: 'lock_nulo' };
+    if (!lock.userId) return { valido: false, razon: 'sin_userId' };
+    if (!lock.fecha) return { valido: false, razon: 'sin_fecha' };
+    if (!lock.horaId) return { valido: false, razon: 'sin_horaId' };
+    if (!lock.instructorId) return { valido: false, razon: 'sin_instructorId' };
+    if (!lock.expiresAt) return { valido: false, razon: 'sin_expiresAt' };
+    
+    const ahora = Date.now();
+    if (lock.expiresAt.toMillis() <= ahora) {
+      return { valido: false, razon: 'expirado' };
+    }
+    
+    // Verificar moto si aplica (el campo necesitaMoto no está en locks actualmente;
+    // se valida si motoAsignadaId es null y no se puede determinar, se omite)
+    // Para evitar falsos positivos, no validamos moto aquí a menos que sea obligatoria.
+    
+    return { valido: true };
+  },
+
+  /**
+   * Purga locks corruptos para una fecha específica
+   * @param {string} fecha - Fecha a purgar (YYYY-MM-DD)
+   * @returns {Promise<{success: boolean, purgados: number}>}
+   */
+     async purgarLocksCorruptos(fecha) {
+    try {
+      const locksSnapshot = await getDocs(
+        query(collection(db, 'locks'), where('fecha', '==', fecha))
+      );
+      const ocupacionSnapshot = await getDocs(
+        query(collection(db, 'ocupacionTemporal'), where('fecha', '==', fecha))
+      );
+
+      const corruptos = [];
+
+      locksSnapshot.docs.forEach(docSnap => {
+        const lock = docSnap.data();
+        const validacion = this.validarLock(lock);
+        if (!validacion.valido) {
+          corruptos.push({ id: docSnap.id, razon: validacion.razon });
+        }
+      });
+
+      const locksIds = new Set(locksSnapshot.docs.map(d => d.id));
+      ocupacionSnapshot.docs.forEach(docSnap => {
+        if (locksIds.has(docSnap.id)) return;
+        const temp = docSnap.data();
+        const validacion = this.validarLock(temp);
+        if (!validacion.valido) {
+          corruptos.push({ id: docSnap.id, razon: validacion.razon });
+        }
+      });
+
+      if (corruptos.length === 0) {
+        return { success: true, purgados: 0 };
+      }
+
+      const resultados = await Promise.allSettled(
+        corruptos.map(async (lock) => {
+          try {
+            await deleteDoc(doc(db, 'locks', lock.id));
+            await deleteDoc(doc(db, 'ocupacionTemporal', lock.id));
+            return { id: lock.id, eliminado: true, razon: lock.razon };
+          } catch (error) {
+            console.warn(`[LockService] No se pudo purgar ${lock.id} (${lock.razon}):`, error.message);
+            return { id: lock.id, eliminado: false, razon: lock.razon, error: error.message };
+          }
+        })
+      );
+
+      const purgados = resultados.filter(r => r.status === 'fulfilled' && r.value.eliminado).length;
+      const fallidos = resultados.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.eliminado)).length;
+
+      console.log(`[LockService] Purga completada para ${fecha}: ${purgados} eliminados, ${fallidos} fallidos`);
+
+      return { success: true, purgados, fallidos };
+    } catch (error) {
+      console.error('[LockService] Error purgando locks:', error);
+      return { success: false, purgados: 0, error };
     }
   },
 

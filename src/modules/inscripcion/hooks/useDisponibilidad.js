@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-
+import { ordenarHorarios } from '../../shared/utils/horarios';
+import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 const MAX_DIAS_RESERVA = 30;
 
 const isPastBlock = (fecha, label, todayStr) => {
@@ -81,7 +82,7 @@ const calcularDisponibilidadBloque = (
 export function useDisponibilidad({
   form, selectingBlockId, lockId,
   instructores, motos, ocupacionConfirmada, activeLocks, horarios,
-  getTodayStr, clockTick
+  getTodayStr, clockTick, currentUserId
 }) {
   const today = getTodayStr();
   const maxDate = useMemo(() => {
@@ -107,7 +108,7 @@ export function useDisponibilidad({
       motosReservas: {},
     };
 
-    (ocupacionConfirmada || []).forEach(r => {
+        reservasDeOtros.forEach(r => {
       if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return;
       const fechas = [r.fecha, r.fecha2].filter(Boolean);
       fechas.forEach(f => {
@@ -124,7 +125,10 @@ export function useDisponibilidad({
       });
     });
 
-    (activeLocks || []).forEach(lock => {
+       
+  const locksDeOtros = filtrarLocksDeOtros(activeLocks, currentUserId);
+      const reservasDeOtros = (ocupacionConfirmada || []).filter(r => r.userId !== currentUserId);
+    locksDeOtros.forEach(lock => {
       if (lock.instructorId) {
         cache.instructores[`${lock.fecha}_${lock.horaId}_${lock.instructorId}`] = true;
       }
@@ -134,7 +138,7 @@ export function useDisponibilidad({
     });
 
     return cache;
-  }, [ocupacionConfirmada, activeLocks]);
+   }, [ocupacionConfirmada, activeLocks, currentUserId]);
 
   const diasDisponibles = useMemo(() => {
     if (!form.sedeId || !form.tipoMoto) return [];
@@ -163,7 +167,7 @@ export function useDisponibilidad({
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
     if (!instructores?.length || !motos?.length) return [];
-    const hor = (horarios || []).filter(h => h.activo).sort((a, b) => a.id.localeCompare(b.id));
+    const hor = ordenarHorarios((horarios || []).filter(h => h.activo));
     return hor.map(b => {
       const info = calcularDisponibilidadBloque(
         b, form.fecha1, fecha2Calc, form.sedeId, form.tipoMoto, form.traeMoto,

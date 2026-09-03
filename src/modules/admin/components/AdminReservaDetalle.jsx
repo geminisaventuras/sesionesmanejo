@@ -1,5 +1,5 @@
-// src/modules/admin/components/AdminReservaDetalle.jsx
-import { useContext, useState, useCallback } from 'react';
+// @build: 2026-08-28.16-10-00 | id: BXX-BYY | backup: AdminReservaDetalle.jsx.backup-20260828-161000 | desc: Añade reasignación de instructor y cambio de horario
+import { useContext, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Select } from '../../../components/UI';
@@ -11,8 +11,9 @@ import {
   ChevronLeft, CheckCircle, AlertCircle, X, User, Phone, Mail, MapPin,
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings
 } from 'lucide-react';
-import { writeBatch, doc } from 'firebase/firestore';
+import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import CambiarHorarioModal from './CambiarHorarioModal';
 
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
@@ -27,6 +28,7 @@ const AdminReservaDetalle = () => {
   const { reservas, instructores, cursos, horarios, sedes, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
   const [selectedInstructor, setSelectedInstructor] = useState('');
+  const [mostrarCambiarHorario, setMostrarCambiarHorario] = useState(false);
 
   const isAdmin = user?.role === 'admin';
   const res = (reservas || []).find(r => String(r.id) === String(reservaId));
@@ -73,28 +75,51 @@ const AdminReservaDetalle = () => {
   }
 
   const instructorActual = (instructores || []).find(i => String(i.id) === String(res.instructorId));
-  const availableInstructors = (instructores || []).filter(i => i.activo && (i.sedes || []).includes(res.sedeId) && String(i.id) !== String(res.instructorId));
+  
+  // Instructores disponibles para reasignar
+  const availableInstructors = useMemo(() => {
+    return (instructores || []).filter(i => 
+      i.activo && 
+      (i.sedes || []).includes(res.sedeId) && 
+      String(i.id) !== String(res.instructorId)
+    );
+  }, [instructores, res.sedeId, res.instructorId]);
+
+  // Validación de disponibilidad del instructor seleccionado (para reasignación)
+  const verificarDisponibilidadInstructor = (instructorId) => {
+    if (!instructorId || !res.fecha) return true;
+    const conflictos = (reservas || []).filter(r => {
+      if (r.instructorId !== instructorId) return false;
+      if (r.id === res.id) return false;
+      if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
+      const mismaFecha = r.fecha === res.fecha || 
+                         r.fecha === res.fecha2 || 
+                         r.fecha2 === res.fecha;
+      const mismoHorario = r.horaId === res.horaId;
+      return mismaFecha && mismoHorario;
+    });
+    return conflictos.length === 0;
+  };
 
   const aprobarPago = async () => {
     if (!isAdmin) return;
     const batch = writeBatch(db);
     
-    // 1. Actualizar reserva privada
     const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
     batch.update(reservaRef, { estadoPago: 'Aprobado', estadoCurso: 'En Curso' });
     
-    // 2. Actualizar documento espejo
     const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
-batch.set(espejoRef, {
-  userId: res.userId,
-  fecha: res.fecha,
-  fecha2: res.fecha2,
-  horaId: res.horaId,
-  instructorId: res.instructorId,
-  motoAsignadaId: res.motoAsignadaId || null,
-  traeMoto: res.traeMoto || 'No',
-  estadoPago: 'Aprobado'
-}, { merge: true });    
+    batch.set(espejoRef, {
+      userId: res.userId,
+      fecha: res.fecha,
+      fecha2: res.fecha2,
+      horaId: res.horaId,
+      instructorId: res.instructorId,
+      motoAsignadaId: res.motoAsignadaId || null,
+      traeMoto: res.traeMoto || 'No',
+      estadoPago: 'Aprobado'
+    }, { merge: true });    
+    
     try {
       await batch.commit();
       await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
@@ -105,25 +130,22 @@ batch.set(espejoRef, {
     }
   };
 
-    const rechazarPago = async (tipo = 'rechazar') => {
+  const rechazarPago = async (tipo = 'rechazar') => {
     if (!isAdmin) return;
     const batch = writeBatch(db);
     const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
     const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
     
     if (tipo === 'cancelar') {
-      // Cancelación definitiva: liberar el horario
       batch.update(reservaRef, { estadoPago: 'Cancelado' });
       batch.delete(espejoRef);
     } else {
-      // Rechazo para corrección: mantener el bloqueo del horario
       const intentosActuales = res.intentosCorreccion || 0;
       batch.update(reservaRef, { 
         estadoPago: 'Rechazado', 
         rechazadoEn: Date.now(), 
         intentosCorreccion: intentosActuales + 1 
       });
-      // Mantener el espejo como Pendiente para que el horario NO se libere
       batch.set(espejoRef, {
         userId: res.userId,
         fecha: res.fecha,
@@ -132,7 +154,7 @@ batch.set(espejoRef, {
         instructorId: res.instructorId,
         motoAsignadaId: res.motoAsignadaId || null,
         traeMoto: res.traeMoto || 'No',
-        estadoPago: 'Pendiente'  // ← Mantiene el bloqueo durante la corrección
+        estadoPago: 'Pendiente'
       }, { merge: true });
     }
     
@@ -142,7 +164,7 @@ batch.set(espejoRef, {
         tipo === 'cancelar' 
           ? 'Reserva cancelada definitivamente. Horario liberado.' 
           : 'Pago rechazado. El estudiante puede corregir la referencia.', 
-        tipo === 'cancelar' ? 'info' : 'info'
+        'info'
       );
       navigate('/admin/reservas');
     } catch (error) {
@@ -150,11 +172,168 @@ batch.set(espejoRef, {
     }
   };
 
+  // Reasignación de instructor (mantiene la funcionalidad anterior)
   const reasignarInstructor = async () => {
     if (!isAdmin || !selectedInstructor) return showToast('Selecciona un instructor', 'error');
-    await saveReserva({ ...res, instructorId: selectedInstructor });
-    showToast('Instructor reasignado correctamente', 'success');
-    navigate('/admin/reservas');
+    if (selectedInstructor === res.instructorId) return showToast('Selecciona un instructor diferente', 'error');
+    
+    if (res.estadoPago === 'Aprobado') {
+      const confirmado = window.confirm(
+        '⚠️ Esta reserva está aprobada. La reasignación afectará la disponibilidad y la experiencia del estudiante.\n\n' +
+        '¿Deseas continuar?'
+      );
+      if (!confirmado) return;
+      
+      const haySesionActiva = res.pausaActiva || res.moduloEnProgreso || (res.tiempoEfectivo && res.tiempoEfectivo > 0);
+      if (haySesionActiva) {
+        const confirmadoSesion = window.confirm(
+          '⚠️ Hay una sesión del Aula Virtual en curso. Reasignar el instructor ahora puede afectar la sesión.\n\n' +
+          '¿Deseas continuar de todos modos?'
+        );
+        if (!confirmadoSesion) return;
+      }
+    }
+    
+    try {
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+      const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
+      
+      const datosActualizacion = {
+        instructorId: selectedInstructor,
+        instructorAnteriorId: res.instructorId || null,
+        reasignadoPor: user?.uid || 'admin',
+        reasignadoEn: serverTimestamp()
+      };
+      
+      batch.update(reservaRef, datosActualizacion);
+      batch.set(espejoRef, { ...datosActualizacion, estadoPago: res.estadoPago }, { merge: true });
+      
+      await batch.commit();
+      
+      showToast('Instructor reasignado correctamente', 'success');
+      setSelectedInstructor('');
+      navigate('/admin/reservas');
+    } catch (error) {
+      showToast('Error al reasignar: ' + error.message, 'error');
+    }
+  };
+
+  // Cambio de horario (NUEVO)
+  const cambiarHorario = async ({ nuevaFecha, nuevaFecha2, nuevoHoraId }) => {
+    try {
+      const horarioAnterior = {
+        fecha: res.fecha,
+        fecha2: res.fecha2,
+        horaId: res.horaId
+      };
+      
+      const horarioNuevo = {
+        fecha: nuevaFecha,
+        fecha2: nuevaFecha2,
+        horaId: nuevoHoraId
+      };
+      
+      // Confirmación especial para reservas aprobadas
+      if (res.estadoPago === 'Aprobado') {
+        const confirmado = window.confirm(
+          '⚠️ Esta reserva está APROBADA.\n\n' +
+          'Cambiar el horario afectará:\n' +
+          '• La disponibilidad del sistema\n' +
+          '• La experiencia del estudiante\n' +
+          '• La planificación del instructor\n\n' +
+          '¿Deseas continuar?'
+        );
+        
+        if (!confirmado) return;
+      }
+      
+      // Verificar sesión activa
+      const haySesionActiva = res.pausaActiva || res.moduloEnProgreso || (res.tiempoEfectivo && res.tiempoEfectivo > 0);
+      if (haySesionActiva) {
+        const confirmado = window.confirm(
+          '⚠️ Hay una sesión del Aula Virtual en curso. Cambiar el horario ahora puede afectar la sesión.\n\n' +
+          '¿Deseas continuar de todos modos?'
+        );
+        if (!confirmado) return;
+      }
+      
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+      const ocupacionRef = doc(db, 'ocupacionConfirmada', res.id);
+      
+      const datosActualizacion = {
+        fecha: nuevaFecha,
+        fecha2: nuevaFecha2,
+        horaId: nuevoHoraId,
+        horarioAnterior: horarioAnterior,
+        horarioNuevo: horarioNuevo,
+        cambiadoPor: user?.uid || 'admin',
+        cambiadoEn: serverTimestamp()
+      };
+      
+      batch.update(reservaRef, datosActualizacion);
+      batch.set(ocupacionRef, { ...datosActualizacion, estadoPago: res.estadoPago }, { merge: true });
+      
+           // Liberar TODOS los locks asociados a esta reserva (independiente del estado)
+      const locksOriginales = await obtenerLocksDeReserva(res);
+      locksOriginales.forEach(lock => {
+        batch.delete(doc(db, 'locks', lock.id));
+        batch.delete(doc(db, 'ocupacionTemporal', lock.id));
+      });
+      
+      await batch.commit();
+      
+      showToast('Horario cambiado correctamente', 'success');
+      setMostrarCambiarHorario(false);
+      
+      console.log('[AdminReservaDetalle] Horario cambiado:', {
+        reservaId: res.id,
+        horarioAnterior,
+        horarioNuevo,
+        cambiadoPor: user?.uid
+      });
+      
+      // Recargar la página para reflejar cambios en el contexto local
+      navigate('/admin/reservas', { replace: true });
+      
+    } catch (error) {
+      console.error('[AdminReservaDetalle] Error cambiando horario:', error);
+      showToast('Error al cambiar horario: ' + error.message, 'error');
+    }
+  };
+
+    // Función auxiliar para obtener locks de una reserva (por userId y fechas)
+  const obtenerLocksDeReserva = async (reserva) => {
+    try {
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
+      const q = query(
+        collection(db, 'locks'),
+        where('userId', '==', reserva.userId),
+        where('fecha', '==', reserva.fecha),
+        where('horaId', '==', reserva.horaId)
+      );
+      
+      const snapshot = await getDocs(q);
+      // Si el curso es de dos días, también buscar locks en fecha2
+      if (reserva.fecha2) {
+        const q2 = query(
+          collection(db, 'locks'),
+          where('userId', '==', reserva.userId),
+          where('fecha', '==', reserva.fecha2),
+          where('horaId', '==', reserva.horaId)
+        );
+        const snapshot2 = await getDocs(q2);
+        return [
+          ...snapshot.docs.map(d => ({ id: d.id, ...d.data() })),
+          ...snapshot2.docs.map(d => ({ id: d.id, ...d.data() }))
+        ];
+      }
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (error) {
+      console.error('[obtenerLocksDeReserva] Error:', error);
+      return [];
+    }
   };
 
   const estadoBadge = {
@@ -178,6 +357,7 @@ batch.set(espejoRef, {
         </div>
 
         <div className="flex-1 p-3 space-y-2 overflow-hidden">
+          {/* Datos del estudiante y curso */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Datos del Estudiante y Curso</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -196,6 +376,7 @@ batch.set(espejoRef, {
             </div>
           </div>
 
+          {/* Pago */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Pago</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
@@ -210,19 +391,65 @@ batch.set(espejoRef, {
             </div>
           </div>
 
-          {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
+          {/* Acciones administrativas */}
+          {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado' || res.estadoPago === 'Aprobado') && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
               <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Acciones</h3>
+              
+              {res.estadoPago === 'Aprobado' && (
+                <div className="bg-yellow-50 border border-yellow-200 p-2 rounded mb-2 text-[10px] font-bold text-yellow-800">
+                  ⚠️ Esta reserva está aprobada. Reasignar instructor o cambiar horario afectará la disponibilidad y la experiencia del estudiante.
+                </div>
+              )}
+              
+              {(res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
+                <div className="flex gap-2 flex-wrap mb-2">
+                  <Button type="button" onClick={aprobarPago} variant="success" className="!py-1.5 !text-[10px] flex-1" icon={CheckCircle}>Aprobar Pago</Button>
+                  <Button type="button" onClick={() => rechazarPago('rechazar')} variant="danger" className="!py-1.5 !text-[10px] flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
+                  <Button type="button" onClick={() => rechazarPago('cancelar')} variant="outline" className="!py-1.5 !text-[10px] w-full" icon={X}>Cancelar definitivamente</Button>
+                </div>
+              )}
+
+              {/* Reasignación de instructor */}
               <div className="flex items-center gap-2 mb-2">
-                <Select label="" options={availableInstructors} value={selectedInstructor} onChange={e => setSelectedInstructor(e.target.value)} className="!mb-0 flex-1" />
-                <Button type="button" onClick={reasignarInstructor} variant="secondary" className="!py-1.5 !px-3 !text-[10px] !w-auto" disabled={!selectedInstructor || availableInstructors.length === 0}>Reasignar</Button>
+                <Select 
+                  label="" 
+                  options={availableInstructors} 
+                  value={selectedInstructor} 
+                  onChange={e => setSelectedInstructor(e.target.value)} 
+                  className="!mb-0 flex-1" 
+                />
+                <Button 
+                  type="button" 
+                  onClick={reasignarInstructor} 
+                  variant="secondary" 
+                  className="!py-1.5 !px-3 !text-[10px] !w-auto" 
+                  disabled={!selectedInstructor || selectedInstructor === res.instructorId || availableInstructors.length === 0}
+                >
+                  Reasignar
+                </Button>
               </div>
-              {availableInstructors.length === 0 && <p className="text-[10px] text-gray-500 mb-2">No hay instructores disponibles.</p>}
-              <div className="flex gap-2 flex-wrap">
-                <Button type="button" onClick={aprobarPago} variant="success" className="!py-1.5 !text-[10px] flex-1" icon={CheckCircle}>Aprobar Pago</Button>
-                <Button type="button" onClick={() => rechazarPago('rechazar')} variant="danger" className="!py-1.5 !text-[10px] flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
-                <Button type="button" onClick={() => rechazarPago('cancelar')} variant="outline" className="!py-1.5 !text-[10px] w-full" icon={X}>Cancelar definitivamente</Button>
-              </div>
+              
+              {availableInstructors.length === 0 && (
+                <p className="text-[10px] text-gray-500 mb-2">No hay instructores disponibles para reasignar.</p>
+              )}
+              
+              {selectedInstructor && !verificarDisponibilidadInstructor(selectedInstructor) && (
+                <p className="text-[10px] font-bold text-orange-600 mb-2">
+                  ⚠️ Este instructor podría tener conflictos de horario en la fecha de la reserva.
+                </p>
+              )}
+
+              {/* Botón cambiar horario */}
+              <Button 
+                type="button" 
+                onClick={() => setMostrarCambiarHorario(true)} 
+                variant="outline" 
+                className="!py-1.5 !text-[10px] w-full"
+                icon={Calendar}
+              >
+                Cambiar Horario
+              </Button>
             </div>
           )}
 
@@ -234,6 +461,16 @@ batch.set(espejoRef, {
           )}
         </div>
       </div>
+
+      {/* Modal de cambio de horario */}
+      {mostrarCambiarHorario && (
+        <CambiarHorarioModal
+          reserva={res}
+          ctx={{ horarios, ocupacionConfirmada: reservas, cursos, instructores, motos: [] }}
+          onConfirmar={cambiarHorario}
+          onCancelar={() => setMostrarCambiarHorario(false)}
+        />
+      )}
     </AppShell>
   );
 };

@@ -173,6 +173,7 @@ const AdminResumen = () => {
             </div>
           )}
         </div>
+        
       </div>
     </AppShell>
   );

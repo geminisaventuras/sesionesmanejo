@@ -2,6 +2,7 @@
 import { useState, memo } from 'react';
 import { Button, Input } from '../../../components/UI';
 import { ChevronLeft, Clock, Plus, Equal, Minus } from 'lucide-react';
+import { TIPOS_CURSO } from '../../../constants/tiposCurso';
 
 const FormCursos = memo(({ item, onSave, onCancel }) => {
   const inicializarModulos = (itemData) => {
@@ -9,9 +10,13 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
     if (mods.length > 0 && typeof mods[0] === 'string') return mods.map(nombre => ({ nombre, duracion: 0 }));
     return mods.map(m => typeof m === 'string' ? { nombre: m, duracion: 0 } : { ...m });
   };
-  const [form, setForm] = useState({
+        const [form, setForm] = useState({
+    id: item?.id ? item.id : '',
     nombre: item?.id ? item.nombre : '',
+    precioBase: item?.id ? (item.precioBase ?? 0) : 0,
+    tipoCurso: item?.id ? (item.tipoCurso || TIPOS_CURSO.GENERAL) : TIPOS_CURSO.GENERAL,
     duracionTotal: item?.id ? (item.duracionTotal || 0) : 0,
+    activo: item?.id ? (item.activo !== undefined ? item.activo : true) : true,
     modulos: inicializarModulos(item?.id ? item : { modulos: [''] })
   });
   const tiempoAsignado = form.modulos.reduce((acc, mod) => acc + (Number(mod.duracion) || 0), 0);
@@ -34,12 +39,31 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
   const handleSave = () => {
     if (hayExcedente) { alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`); return; }
     if (form.modulos.some(m => !m.nombre.trim())) { alert('Todos los módulos deben tener un nombre.'); return; }
-    onSave({ ...form, modulos: form.modulos.filter(m => m.nombre.trim() !== '') });
-  };
+    onSave({ ...form, id: form.id, activo: form.activo, modulos: form.modulos.filter(m => m.nombre.trim() !== '') });  };
   return (
     <div className="space-y-4">
       <div className="flex gap-2 items-center mb-4"><button type="button" onClick={onCancel} className="p-2 bg-gray-200 rounded-full"><ChevronLeft size={20} /></button><h3 className="font-bold text-lg">{item?.id ? 'Editar' : 'Nuevo'} Curso</h3></div>
       <Input label="Nombre del Curso" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+            <Input
+        label="Precio Base (USD)"
+        type="number"
+        value={form.precioBase || ''}
+        onChange={e => setForm({ ...form, precioBase: Number(e.target.value) || 0 })}
+      />
+            <div className="mb-4 text-left w-full">
+        <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Tipo de Curso</label>
+        <select
+          value={form.tipoCurso}
+          onChange={e => setForm({ ...form, tipoCurso: e.target.value })}
+          className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none transition-colors duration-200"
+        >
+          <option value={TIPOS_CURSO.GENERAL}>General</option>
+          <option value={TIPOS_CURSO.EQUILIBRIO}>Equilibrio</option>
+          <option value={TIPOS_CURSO.BASICO_AUTO}>Básico Automática</option>
+          <option value={TIPOS_CURSO.BASICO_SINCRO}>Básico Sincrónica</option>
+          <option value={TIPOS_CURSO.MOTERO}>Curso Motero</option>
+        </select>
+      </div>
       <Input label="Duración Total del Curso (minutos)" type="number" value={form.duracionTotal || ''} onChange={handleDuracionTotalChange} icon={Clock} />
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex items-center justify-between mb-3">

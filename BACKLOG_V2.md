@@ -333,3 +333,33 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 
 **Deuda preexistente que permanece vigente:**
 - B66, B82, B89-B99, B100-B103, B104-B107, B108-B113, B114, B115-B121, B122-B124, B125-B129.
+
+
+---
+### Actualización 22/07/2026 – Cierre de sesión masiva de regresiones
+
+**Bugs cerrados:**
+- ✅ **B154** – Flujo de reinscripción restaurado con progreso en Firestore.
+- ✅ **Validaciones:** Pasos 1 (Zod + mayoría de edad), 2 (campos obligatorios), 4 (Zod).
+- ✅ **Disponibilidad:** Bloqueo por bloque horario corregido (filtrado por `horaId` en reservas).
+- ✅ **Spinner infinito:** Eliminado con inicialización de `activeLocks` y guardias de renderizado.
+- ✅ **Panel Admin:** Error `No document to update` solucionado con `batch.set`.
+- ✅ **Rechazo (corregir):** Mantiene bloqueo del horario hasta cancelación definitiva.
+
+**Deuda técnica que permanece vigente:**
+- B115-B120 (Material, reversión módulos, clases virtuales, reserva tiempo, D1→D2, tiempo excedente).
+- B89-B99 (Calificación mutua, logros, chat, insignias, accesibilidad).
+- B125-B129 (Optimización de consultas, Cloud Functions, etc.).
+
+---
+### Actualización 26/07/2026 – Cierre definitivo de B154 y validación de cédula duplicada
+
+**Bugs cerrados:**
+- ✅ **B154** – Reinscripción completamente funcional y segura. El sistema restaura el progreso del usuario solo si la cédula ingresada coincide con la registrada originalmente.
+- ✅ **Validación de cédula duplicada** – Funcional para nuevos registros. Si la cédula ya está en `cedulasRegistradas`, se rechaza el registro y se elimina la cuenta Auth recién creada (rollback).
+- ✅ **Advertencia de cédula no coincidente** – Si el usuario intenta reinscribirse con un correo existente pero una cédula diferente, el sistema bloquea el avance y muestra un error.
+
+**Deuda técnica que permanece vigente:**
+- B115-B120 (Material, reversión módulos, clases virtuales, reserva tiempo, D1→D2, tiempo excedente).
+- B89-B99 (Calificación mutua, logros, chat, insignias, accesibilidad).
+- B125-B129 (Optimización de consultas, Cloud Functions, etc.).

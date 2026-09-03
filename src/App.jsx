@@ -4,16 +4,18 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
 import { ToastProvider, useToast } from './modules/shared/components/ToastProvider';
 import { Spinner } from './components/UI';
-
+import InstructorPanel from './modules/instructor/views/InstructorPanel';
 // Lazy loading de todas las vistas
 const HomeView = React.lazy(() => import('./modules/home/views/HomeView'));
 const InscripcionView = React.lazy(() => import('./modules/inscripcion/views/InscripcionView').then(m => ({ default: m.InscripcionView })));
 const PortalEstudiante = React.lazy(() => import('./modules/auth/views/PortalEstudiante').then(m => ({ default: m.PortalEstudiante })));
 const LoginView = React.lazy(() => import('./modules/auth/views/LoginView').then(m => ({ default: m.LoginView })));
+
 const TestBloquesView = React.lazy(() => import('./modules/test/views/TestBloquesView').then(m => ({ default: m.TestBloquesView })));
 const TestDatePicker = React.lazy(() => import('./modules/test/views/TestDatePicker'));
 const EstudiantePanel = React.lazy(() => import('./modules/estudiante/views/EstudiantePanel').then(m => ({ default: m.EstudiantePanel })));
-const InstructorPanel = React.lazy(() => import('./modules/instructor/views/InstructorPanel'));
+//const InstructorPanel = React.lazy(() => import('./modules/instructor/views/InstructorPanel'));
+
 const AulaVirtualView = React.lazy(() => import('./modules/aula/views/AulaVirtualView'));
 const AdminResumen = React.lazy(() => import('./modules/admin/components/AdminResumen'));
 const AdminReservasHome = React.lazy(() => import('./modules/admin/components/AdminReservasHome'));
@@ -23,7 +25,8 @@ const AdminOcupacion = React.lazy(() => import('./modules/admin/components/Admin
 const AdminFinanzas = React.lazy(() => import('./modules/admin/components/AdminFinanzas'));
 const AdminConfigHub = React.lazy(() => import('./modules/admin/components/AdminConfigHub'));
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
-
+const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
+const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -62,9 +65,11 @@ function App() {
         <Routes>
           {/* Rutas públicas */}
           <Route path="/" element={<HomeView />} />
+          <Route path="/cursos" element={<CursosPublicosView />} />
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />
           <Route path="/login" element={<LoginView />} />
+          
           <Route path="/test-bloques" element={<TestBloquesView />} />
           <Route path="/test-datepicker" element={<TestDatePicker />} />
 
@@ -136,6 +141,13 @@ function App() {
           <Route path="/admin/config/ajustes" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminAjustes />
+            </ProtectedRoute>
+          } />
+
+                    {/* Panel del proveedor */}
+          <Route path="/proveedor" element={
+            <ProtectedRoute allowedRoles={['proveedor']}>
+              <ProveedorPanel />
             </ProtectedRoute>
           } />
 

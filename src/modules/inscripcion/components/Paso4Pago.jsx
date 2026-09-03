@@ -4,6 +4,7 @@ import { CreditCard, Phone, Contact, Hash, Lock, Eye, EyeOff, ChevronUp, Chevron
 import { Select, Input } from '../../../components/UI';
 import { BotonCopiarDatos } from './BotonCopiarDatos';
 import { validarPaso4 } from '../../shared/schemas/validations';
+import { ModalTerminos } from './ModalTerminos';
 
 const BANCOS = [
   { nombre: 'Banesco', codigo: '0134' },
@@ -17,10 +18,11 @@ const BANCOS = [
 
 export function Paso4Pago({
   form, updateForm,
-  precioFinalVES, baseUSD, tasaCobro, monedaCobroClientes, config,
+  precioFinalVES, baseUSD, precioCurso, tasaCobro, monedaCobroClientes, config,
   desglosePrecio, lockId, step, lockTimer, mostrarDetallesPago, onToggleDetalles,
   captchaA, captchaB, captchaValue, onCaptchaChange,
-  showToast
+  showToast,
+  terminosAceptados, onToggleTerminos, onVerTerminos, mostrarTerminos, onCerrarTerminos
 }) {
   const [errores, setErrores] = useState({});
   const [tocados, setTocados] = useState({});
@@ -63,7 +65,7 @@ export function Paso4Pago({
             </div>
             <div className="flex items-center justify-between text-[10px] text-blue-100 mt-2">
               <div>
-                <p>Base: USD {baseUSD}</p>
+                <p>Base: USD {precioCurso ?? baseUSD}</p>
                 <p>Tasa {monedaCobroClientes || 'EUR'}: {tasaCobro}</p>
               </div>
               {lockId && step === '4' && lockTimer}
@@ -122,6 +124,25 @@ export function Paso4Pago({
           </div>
         </div>
       </div>
+            {/* Checkbox de Términos y Condiciones */}
+      <div className="mt-3">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={terminosAceptados}
+            onChange={onToggleTerminos}
+            className="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+          />
+          <span className="text-xs text-gray-700">
+            He leído y acepto los{' '}
+            <button type="button" onClick={onVerTerminos} className="text-blue-600 underline font-medium">
+              Términos y Condiciones del Servicio
+            </button>
+          </span>
+        </label>
+      </div>
+
+      {mostrarTerminos && <ModalTerminos onClose={onCerrarTerminos} />}
     </div>
   );
 }

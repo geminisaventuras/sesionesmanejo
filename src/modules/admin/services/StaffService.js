@@ -1,4 +1,6 @@
-﻿import { db } from '../../shared/firebase/firebase';
+﻿import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { db, firebaseConfig } from '../../shared/firebase/firebase';
 import { collection, doc, setDoc, getDocs, writeBatch, Timestamp } from 'firebase/firestore';
 
 const APP_ID = 'motoescuela-pro-v1';
@@ -12,20 +14,34 @@ const buildPath = (colName) => {
 
 export const StaffService = {
   async crearStaff(email, password, role, data) {
+    console.log('[DEBUG] StaffService.crearStaff llamado:', email, role);
     if (!email || !password || !role) {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del staff' } };
     }
+
+    // Crear instancia secundaria de Firebase para no perder la sesión del admin
+    const secondaryAppName = `staff_creator_${Date.now()}`;
+    const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    const secondaryAuth = getAuth(secondaryApp);
+
     try {
-      const { getAuth, createUserWithEmailAndPassword } = await import('firebase/auth');
-      const auth = getAuth();
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
+      const userCred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
       const uid = userCred.user.uid;
+
+      // Cerrar sesión en la app secundaria
+      await signOut(secondaryAuth);
+
+      // Guardar documento con la sesión del admin intacta
       const collectionName = role === 'instructor' ? 'instructores' : 'proveedores';
       const ref = doc(db, buildPath(collectionName), uid);
-      await setDoc(ref, { ...data, email, uid });
+      await setDoc(ref, { ...data, email, uid, createdAt: Timestamp.now() });
+
       return { success: true, data: { uid } };
     } catch (error) {
       return { success: false, error: { code: error.code || 'unknown', message: error.message } };
+    } finally {
+      // Destruir la app secundaria
+      await deleteApp(secondaryApp);
     }
   },
 

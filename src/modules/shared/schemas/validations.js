@@ -58,7 +58,7 @@ export const inscripcionSchema = z.object({
   sedeId: z.string(),
   condicionMedica: z.enum(['si', 'no']),
   detalleCondicion: z.string().optional(),
-});
+}).strip();
 
 // Funciones de validación
 export function validarPaso1(datos) {

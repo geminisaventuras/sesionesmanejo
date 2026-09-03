@@ -317,3 +317,304 @@ Esto garantiza un punto de restauración antes de cada modificación.
 
 **Deuda técnica saldada:** B130, B132, B133, B134, B137, B147, B148.
 **Deuda técnica nueva:** Ninguna.
+
+
+---
+### SESIÓN 22/07/2026 – Corrección masiva de regresiones en inscripción y panel admin (v1.8.0)
+
+**Decisiones clave:**
+- **B154 – Reinscripción:** Cuando un estudiante con cuenta previa intenta reinscribirse, el sistema busca su progreso en la colección `progresoInscripcion` vía `getDoc` (ID = correo sanitizado), inicia sesión automáticamente con el PIN almacenado y restaura el paso exacto donde se quedó.
+- **Firestore:** Regla `allow get: if true` en `progresoInscripcion/{docId}` para permitir la lectura sin autenticación (necesaria para el flujo de reinscripción). `AuthService.crearEstudiante` ahora guarda el documento inicial de progreso.
+- **Validaciones Zod:** Ahora se ejecutan en cada paso de `handleNext`. Paso 1 (incluye mayoría de edad), paso 2 (curso, sede, tipo moto, sabeBicicleta), paso 4 (campos de pago). Se importó `validarPaso4`.
+- **Disponibilidad:** Corrección en `isInstructorOcupado` e `isMotoOcupada` para filtrar por `horaId` también en reservas confirmadas, no solo en locks. Antes un instructor/moto ocupado en un bloque aparecía como ocupado todo el día.
+- **Contadores de disponibilidad:** `instructoresLibresSinLocks` y `motosLibresSinLocks` ahora también filtran por `horaId`, arreglando el estado "Reservado" que aparecía incorrectamente.
+- **Spinner infinito:** `activeLocks` inicializado como `[]`, listener incondicional con fallback a `getTodayStr()`, `useMemo` defensivo sin dependencia de `null`, guardia de renderizado inteligente en paso 3.
+- **Panel Admin – Aprobar/Rechazar:** `aprobarPago` usa `batch.set` con `merge: true` para crear/actualizar el espejo `ocupacionConfirmada`, eliminando el error `No document to update`. `rechazarPago` para corrección mantiene el espejo con `estadoPago: 'Pendiente'` (bloquea el horario); solo `cancelar` borra el espejo y libera el horario.
+
+**Bugs cerrados:**
+- B154 (reinscripción)
+- B17/B51/B62/B82/B114/B121/B130/B132/B133/B134/B137/B147/B148 (validaciones, disponibilidad, UX)
+- Error "No document to update" en admin
+- Doble reserva por liberación prematura en rechazo
+- Spinner infinito en paso 3
+- Bloqueo masivo de horarios al confirmar pago
+
+**Archivos modificados:**
+- `src/modules/inscripcion/views/InscripcionView.jsx`
+- `src/modules/inscripcion/services/ReservaService.js`
+- `src/modules/auth/services/AuthService.js`
+- `src/modules/shared/schemas/validations.js`
+- `src/modules/admin/components/AdminReservaDetalle.jsx`
+- `firestore.rules`
+
+**Deuda técnica pendiente:** B115-B120 (Material, reversión módulos, clases virtuales, reserva tiempo, D1→D2, tiempo excedente)
+
+
+---
+### SESIÓN 26/07/2026 – Corrección definitiva de reinscripción (B154) y validación de cédula duplicada
+
+**Decisiones clave:**
+- **B154 (Reinscripción):** Se corrigió el conflicto entre la validación de cédula duplicada y la reinscripción. El problema era el orden de las operaciones: la verificación de cédula se ejecutaba antes de saber si el correo ya existía, bloqueando a usuarios legítimos.
+- **Solución final (FIRE):** Invertir el orden en `AuthService.crearEstudiante`. Primero se intenta crear la cuenta en Auth. Si es exitoso (usuario nuevo), se verifica la cédula en `cedulasRegistradas`. Si la cédula ya existe, se elimina el usuario recién creado (`user.delete()`) como rollback y se retorna error. Si el correo ya existe (`email-already-in-use`), se retorna `already-enrolled` directamente, sin verificar cédula.
+- **Refuerzo de identidad en reinscripción:** En `InscripcionView.jsx`, cuando se detecta `already-enrolled`, el sistema compara la cédula ingresada en el paso 1 con la cédula guardada en el progreso (`datosFormulario.cedula`). Si no coinciden, se bloquea el avance con un mensaje de error y se limpia el estado de carga. Si coinciden, se procede con el login automático y la restauración del paso.
+- **Seguridad adicional:** Este control impide que alguien que conozca un correo (pero no la cédula original) pueda suplantar al usuario legítimo y acceder a su progreso.
+
+**Archivos modificados:**
+- `src/modules/auth/services/AuthService.js` – Método `crearEstudiante` refactorizado con rollback y orden corregido.
+- `src/modules/inscripcion/views/InscripcionView.jsx` – Bloque de reinscripción modificado para verificar cédula antes de restaurar progreso.
+
+**Deuda técnica:** La validación de cédula duplicada quedó implementada y funcional. No se genera nueva deuda.
+
+**Lección aprendida:** Nunca anteponer validaciones de recursos secundarios (cédula) a la creación del recurso principal (cuenta Auth), especialmente cuando el flujo depende de manejar el error de recurso duplicado (`email-already-in-use`) para ejecutar otra lógica (reinscripción). El orden correcto es: crear → verificar duplicados posteriores → hacer rollback si es necesario.
+### SESIÓN 27-28/08/2026 – Trabajo integral sobre inscripción, página pública, paneles, aula, locks y producción
+
+**Contexto:**
+Trabajamos sobre MotoEscuela App en desarrollo, corrigiendo errores de producción y consolidando múltiples mejoras. No se modificaron reglas de Firestore en esta sesión; solo frontend/servicios y datos manuales cuando fue necesario.
+
+**1. Flujo de inscripción:**
+- Se corrigió priorización y precarga de curso desde la página pública.
+- Se implementó soporte para cursos de un solo día:
+  - `cursoUnDia = duracionTotal <= 120`
+  - `fecha2` puede ser `null`
+  - `formatearRangoCorto` soporta una sola fecha
+  - `ReservaService` ya no exige `fecha2`
+- Se corrigió selección automática de curso para recompra.
+- Se ajustó `Paso2Configuracion` para:
+  - recompra: bici/tipo/curso fijos
+  - origen público: selector editable y precarga
+- Se corrigió flujo de PIN:
+  - restauración con sesión activa
+  - guardado en `form.pin`
+  - captura antes de limpiar sesión
+  - pantalla de éxito robusta
+
+**2. Página pública `/cursos`:**
+- Se creó `CursosPublicosView`.
+- Se agregó ruta pública `/cursos`.
+- Se creó modal `ModalCursoDetalle`.
+- Se agregaron enlaces accionables: teléfono, WhatsApp, correo.
+- Se compactó la sección de sedes.
+- Se agregó botón flotante de volver.
+- Se corrigió visualización de duración.
+
+**3. Panel del estudiante:**
+- Se corrigió priorización de reservas múltiples.
+- Muestra la reserva más reciente no completada como principal.
+- Se listan reservas activas y completadas.
+- Se resolvió desbloqueo de Práctica en la Vía.
+- Se corrigió catálogo con `tipoCurso` y prerequisitos.
+
+**4. Panel del instructor:**
+- Se cambió de `ctx.reservas` global a listener local:
+  - `where('instructorId', '==', uid)`
+- Se corrigió identificador de instructor en producción.
+
+**5. Aula Virtual:**
+- Se corrigió sincronización de reserva de tiempo usando timestamps.
+- Se ajustaron banderas de sesión y módulos.
+- Se permitió finalizar módulo activo siempre.
+- Se actualizó `estadoCurso` al completar todos los módulos.
+
+**6. Locks y disponibilidad:**
+- Se diagnosticó clock skew.
+- Se creó `renovarLock`.
+- Se dejó `crearLock` solo para creación.
+- Se aplicó margen de 10 segundos.
+- Se corrigieron locks corruptos con moto nula.
+
+**7. Firestore / producción:**
+- Reglas:
+  - lectura pública de `cursos`
+  - colección pública `informacionPublica`
+  - ampliación de `reservas.update` para instructor y presencia
+- Colecciones creadas: `informacionPublica/contacto`, `informacionPublica/sedes`.
+- Cursos actualizados con campos informativos.
+- `duracionTotal` de Equilibrio ajustado a 120.
+
+**8. Documentación:**
+- Se creó `docs/MIGRACION_PRODUCCION.md`.
+- Se registraron pasos para producción.
+
+---
+### SESIÓN 28/08/2026 – Mejora de vista de reservas administrativas
+
+**Decisiones clave:**
+- **Filtros combinados:** Añadidos filtros por rango de fechas, sede, curso e instructor en `AdminReservasList`.
+- **Sección "Hoy":** Reservas del día se muestran en sección especial destacada, excluidas de la lista paginada para evitar duplicados.
+- **Badges visuales:** `HOY`, `EN CURSO` (con animación pulsante) y `PRÓXIMA` para identificar rápidamente el estado temporal.
+- **Orden por defecto:** Cambiado a `curso_cercano` para priorizar próximas reservas, con selector para alternar.
+- **Utilidades:** Creado `src/modules/admin/utils/reservasHelpers.js` con `obtenerHoyVenezuela`, `esReservaEnCurso`, etc. usando zona horaria `America/Caracas`.
+- **Actualización periódica:** Tick cada 60 segundos para recalcular el estado "EN CURSO".
+
+**Archivos creados/modificados:**
+- `src/modules/admin/utils/reservasHelpers.js` (nuevo)
+- `src/modules/admin/components/AdminReservasList.jsx` (modificado)
+- `src/modules/admin/components/AdminReservasHome.jsx` (modificado)
+
+**Validación:** FIRE aprobó con ajustes de zona horaria y detección en curso. Pruebas manuales exitosas en servidor de desarrollo.
+
+---
+### SESIÓN 28/08/2026 – Cierre de bugs: locks corruptos, PIN faltante y mejoras admin
+
+**Decisiones clave:**
+- **Purga de locks corruptos:** `LockService.purgarLocksCorruptos` ahora consulta y valida `locks` y `ocupacionTemporal`. Elimina documentos corruptos/expirados (máx. 10 por ejecución).
+- **Eliminada purga automática en cliente:** Causaba error de permisos. La purga ahora es manual desde `AdminOcupacion` con botón “Purgar locks corruptos (7 días)”.
+- **Filtros estructurales:** `evaluarDisponibilidad` y `handleSelectHorario` descartan locks sin `instructorId`, `fecha`, `horaId` o expirados.
+- **PIN robusto:** `handleConfirmarPago` captura el PIN antes de limpiar sesión, con fallback a Firestore. `ReservaService.crearReserva` guarda `pin` en la reserva.
+- **Reasignación de instructor y cambio de horario:** Se permite en Pendiente, Rechazado y Aprobado. `cambiarHorario` libera locks del horario anterior en cualquier estado.
+- **Reglas Firestore:** Admin puede leer/borrar locks corruptos/expirados; estudiantes sin cambios.
+
+**Archivos modificados/creados:**
+- `src/modules/inscripcion/services/LockService.js` (purga doble colección, validación)
+- `src/modules/inscripcion/views/InscripcionView.jsx` (filtros, captura PIN, sin purga automática)
+- `src/modules/inscripcion/services/ReservaService.js` (campo `pin`)
+- `src/modules/admin/components/AdminReservaDetalle.jsx` (reasignación, cambio de horario)
+- `src/modules/admin/components/AdminOcupacion.jsx` (botón purga)
+- `firestore.rules` (permisos admin limitados)
+
+**Bugs cerrados:** Locks corruptos, disponibilidad fantasma, PIN no mostrado, cambio de horario bloqueando horario anterior.
+
+**Pendiente:** Verificar en producción. Posible mejora futura: purgas programadas con Cloud Functions.
+
+---
+### SESIÓN 30/08/2026 – Correo de bienvenida con PIN y limpieza de recuperación
+
+**Decisiones clave:**
+- **Correo de bienvenida:** Se implementó `EmailService.js` usando EmailJS con Gmail (sin dominio personalizado). El correo incluye nombre, apellido, correo y PIN.
+- **Integración:** En `InscripcionView.jsx`, después de confirmar pago y capturar `pinParaMostrar`, se envía el correo en modo fire-and-forget, validando que existan `correo`, `nombre`, `apellido` y `pin`.
+- **Error 422 resuelto:** El error ocurría cuando `correo` estaba vacío; se agregó validación previa.
+- **Recuperación de PIN eliminada:** Se removió el flujo con `sendPasswordResetEmail` y la página `ResetearPinView` porque Firebase Auth web siempre usa la página intermedia `__/auth/action` y no redirigía a la app. También se eliminó `public/__/auth/action.html`.
+- **Login limpio:** `LoginView.jsx` quedó solo con login de estudiante (PIN) y staff, sin opción de olvidé mi PIN.
+
+**Archivos creados/modificados/eliminados:**
+- `src/modules/shared/services/EmailService.js` (nuevo)
+- `src/modules/inscripcion/views/InscripcionView.jsx` (modificado)
+- `src/modules/auth/views/LoginView.jsx` (limpiado)
+- `src/App.jsx` (limpiado)
+- `.env` (credenciales EmailJS)
+- `src/modules/auth/views/ResetearPinView.jsx` (eliminado)
+- `public/__/auth/action.html` (eliminado)
+
+**Validación:** Correo de bienvenida probado con 200 OK en desarrollo. Prueba en producción pendiente.
+
+**Deuda técnica vigente:** Recuperación de PIN (futura), `estudiantePresente` solo primer módulo, reloj diario 120/120, habilitación de Práctica en la Vía, causa raíz de locks corruptos.
+
+---
+### SESIÓN 31/08/2026 – Análisis de relojes del Aula Virtual y cierre de bugs de reserva
+
+**Estado:**
+- Modo solo lectura para el Aula Virtual.
+- Se corrigió `LockService.crearLock` para incluir `userId` en `ocupacionTemporal`, eliminando bloqueos EN_ESPERA_PAGO.
+- Quedan pendientes de implementar las correcciones detectadas en los relojes.
+
+**Problemas detectados (para próxima sesión):**
+1. Reloj grande no se detiene en 120 min el día 1; usa `generalSegundos` global.
+2. Reserva se vuelve 0 al activarse y no se refleja en la interfaz.
+3. Al reloj general llegar a 0, no se pueden iniciar más módulos aunque haya reserva.
+4. Indicador D1/D2 no cambia automáticamente al abrir el Aula Virtual en el día 2.
+5. Falta alerta sonora al terminar un módulo.
+
+**Reglas de negocio confirmadas:**
+- Curso de 1 día: duración 120 min.
+- Curso de 2 días: 240 min totales, 120 por día.
+- El reloj grande debe detenerse en 120 el día 1 y continuar desde 120 el día 2.
+- El reloj diario se reinicia a 0 en el día 2.
+- La pausa acumulada no detiene el reloj general; se guarda como reserva.
+- La reserva es tiempo no trabajado que puede usarse después.
+- El tiempo efectivo es el total del curso menos la pausa acumulada.
+
+**Archivos críticos:**
+- `src/modules/sesiones/hooks/useSessionTimer.js`
+- `src/modules/aula/views/AulaVirtualView.jsx`
+- `src/modules/shared/components/RelojSesion.jsx`
+- `src/modules/shared/components/FilaTiempo.jsx`
+- `src/modules/inscripcion/services/LockService.js`
+
+
+### SESIÓN 01/09/2026 – Corrección de relojes D1/D2 y alerta sonora
+
+**Decisiones clave:**
+- **Cálculo híbrido por día:** El reloj grande se detiene en 120 min en D1 y continúa desde 120 en D2. Se agregaron los campos `tiempoAcumuladoHastaD1` y `pausasHastaD1` para guardar el acumulado de D1 al iniciar D2 (solo 1 escritura adicional por curso).
+- **Indicador D1/D2 automático:** Se calcula en cliente usando la fecha actual de Venezuela y `fecha2`. No requiere escritura.
+- **Pausas por día:** Las pausas de D1 se descuentan del tiempo D1; las de D2, del tiempo D2.
+- **Reserva:** Se mantiene contador separado y se corrigió el descuento de pausas al activar reserva.
+- **Alerta sonora:** Implementada con Web Audio API en `src/modules/shared/utils/audio.js`. Configurable desde el header del Aula Virtual (ícono de volumen).
+
+**Archivos creados/modificados:**
+- `src/modules/shared/utils/audio.js` (nuevo)
+- `src/modules/sesiones/hooks/useSessionTimer.js` (modificado)
+- `src/modules/aula/views/AulaVirtualView.jsx` (modificado)
+
+**Reglas de Firestore:** Se agregaron `tiempoAcumuladoHastaD1` y `pausasHastaD1` a la lista blanca del instructor en `reservas.update`. No se modificó archivo local; se actualizó directamente en consola.
+
+**Deuda técnica atendida:** B119 (cambio automático D1→D2). Parcialmente B118 y B120.
+
+**Pendiente:** Probar en producción cursos de 1 y 2 días. Verificar que la alerta sonora funcione tras interacción del usuario. Evaluar almacenamiento de preferencia de sonido por instructor en Firestore (actualmente usa localStorage).
+### SESIÓN 03/09/2026 – Fase 0 Portal del Instructor: estabilización y endurecimiento
+
+**Decisiones clave:**
+- **Aislamiento Hermético:** Creado `useReservasInstructor.js` con toda la lógica de Firestore (onSnapshot, manejo de errores, limpieza). El componente InstructorPanel ya no importa Firestore directamente.
+- **Índice compuesto:** Creado en Firebase Console: `reservas(instructorId ASC, fecha DESC)`. La consulta usa `orderBy('fecha','desc')` y `limit(100)`.
+- **Zona horaria Venezuela:** Nueva utilidad `src/modules/shared/utils/zonahoraria.js` con `obtenerFechaVenezuela()` aplicada al cálculo de "hoy".
+- **UI Hardening:** Input teléfono con `type="tel"`, `inputMode="numeric"`, `pattern="\d+"`.
+- **Anti-pánico:** Estado `isSaving` en guardarPerfil, botón deshabilitado durante guardado.
+- **Validación Isomórfica:** Esquema Zod `perfilSchema.js` valida teléfono y prepara extensibilidad.
+- **Error Boundary:** Creado `ErrorBoundary.jsx` y envuelto el panel.
+- **Feature flag:** Creado `src/config/featureFlags.js` con `INSTRUCTOR_PANEL_V2`.
+- **Pestaña Finanzas:** Se mantiene vacía con mensaje "Próximamente disponible".
+
+**Archivos nuevos:**
+- `src/modules/instructor/hooks/useReservasInstructor.js`
+- `src/modules/instructor/schemas/perfilSchema.js`
+- `src/modules/shared/utils/zonahoraria.js`
+- `src/modules/shared/components/ErrorBoundary.jsx`
+- `src/config/featureFlags.js`
+
+**Archivos modificados:**
+- `src/modules/instructor/views/InstructorPanel.jsx`
+
+**Deuda técnica pendiente:** Fase 1 (subcomponentes, filtros avanzados, agrupación visual), Fase 2 (Finanzas, perfil ampliado, skeleton loaders).
+
+**Reglas recordadas:** Backup antes de modificar, no usar sed para JSX, zona horaria Venezuela, no mostrar teléfono del estudiante, validar antes de mutar.
+
+
+cat >> ARRANQUE_MEMORIA_IA.md << 'EOF'
+
+### SESIÓN 03/09/2026 – Fase 1 Portal del Instructor, Historial y Validación de Hora
+
+**Decisiones clave:**
+- **Refactor estructural:** Se extrajeron componentes `ResumenTab`, `PendientesTab`, `HistorialTab`, `ReservaCard`, `FiltrosReservas`, `ModalDetalleReserva`, `GrupoReservas`.
+- **Agrupación visual:** Las reservas activas se agrupan por Hoy, Mañana, Próximos 7 días, Después.
+- **Filtros avanzados:** Búsqueda por nombre, sede, curso, estado de pago, traeMoto, rango de fechas.
+- **Historial:** Subvista dentro de Inicio que muestra todas las reservas pasadas o completadas, en solo lectura, sin botón "Iniciar Clase".
+- **Validación de hora:** El botón "Iniciar Clase" solo aparece si el pago está aprobado, el curso no está completado y la hora actual está dentro del bloque horario.
+- **Corrección de fechas:** Solo reservas con `fecha` o `fecha2` >= hoy se consideran activas en vistas principales.
+- **EmptyState y ErrorBoundary:** Se agregaron componentes reutilizables para estados vacíos y captura de errores.
+- **Zona horaria:** Creada utilidad `zonahoraria.js` con `obtenerFechaVenezuela()`.
+
+**Archivos nuevos:**
+- `src/modules/instructor/components/ResumenTab.jsx`
+- `src/modules/instructor/components/PendientesTab.jsx`
+- `src/modules/instructor/components/HistorialTab.jsx`
+- `src/modules/instructor/components/ReservaCard.jsx`
+- `src/modules/instructor/components/FiltrosReservas.jsx`
+- `src/modules/instructor/components/ModalDetalleReserva.jsx`
+- `src/modules/instructor/components/GrupoReservas.jsx`
+- `src/modules/instructor/utils/reservasHelpers.js`
+- `src/modules/shared/components/EmptyState.jsx`
+- `src/modules/shared/components/ErrorBoundary.jsx`
+- `src/modules/shared/utils/zonahoraria.js`
+
+**Archivos modificados:**
+- `src/modules/instructor/views/InstructorPanel.jsx`
+- `src/modules/instructor/hooks/useReservasInstructor.js`
+- `src/modules/instructor/schemas/perfilSchema.js`
+- `src/config/featureFlags.js`
+
+**Deuda técnica pendiente:**
+- `FirestoreProvider` lanza `permission-denied` en consola para instructores; no afecta al panel pero ensucia logs.
+- Fase 2: Finanzas, perfil ampliado, skeleton loaders, paginación real si volumen crece.
+- Probar validación de hora con datos reales.
+
+**Reglas recordadas:** Backup antes de modificar, no usar sed para JSX, zona horaria Venezuela, no mostrar teléfono del estudiante, validar antes de mutar.
+EOF

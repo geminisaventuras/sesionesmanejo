@@ -20,5 +20,7 @@ export const AppContext = createContext({
   saveHorario: async () => {}, saveCurso: async () => {},
   saveInstructor: async () => {}, saveProveedor: async () => {},
   saveMoto: async () => {}, saveReserva: async () => {},
-  saveMovimiento: async () => {}, saveAdmin: async () => {}
+  saveMovimiento: async () => {}, saveAdmin: async () => {},
+  handleSaveInstructorSeguro: async () => {},
+  saveProveedorSeguro: async () => {}
 });

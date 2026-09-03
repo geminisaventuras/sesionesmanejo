@@ -2,7 +2,7 @@
 import { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
-import { Zap, Calendar, ArrowRight, User, Lock, MessageCircle, LogOut } from 'lucide-react';
+import { Zap, Calendar, ArrowRight, User, Lock, MessageCircle, LogOut, BookOpen } from 'lucide-react';
 import AppShell from '../../shared/components/AppShell';
 
 const HomeView = () => {
@@ -26,8 +26,15 @@ const HomeView = () => {
         </div>
         <div className="px-6 pb-8 space-y-4 relative z-10 -mt-8 shrink-0">
           <button onClick={() => navigate('/inscripcion')} className="w-full bg-[#1d4ed8] text-white p-6 rounded-3xl flex items-center justify-between shadow-[0_10px_40px_rgba(29,78,216,0.4)] hover:bg-blue-700 transition-all active:scale-[0.98]">
-            <div className="flex items-center gap-4"><Calendar size={28} className="text-white" /><div className="text-left"><h3 className="font-bold text-xl leading-none">Inscribirse</h3><p className="text-blue-200 text-xs mt-1.5 font-medium leading-none">Reserva curso y bloque.</p></div></div>
+            <div className="flex items-center gap-4"><Calendar size={28} className="text-white" /><div className="text-left"><h3 className="font-bold text-xl leading-none">Inscribirse</h3><p className="text-blue-200 text-xs mt-1.5 font-medium leading-none">Reserva curso y Fecha.</p></div></div>
             <ArrowRight size={24} className="text-white" />
+          </button>
+                    <button onClick={() => navigate('/cursos')} className="w-full bg-white text-gray-800 p-4 rounded-3xl flex items-center justify-between shadow-sm border border-gray-100 hover:border-blue-200 transition-all active:scale-[0.98] mt-2">
+            <div className="flex items-center gap-3">
+              <BookOpen size={22} className="text-blue-600" />
+              <span className="font-bold text-sm">Ver Cursos</span>
+            </div>
+            <ArrowRight size={20} className="text-gray-400" />
           </button>
           <div className="grid grid-cols-2 gap-4 mt-2">
             {/* Chat (próximamente) */}

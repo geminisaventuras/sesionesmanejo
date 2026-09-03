@@ -145,31 +145,40 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   };
 
   const handleSaveInstructorSeguro = async (datos) => {
-    if (!datos.id && datos.email && datos.password) {
-      const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
-      if (!res.success) { showToast(res.error.message, 'error'); return; }
-      showToast('Usuario creado correctamente', 'success');
-      return;
+  if (!datos.id && datos.email && datos.password) {
+    // Crear usuario en Auth
+    const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
+    if (!res.success) { showToast(res.error.message, 'error'); return; }
+    // Guardar en Firestore con el UID devuelto
+    await saveInstructor({ ...datos, id: res.data.uid });
+    showToast('Usuario creado correctamente', 'success');
+    return;
+  }
+  // Edición de instructor existente
+  if (datos.esPrincipal) {
+    for (let inst of instructores) {
+      if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
     }
-    if (datos.esPrincipal) {
-      for (let inst of instructores) {
-        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
-      }
-    }
-    await saveInstructor(datos);
-    showToast('Guardado exitoso');
-  };
+  }
+  await saveInstructor(datos);
+  showToast('Guardado exitoso');
+};
 
   const saveProveedorSeguro = async (datos) => {
-    if (!datos.id && datos.email && datos.password) {
-      const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
-      if (!res.success) { showToast(res.error.message, 'error'); return; }
-      showToast('Usuario creado correctamente', 'success');
-      return;
-    }
-    await saveProveedorRaw(datos);
-    showToast('Guardado exitoso');
-  };
+    console.log('[DEBUG] saveProveedorSeguro llamada con:', datos);
+  if (!datos.id && datos.email && datos.password) {
+    // Crear usuario en Auth
+    const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
+    if (!res.success) { showToast(res.error.message, 'error'); return; }
+    // Guardar en Firestore con el UID devuelto
+    await saveProveedorRaw({ ...datos, id: res.data.uid });
+    showToast('Usuario creado correctamente', 'success');
+    return;
+  }
+  // Edición de proveedor existente
+  await saveProveedorRaw(datos);
+  showToast('Guardado exitoso');
+};
 
   return {
     sedes, saveSede, horarios, saveHorario, cursos, saveCurso,

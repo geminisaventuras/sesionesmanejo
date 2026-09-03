@@ -8,8 +8,7 @@ import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 
 const appId = 'motoescuela-pro-v1';
 
-const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'fecha2', 'horaId', 'cursoId'];
-
+const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId'];
 export const ReservaService = {
   // -------------------------------------------------
   // PROGRESO DE INSCRIPCIÓN
@@ -18,20 +17,36 @@ export const ReservaService = {
     return correo.replace(/[@.]/g, '_');
   },
 
-  async guardarProgreso(userId, paso, datosFormulario, correo) {
+   async guardarProgreso(userId, paso, datosFormulario, correo) {
     if (!correo) return { success: false, error: { code: 'missing-email' } };
     const correoKey = this._correoKey(correo);
     const ref = doc(db, 'artifacts', appId, 'public', 'data', 'progresoInscripcion', correoKey);
     try {
-      await setDoc(ref, {
+      const snapExistente = await getDoc(ref);
+      const existente = snapExistente.exists() ? snapExistente.data() : {};
+
+      const pinExistente = existente.pin || '';
+      const pinNuevo = datosFormulario.pin;
+      let pinFinal = pinExistente;
+      if (pinNuevo && String(pinNuevo).trim() !== '') {
+        pinFinal = String(pinNuevo).trim();
+      }
+
+      const datosActualizados = {
         userId,
         correo,
-        pin: datosFormulario.pin || '',
+        pin: pinFinal,
         paso: Number(paso),
-        datosFormulario,
+        datosFormulario: {
+          ...(existente.datosFormulario || {}),
+          ...datosFormulario,
+          pin: pinFinal
+        },
         updatedAt: Timestamp.now(),
-        createdAt: Timestamp.now()
-      }, { merge: true });
+        createdAt: existente.createdAt || Timestamp.now()
+      };
+
+      await setDoc(ref, datosActualizados, { merge: true });
       return { success: true };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
@@ -76,7 +91,8 @@ export const ReservaService = {
       if (reservaData[campo] === undefined || reservaData[campo] === null)
         return { success: false, error: { code: 'missing-field', message: `Campo obligatorio faltante: ${campo}` } };
 
-    const validacion = validarInscripcionCompleta(reservaData);
+        const { esRecompra: _uiFlag, ...reservaLimpia } = reservaData;
+    const validacion = validarInscripcionCompleta(reservaLimpia);
     if (!validacion.success) {
       const primerError = Object.values(validacion.errores)[0] || 'Datos inválidos';
       return { success: false, error: { code: 'invalid-data', message: primerError } };
@@ -89,20 +105,32 @@ export const ReservaService = {
 
     try {
       await runTransaction(db, async (transaction) => {
-               const lockSnap = await transaction.get(lockRef);
+             const lockSnap = await transaction.get(lockRef);
         if (!lockSnap.exists()) throw new Error('El horario ya no está disponible');
-        if (lockSnap.data().userId !== reservaData.userId) {
+
+        const lockData = lockSnap.data();
+
+        // ✅ Validación robusta de expiración e integridad
+        const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
+        const lockCorrupto = !lockData.userId || !lockData.instructorId || !lockData.fecha || !lockData.horaId;
+
+        if (!lockExpirado && !lockCorrupto && lockData.userId !== reservaData.userId) {
           throw new Error('El horario está bloqueado por otro usuario');
+        }
+
+        // Si el lock está expirado o corrupto, se ignora y se eliminará al final de la transacción
+        if (lockExpirado || lockCorrupto) {
+          console.log(`[ReservaService] Lock ${lockId} ignorado (expirado: ${lockExpirado}, corrupto: ${lockCorrupto})`);
         }
 
         const datosReserva = {
           ...validacion.data,
           userId: reservaData.userId,
           cursoId: reservaData.cursoId,
-          sedeId: reservaData.sedeId,
+          tipoCurso: typeof reservaData.tipoCurso === 'string' ? reservaData.tipoCurso.trim() : null,          sedeId: reservaData.sedeId,
           tipoMoto: reservaData.tipoMoto,
           fecha: reservaData.fecha,
-          fecha2: reservaData.fecha2,
+          fecha2: reservaData.fecha2 || null,
           horaId: reservaData.horaId,
           instructorId: reservaData.instructorId,
           motoAsignadaId: reservaData.motoAsignadaId || null,
@@ -119,7 +147,9 @@ export const ReservaService = {
           createdAt: Timestamp.now(),
           estadoPago: 'Pendiente',
           estadoCurso: 'Pendiente',
-          precio: reservaData.pagoTotalMoneda
+          precio: reservaData.pagoTotalMoneda,
+          proveedorId: reservaData.proveedorId || null,
+          pin: reservaData.pin || null
         };
 
         transaction.set(reservaDoc, datosReserva);
@@ -129,9 +159,12 @@ export const ReservaService = {
           fecha2: datosReserva.fecha2,
           horaId: datosReserva.horaId,
           instructorId: datosReserva.instructorId,
+          tipoCurso: datosReserva.tipoCurso || null,
           motoAsignadaId: datosReserva.motoAsignadaId,
           traeMoto: datosReserva.traeMoto,
-          estadoPago: 'Pendiente'
+          sedeId: datosReserva.sedeId,          
+          estadoPago: 'Pendiente',
+          proveedorId: datosReserva.proveedorId || null
         });
         transaction.delete(lockRef);
       });
@@ -155,6 +188,66 @@ export const ReservaService = {
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }
+  },
+
+    async obtenerReservasPorUsuario(uid) {
+    if (!uid) return { success: false, error: { code: 'missing-uid', message: 'Falta el UID del usuario' } };
+    try {
+      const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
+      const q = query(reservasRef, where('userId', '==', String(uid)));
+      const snap = await getDocs(q);
+      const reservas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      reservas.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() || 0;
+        const tb = b.createdAt?.toMillis?.() || 0;
+        return tb - ta;
+      });
+      return { success: true, data: reservas };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  async obtenerReservaAprobadaReciente(uid) {
+    const resultado = await this.obtenerReservasPorUsuario(uid);
+    if (!resultado.success) return resultado;
+
+    const aprobada = (resultado.data || []).find(r => r.estadoPago === 'Aprobado');
+    return {
+      success: true,
+      data: aprobada || null
+    };
+  },
+
+    async obtenerReservasAprobadas(uid) {
+    const resultado = await this.obtenerReservasPorUsuario(uid);
+    if (!resultado.success) return resultado;
+
+    return {
+      success: true,
+      data: (resultado.data || []).filter(r => r.estadoPago === 'Aprobado')
+    };
+  },
+
+  async obtenerUltimoBasicoAprobado(uid) {
+    const resultado = await this.obtenerReservasAprobadas(uid);
+    if (!resultado.success) return resultado;
+
+    const basicos = (resultado.data || [])
+      .filter(r =>
+        r.tipoCurso === 'basico_auto' ||
+        r.tipoCurso === 'basico_sincro'
+      )
+      .sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() || 0;
+        const tb = b.createdAt?.toMillis?.() || 0;
+        return tb - ta;
+      });
+
+    return {
+      success: true,
+      data: basicos[0] || null
+    };
   },
 
   async corregirReferenciaPago(reservaId, nuevaRef) {
