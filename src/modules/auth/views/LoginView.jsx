@@ -1,11 +1,11 @@
-// @build: 2026-06-20 | id: FINAL | desc: Login unificado con redirección por rol usando useEffect + Google para estudiantes
+// @build: 2026-08-28.18-05-00 | id: LOGIN-RECUPERAR-PIN | backup: LoginView.jsx.backup-20260828-180500 | desc: Añade opción de olvidé mi PIN para estudiantes
 import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
 import { Button, Input } from '../../../components/UI';
-import { ChevronLeft, Lock, Mail } from 'lucide-react';
+import { ChevronLeft, Lock, Mail} from 'lucide-react';
 import { loginEmailSchema, loginEstudianteSchema } from '../../shared/schemas/validations';
 
 export const LoginView = () => {
@@ -23,23 +23,16 @@ export const LoginView = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+
+
   useEffect(() => {
     if (!user) return;
     switch (user.role) {
-      case 'admin':
-        navigate('/dashboard', { replace: true });
-        break;
-      case 'instructor':
-        navigate('/instructor', { replace: true });
-        break;
-      case 'proveedor':
-        navigate('/proveedor', { replace: true });
-        break;
-      case 'estudiante':
-        navigate('/portal-reservas', { replace: true });
-        break;
-      default:
-        break;
+      case 'admin': navigate('/dashboard', { replace: true }); break;
+      case 'instructor': navigate('/instructor', { replace: true }); break;
+      case 'proveedor': navigate('/proveedor', { replace: true }); break;
+      case 'estudiante': navigate('/portal-reservas', { replace: true }); break;
+      default: break;
     }
   }, [user, navigate]);
 
@@ -90,6 +83,8 @@ export const LoginView = () => {
     }
   };
 
+  
+
   const header = (
     <div className="bg-white border-b px-5 py-3 flex items-center gap-3">
       <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 transition-colors">
@@ -103,24 +98,8 @@ export const LoginView = () => {
     <AppShell header={header} bgColor="bg-white">
       <div className="p-6 flex flex-col items-center justify-center min-h-full">
         <div className="flex gap-2 mb-6 w-full max-w-xs">
-          <button
-            type="button"
-            onClick={() => setModo('staff')}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
-              modo === 'staff' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            🛡️ Staff
-          </button>
-          <button
-            type="button"
-            onClick={() => setModo('estudiante')}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
-              modo === 'estudiante' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            🎓 Estudiante
-          </button>
+          <button type="button" onClick={() => setModo('staff')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'staff' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>🛡️ Staff</button>
+          <button type="button" onClick={() => setModo('estudiante')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'estudiante' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>🎓 Estudiante</button>
         </div>
 
         {modo === 'staff' ? (
@@ -133,12 +112,8 @@ export const LoginView = () => {
               </Button>
             </form>
             <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">o</span>
-              </div>
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div>
+              <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">o</span></div>
             </div>
             <Button onClick={handleGoogleLogin} variant="outline" className="!w-full !py-3" disabled={loading}>
               {loading ? 'Conectando...' : 'Iniciar sesión con Google'}
@@ -153,20 +128,23 @@ export const LoginView = () => {
                 {loading ? 'Ingresando...' : 'Ingresar'}
               </Button>
             </form>
+           
             <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">o</span>
-              </div>
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div>
+              <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">o</span></div>
             </div>
             <Button onClick={handleGoogleLogin} variant="outline" className="!w-full !py-3" disabled={loading}>
               {loading ? 'Conectando...' : 'Iniciar sesión con Google'}
             </Button>
           </div>
         )}
+
+        <button type="button" onClick={() => navigate('/cursos')} className="mt-6 text-sm font-bold text-blue-600 hover:underline">
+          Ver cursos disponibles
+        </button>
       </div>
+
+     
     </AppShell>
   );
 };

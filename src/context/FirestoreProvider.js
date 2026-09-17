@@ -1,6 +1,6 @@
-﻿// @build: 2026-06-24 | desc: Corrección de concatenación en buildPath y filtro de reservas por userId
+// @build: 2026-09-04 | id: OPTIMIZACION-FIRESTORE-V3 | backup: FirestoreProvider.backup-20260904-000000 | desc: Catálogos getDocs, reservas admin onSnapshot limit 100, sin ocupacionConfirmada global
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
@@ -12,75 +12,141 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const prevReservasRef = useRef([]);
 
   const buildPath = useCallback((colName) => {
-    if (colName === 'ocupacionConfirmada') return colName;
     return 'artifacts/' + APP_ID + '/public/data/' + colName;
   }, []);
 
-  const useFirebaseCollection = (colName, initialData = [], condition = true, queryConstraint = null, requireAuth = true) => {
-    const [data, setData] = useState(initialData);
-    useEffect(() => {
-      if (!db || (requireAuth && (!fbUser || !authReady)) || !condition) return;
-      let ref = collection(db, buildPath(colName));
-      if (queryConstraint) ref = query(ref, queryConstraint);
-      const unsub = onSnapshot(ref, (snap) => {
-        if (!snap.empty) setData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        else setData([]);
-      }, (err) => {
-        console.warn(`[FirestoreProvider] Error en colección ${colName}:`, err.code);
-      });
-      return () => unsub();
-    }, [fbUser, authReady, condition, colName, requireAuth]);
-    const saveItem = async (item) => {
-      const id = item.id ? String(item.id) : Date.now().toString();
-      const newItem = { ...item, id };
-      if (db && fbUser) await setDoc(doc(db, buildPath(colName), id), newItem);
-      else setData(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
+  const [sedes, setSedes] = useState([]);
+  const [horarios, setHorarios] = useState([]);
+  const [metodosPago, setMetodosPago] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [instructores, setInstructores] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
+  const [motos, setMotos] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [movimientos, setMovimientos] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [reservas, setReservas] = useState([]);
+
+  const cargarCatalogos = useCallback(async () => {
+    if (!fbUser || !authReady) return;
+    try {
+           const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, instructoresSnap, proveedoresSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
+        getDocs(collection(db, buildPath('sedes'))),
+        getDocs(collection(db, buildPath('horarios'))),
+        getDocs(collection(db, buildPath('metodosPago'))),
+        getDocs(collection(db, buildPath('cursos'))),
+        getDocs(collection(db, buildPath('instructores'))),
+        getDocs(collection(db, buildPath('proveedores'))),
+        getDocs(collection(db, buildPath('motos'))),
+        isAdmin ? getDocs(collection(db, buildPath('admins'))) : Promise.resolve({ docs: [] }),
+        isAdmin ? getDocs(collection(db, buildPath('movimientos'))) : Promise.resolve({ docs: [] })
+      ]);
+
+      setSedes(sedesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setHorarios(horariosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMetodosPago(metodosPagoSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCursos(cursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setInstructores(instructoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setProveedores(proveedoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMotos(motosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setAdmins(adminsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMovimientos(movimientosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (error) {
+      console.error('[FirestoreProvider] Error cargando catálogos:', error);
+    }
+  }, [fbUser, authReady, isAdmin, buildPath]);
+
+  useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
+
+  const saveCatalogo = (setter) => async (item) => {
+    const id = item.id ? String(item.id) : Date.now().toString();
+    const newItem = { ...item, id };
+    try {
+            const colName = setter === setSedes ? 'sedes' : setter === setHorarios ? 'horarios' : setter === setMetodosPago ? 'metodosPago' : setter === setCursos ? 'cursos' : setter === setInstructores ? 'instructores' : setter === setProveedores ? 'proveedores' : setter === setMotos ? 'motos' : setter === setAdmins ? 'admins' : 'movimientos';
+      await setDoc(doc(db, buildPath(colName), id), newItem);
+      setter(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
       return newItem;
-    };
-    return [data, saveItem, setData];
+    } catch (error) {
+      console.error(`[FirestoreProvider] Error guardando en ${colName}:`, error);
+      throw error;
+    }
   };
 
-  const [sedes, saveSede] = useFirebaseCollection('sedes', [], true, null, true);
-  const [horarios, saveHorario] = useFirebaseCollection('horarios', [], true, null, true);
-  const [cursos, saveCurso] = useFirebaseCollection('cursos', [], true, null, true);
-  const [instructores, saveInstructor] = useFirebaseCollection('instructores', [], true, null, true);
-  const [proveedores, saveProveedorRaw] = useFirebaseCollection('proveedores', [], true, null, true);
-  const [motos, saveMoto] = useFirebaseCollection('motos', [], true, null, true);
-  
-  // CORRECCIÓN: Suscripción a reservas filtrada por userId para estudiantes
-  const [reservas, saveReserva] = useFirebaseCollection('reservas', [], true, null, true);
-  
-  const [movimientos, saveMovimientoRaw] = useFirebaseCollection('movimientos', [], isAdmin, null);
-  const [admins, saveAdmin] = useFirebaseCollection('admins', [], isAdmin);
-  const [ocupacionConfirmada, saveOcupacion] = useFirebaseCollection('ocupacionConfirmada', [], true, null, true);
+  const saveSede = saveCatalogo(setSedes);
+    const saveHorario = saveCatalogo(setHorarios);
+  const saveMetodoPago = saveCatalogo(setMetodosPago);
+  const saveCurso = saveCatalogo(setCursos);
+  const saveInstructor = saveCatalogo(setInstructores);
+  const saveProveedorRaw = saveCatalogo(setProveedores);
+  const saveMoto = saveCatalogo(setMotos);
+  const saveAdmin = saveCatalogo(setAdmins);
+  const saveMovimientoRaw = saveCatalogo(setMovimientos);
 
-  const notifCondition = isAdmin || !!user?.uid;
-  const notifQuery = isAdmin ? null : where('userId', '==', user?.uid || '');
-  const [notifications, saveNotificacion] = useFirebaseCollection('notificaciones', [], notifCondition, notifQuery, true);
+  useEffect(() => {
+    if (!isAdmin || !fbUser || !authReady) { setReservas([]); return; }
+    const q = query(collection(db, buildPath('reservas')), orderBy('fecha', 'desc'), limit(100));
+    const unsub = onSnapshot(q, (snap) => setReservas(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => { console.warn('[FirestoreProvider] Error en reservas:', err.code); setReservas([]); });
+    return () => unsub();
+  }, [isAdmin, fbUser, authReady, buildPath]);
 
-  const saveMovimiento = useCallback(async (item) => {
-    const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
-    await saveMovimientoRaw(itemConUsuario);
-  }, [fbUser, user, saveMovimientoRaw]);
+    useEffect(() => {
+    if (!fbUser || !authReady) { setNotifications([]); return; }
+
+    const ref = collection(db, buildPath('notificaciones'));
+
+    if (isAdmin) {
+      const q = query(ref, orderBy('fecha', 'desc'), limit(100));
+      const unsub = onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => { console.warn('[FirestoreProvider] Error en notificaciones:', err.code); setNotifications([]); });
+      return () => unsub();
+    }
+
+    // No admin: cargar una sola vez con getDocs
+    const cargarNotificaciones = async () => {
+      try {
+        const q = query(ref, where('userId', '==', user?.uid || ''), orderBy('fecha', 'desc'), limit(50));
+        const snapshot = await getDocs(q);
+        setNotifications(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.warn('[FirestoreProvider] Error en notificaciones:', err.code || err.message);
+        setNotifications([]);
+      }
+    };
+
+    cargarNotificaciones();
+  }, [fbUser, authReady, isAdmin, user?.uid, buildPath]);
+
+  const saveReserva = async (item) => {
+    const id = item.id ? String(item.id) : Date.now().toString();
+    const newItem = { ...item, id };
+    await setDoc(doc(db, buildPath('reservas'), id), newItem);
+    setReservas(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
+    return newItem;
+  };
+
+  const saveNotificacion = async (item) => {
+    const id = item.id ? String(item.id) : Date.now().toString();
+    const newItem = { ...item, id };
+    await setDoc(doc(db, buildPath('notificaciones'), id), newItem);
+    setNotifications(prev => [...prev, newItem]);
+    return newItem;
+  };
 
   const markNotificationRead = useCallback(async (id) => {
     if (!db || !fbUser) return;
     await updateDoc(doc(db, buildPath('notificaciones'), id), { leida: true });
   }, [fbUser, buildPath]);
 
+  const saveMovimiento = useCallback(async (item) => {
+    const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
+    await saveMovimientoRaw(itemConUsuario);
+  }, [fbUser, user, saveMovimientoRaw]);
+
   const getTodayStr = useCallback(() => {
     const now = new Date();
-    const options = {
-      timeZone: 'America/Caracas',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    };
+    const options = { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' };
     const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(now);
     const dateObj = {};
-    parts.forEach(({ type, value }) => {
-      if (type !== 'literal') dateObj[type] = value;
-    });
+    parts.forEach(({ type, value }) => { if (type !== 'literal') dateObj[type] = value; });
     return `${dateObj.year}-${dateObj.month}-${dateObj.day}`;
   }, []);
 
@@ -95,10 +161,12 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     return false;
   }, []);
 
-  const isReservationConflict = useCallback((r, fecha1, fecha2, horaId) => {
-    return String(r.horaId) === String(horaId) && isReservaActiva(r) &&
-      (r.fecha1 === fecha1 || r.fecha1 === fecha2 || r.fecha2 === fecha1 || r.fecha2 === fecha2);
-  }, [isReservaActiva]);
+ const isReservationConflict = useCallback((r, fecha1, fecha2, horaId) => {
+  const f1 = r.fecha;
+  const f2 = r.fecha2 || r.fecha;
+  return String(r.horaId) === String(horaId) && isReservaActiva(r) &&
+    (f1 === fecha1 || f1 === fecha2 || f2 === fecha1 || f2 === fecha2);
+}, [isReservaActiva]);
 
   const buildLockId = (fecha1, horaId, instructorId, motoAsignadaId) => {
     return `${fecha1}_${horaId}_${String(instructorId)}_${motoAsignadaId ? String(motoAsignadaId) : 'sinmoto'}`;
@@ -145,52 +213,46 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   };
 
   const handleSaveInstructorSeguro = async (datos) => {
-  if (!datos.id && datos.email && datos.password) {
-    // Crear usuario en Auth
-    const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
-    if (!res.success) { showToast(res.error.message, 'error'); return; }
-    // Guardar en Firestore con el UID devuelto
-    await saveInstructor({ ...datos, id: res.data.uid });
-    showToast('Usuario creado correctamente', 'success');
-    return;
-  }
-  // Edición de instructor existente
-  if (datos.esPrincipal) {
-    for (let inst of instructores) {
-      if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
+    if (!datos.id && datos.email && datos.password) {
+      const res = await StaffService.crearStaff(datos.email, datos.password, 'instructor', datos);
+      if (!res.success) { showToast(res.error.message, 'error'); return; }
+      await saveInstructor({ ...datos, id: res.data.uid });
+      showToast('Usuario creado correctamente', 'success');
+      return;
     }
-  }
-  await saveInstructor(datos);
-  showToast('Guardado exitoso');
-};
+    if (datos.esPrincipal) {
+      for (let inst of instructores) {
+        if (String(inst.id) !== String(datos.id) && inst.esPrincipal) await saveInstructor({ ...inst, esPrincipal: false });
+      }
+    }
+    await saveInstructor(datos);
+    showToast('Guardado exitoso');
+  };
 
   const saveProveedorSeguro = async (datos) => {
-    console.log('[DEBUG] saveProveedorSeguro llamada con:', datos);
-  if (!datos.id && datos.email && datos.password) {
-    // Crear usuario en Auth
-    const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
-    if (!res.success) { showToast(res.error.message, 'error'); return; }
-    // Guardar en Firestore con el UID devuelto
-    await saveProveedorRaw({ ...datos, id: res.data.uid });
-    showToast('Usuario creado correctamente', 'success');
-    return;
-  }
-  // Edición de proveedor existente
-  await saveProveedorRaw(datos);
-  showToast('Guardado exitoso');
-};
+    if (!datos.id && datos.email && datos.password) {
+      const res = await StaffService.crearStaff(datos.email, datos.password, 'proveedor', datos);
+      if (!res.success) { showToast(res.error.message, 'error'); return; }
+      await saveProveedorRaw({ ...datos, id: res.data.uid });
+      showToast('Usuario creado correctamente', 'success');
+      return;
+    }
+    await saveProveedorRaw(datos);
+    showToast('Guardado exitoso');
+  };
 
-  return {
-    sedes, saveSede, horarios, saveHorario, cursos, saveCurso,
+  const refreshCatalogos = useCallback(() => cargarCatalogos(), [cargarCatalogos]);
+
+    return {
+    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso,
     instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
-    ocupacionConfirmada,
     notifications, saveNotificacion, markNotificationRead,
     activeLocks, suscribirLocks,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources,
     seedDatabase, cleanExpiredLocks, createStaffUser,
-    prevReservasRef
+    prevReservasRef,
+    refreshCatalogos
   };
 }
-

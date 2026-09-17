@@ -2,17 +2,19 @@
 import { useContext, useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
+import { useToast } from '../../shared/components/ToastProvider';
 import { Button, Input, Select } from '../../../components/UI';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   Activity, DollarSign, Wallet, CreditCard, Check, ChevronUp, ChevronDown,
-  BookOpen, Calendar, Settings, Loader
+  BookOpen, Calendar, Settings, Loader, Landmark
 } from 'lucide-react';
 
 const AdminAjustes = memo(() => {
-  const { config, saveConfig, showToast, user, logoutUser } = useContext(AppContext);
+ const { config, saveConfig, user, logoutUser, metodosPago } = useContext(AppContext);
+const { showToast } = useToast();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
 
@@ -25,17 +27,20 @@ const AdminAjustes = memo(() => {
       setLocalCfg({
         monedaPagoStaff: config.monedaPagoStaff || 'USD',
         monedaCobroClientes: config.monedaCobroClientes || 'EUR',
-        tasaUSD: config.tasaUSD ?? '',
+                tasaUSD: config.tasaUSD ?? '',
         tasaEUR: config.tasaEUR ?? '',
+        tasaUSDT: config.tasaUSDT ?? '',
         precioBase: config.precioBase ?? '',
         recargoGuarenas: config.recargoGuarenas ?? '',
         recargoSinBici: config.recargoSinBici ?? '',
         descuentoMotoPropia: config.descuentoMotoPropia ?? '',
         descuentoPromo: config.descuentoPromo ?? '',
-        pagoInstructor: config.pagoInstructor ?? '',
+                pagoInstructor: config.pagoInstructor ?? '',
         pagoProveedor: config.pagoProveedor ?? '',
         autoTasas: config.autoTasas ?? true,
         promocionActiva: config.promocionActiva ?? false,
+        metodoPagoStaffDefault: config.metodoPagoStaffDefault ?? '',
+        bancoDefaultStaff: config.bancoDefaultStaff ?? '',
         pagoMovilEscuela: {
           banco: config.pagoMovilEscuela?.banco || '',
           telefono: config.pagoMovilEscuela?.telefono || '',
@@ -46,19 +51,25 @@ const AdminAjustes = memo(() => {
     }
   }, [config]);
 
-  const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false });
+    const [secciones, setSecciones] = useState({ tasas: false, reglas: false, comisiones: false, pagoMovil: false, preferencias: false });
   const toggleSeccion = (sec) => setSecciones(prev => ({ ...prev, [sec]: !prev[sec] }));
 
   const configListo = localCfg !== null;
 
-  const doSave = useCallback(async () => {
+   const doSave = useCallback(async () => {
     if (!configListo) return;
+    if (localCfg.metodoPagoStaffDefault &&
+        localCfg.metodoPagoStaffDefault !== 'efectivo' &&
+        !localCfg.bancoDefaultStaff) {
+      showToast('Banco requerido para el método de pago seleccionado', 'error');
+      return;
+    }
     setSaving(true);
     try {
       await saveConfig(localCfg);
       showToast('Ajustes guardados correctamente', 'success');
     } catch (error) {
-      showToast('Error al guardar: ' + (error.message || 'falló la conexión'), 'error');
+      showToast('Error al guardar: ' + (error.message || 'fall├│ la conexi├│n'), 'error');
     } finally {
       setSaving(false);
     }
@@ -113,8 +124,9 @@ const AdminAjustes = memo(() => {
           </button>
           {secciones.tasas && (
             <div className="px-4 pb-4 space-y-3">
-              <Input label="Tasa Dólar (USD)" type="number" step="0.01" value={localCfg.tasaUSD} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} />
+                            <Input label="Tasa Dólar (USD BCV)" type="number" step="0.01" value={localCfg.tasaUSD} onChange={e => setLocalCfg({ ...localCfg, tasaUSD: e.target.value })} icon={Activity} />
               <Input label="Tasa Euro (EUR BCV)" type="number" step="0.01" value={localCfg.tasaEUR} onChange={e => setLocalCfg({ ...localCfg, tasaEUR: e.target.value })} icon={Activity} />
+              <Input label="Tasa USDT (Paralelo)" type="number" step="0.01" value={localCfg.tasaUSDT} onChange={e => setLocalCfg({ ...localCfg, tasaUSDT: e.target.value })} icon={Activity} />
               <Select label="Moneda de Cobro a Clientes" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaCobroClientes || 'EUR'} onChange={e => setLocalCfg({ ...localCfg, monedaCobroClientes: e.target.value })} />
             </div>
           )}
@@ -147,10 +159,10 @@ const AdminAjustes = memo(() => {
           </button>
           {secciones.comisiones && (
             <div className="px-4 pb-4 space-y-3">
-              <Select label="Moneda de Pago a Staff" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaPagoStaff || 'USD'} onChange={e => setLocalCfg({ ...localCfg, monedaPagoStaff: e.target.value })} />
-              <Input label={`Pago a Instructor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoInstructor} onChange={e => setLocalCfg({ ...localCfg, pagoInstructor: e.target.value })} />
-              <Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} />
+                           <Select label="Moneda de Pago a Staff" options={['USD', 'EUR', 'VES', 'USDT']} value={localCfg.monedaPagoStaff || 'USD'} onChange={e => setLocalCfg({ ...localCfg, monedaPagoStaff: e.target.value })} />
+                           <Input label={`Pago a Proveedor (${localCfg.monedaPagoStaff || 'USD'})`} type="number" value={localCfg.pagoProveedor} onChange={e => setLocalCfg({ ...localCfg, pagoProveedor: e.target.value })} />
             </div>
+            
           )}
         </div>
 
@@ -189,6 +201,47 @@ const AdminAjustes = memo(() => {
               />
               <Input label="Teléfono" value={localCfg.pagoMovilEscuela?.telefono || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, telefono: e.target.value } })} />
               <Input label="Cédula / RIF" value={localCfg.pagoMovilEscuela?.cedula || ''} onChange={e => setLocalCfg({ ...localCfg, pagoMovilEscuela: { ...localCfg.pagoMovilEscuela, cedula: e.target.value } })} />
+            </div>
+                )}
+        </div>
+
+        {/* PREFERENCIAS DE PAGO A STAFF */}
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <button onClick={() => toggleSeccion('preferencias')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-2"><Landmark size={18} className="text-blue-600" /><h3 className="font-bold text-gray-700">Preferencias de Pago a Staff</h3></div>
+            {secciones.preferencias ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+          </button>
+          {secciones.preferencias && (
+            <div className="px-4 pb-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Método de pago por defecto</label>
+                <select
+                  value={localCfg.metodoPagoStaffDefault || ''}
+                  onChange={e => setLocalCfg({ ...localCfg, metodoPagoStaffDefault: e.target.value, bancoDefaultStaff: '' })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Sin preferencia</option>
+                  {(metodosPago || [])
+                    .filter(m => m.activo !== false)
+                    .sort((a, b) => (Number(a.orden) || 99) - (Number(b.orden) || 99))
+                    .map(m => (
+                      <option key={m.id} value={m.id}>{m.nombre}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Banco por defecto (condicional)</label>
+                <Input
+                  value={localCfg.bancoDefaultStaff || ''}
+                  onChange={e => setLocalCfg({ ...localCfg, bancoDefaultStaff: e.target.value })}
+                  disabled={!localCfg.metodoPagoStaffDefault || localCfg.metodoPagoStaffDefault === 'efectivo'}
+                  placeholder="Ej: Banesco, Mercantil"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">Solo aplica para métodos ≠ efectivo</p>
+              </div>
+              {localCfg.metodoPagoStaffDefault && localCfg.metodoPagoStaffDefault !== 'efectivo' && !localCfg.bancoDefaultStaff && (
+                <p className="text-xs font-bold text-orange-600">⚠️ Banco requerido para este método</p>
+              )}
             </div>
           )}
         </div>

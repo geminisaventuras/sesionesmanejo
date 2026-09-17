@@ -14,13 +14,20 @@ export const formatearFechaSinAnio = (fechaStr) => {
 };
 
 export const formatearRangoCorto = (f1, f2) => {
-  if (!f1 || !f2) return '';
+  if (!f1) return '';
+
   const [a1, m1, d1] = f1.split('-');
-  const [a2, m2, d2] = f2.split('-');
   const fecha1 = new Date(a1, parseInt(m1)-1, d1);
-  const fecha2 = new Date(a2, parseInt(m2)-1, d2);
   const dia1 = DIAS_SEMANA[fecha1.getDay()].substring(0, 3) + ' ' + parseInt(d1);
+
+  if (!f2) return dia1;
+
+  const [a2, m2, d2] = f2.split('-');
+  const fecha2 = new Date(a2, parseInt(m2)-1, d2);
   const dia2 = DIAS_SEMANA[fecha2.getDay()].substring(0, 3) + ' ' + parseInt(d2);
+
+  if (f1 === f2) return dia1;
+
   return dia1 + ' - ' + dia2;
 };
 

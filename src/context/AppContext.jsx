@@ -27,15 +27,16 @@ export const AppProvider = ({ children }) => {
     firestore.prevReservasRef
   );
 
-  const calcularBaseUSD = useCallback((sedeId, sabeBici, traeMoto) => {
-    let total = Number(cfg.config.precioBase) || 0;
+   const calcularBaseUSD = useCallback((sedeId, sabeBici, traeMoto, curso) => {
+    const precioBaseCurso = Number(curso?.precioBase) || 0;
+    let total = precioBaseCurso > 0 ? precioBaseCurso : (Number(cfg.config.precioBase) || 0);
     const s = firestore.sedes.find(x => String(x.id) === String(sedeId));
     if (s?.nombre === 'Guarenas') total += Number(cfg.config.recargoGuarenas) || 0;
     if (sabeBici === 'No') total += Number(cfg.config.recargoSinBici) || 0;
     if (traeMoto === 'Sí') total -= Number(cfg.config.descuentoMotoPropia) || 0;
     total -= Number(cfg.config.descuentoPromo) || 0;
     return total > 0 ? total : 0;
-  }, [cfg.config, firestore.sedes]);
+  }, [cfg.config, firestore.sedes]); 
 
   const contextValue = useMemo(() => ({
     config: cfg.config,
@@ -53,9 +54,11 @@ export const AppProvider = ({ children }) => {
     saveProveedorSeguro: firestore.saveProveedorSeguro,    
     motos: firestore.motos,
     saveMoto: firestore.saveMoto,
+    metodosPago: firestore.metodosPago,
+    saveMetodoPago: firestore.saveMetodoPago,
     reservas: firestore.reservas,
     saveReserva: firestore.saveReserva,
-    ocupacionConfirmada: firestore.ocupacionConfirmada,
+   
     movimientos: firestore.movimientos,
     saveMovimiento: firestore.saveMovimiento,
     admins: firestore.admins,

@@ -23,7 +23,7 @@ export function useConfigProvider(authReady, fbUser) {
   const saveConfig = async (newCfg) => {
     if (db && fbUser) {
       try {
-        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg);
+       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg, { merge: true });
       } catch (err) {
         console.warn('[ConfigProvider] Error al guardar configuración:', err.code);
       }

@@ -15,9 +15,11 @@ export function useInscripcionState() {
     return sessionStorage.getItem('inscripcion_step') || '1';
   });
 
-  const [form, setForm] = useState(() => {
+   const [form, setForm] = useState(() => {
     const saved = sessionStorage.getItem('inscripcion_form');
-    return saved ? JSON.parse(saved) : { ...DEFAULT_FORM };
+    const parsed = saved ? JSON.parse(saved) : { ...DEFAULT_FORM };
+    parsed.esRecompra = false;
+    return parsed;
   });
 
   const [lockId, setLockId] = useState(() => {
@@ -35,14 +37,17 @@ export function useInscripcionState() {
   }, []);
 
   const updateForm = useCallback((updates) => {
+    console.log('🔍 [updateForm] llamado con:', updates);
     setForm(prev => {
       const nuevo = typeof updates === 'function' ? updates(prev) : { ...prev, ...updates };
+      console.log('🔍 [updateForm] nuevo form:', nuevo);
       sessionStorage.setItem('inscripcion_form', JSON.stringify(nuevo));
       return nuevo;
     });
   }, []);
 
-  const updateLockId = useCallback((id) => {
+    const updateLockId = useCallback((id) => {
+    console.log('🔍 [updateLockId] llamado con:', id);
     setLockId(id);
     if (id) sessionStorage.setItem('inscripcion_lockId', id);
     else sessionStorage.removeItem('inscripcion_lockId');
@@ -54,6 +59,10 @@ export function useInscripcionState() {
     else sessionStorage.removeItem('inscripcion_lockExpiresAt');
   }, []);
 
+    const resetForm = useCallback(() => {
+    setForm({ ...DEFAULT_FORM });
+    sessionStorage.removeItem('inscripcion_form');
+  }, []);
   const limpiarSesion = useCallback(() => {
     sessionStorage.removeItem('inscripcion_step');
     sessionStorage.removeItem('inscripcion_form');
@@ -62,9 +71,9 @@ export function useInscripcionState() {
     sessionStorage.removeItem('inscripcion_generatedPin');
   }, []);
 
-  return {
+    return {
     step, setStep,
-    form, updateForm,
+    form, updateForm, resetForm,
     lockId, updateLockId,
     lockExpiresAt, updateLockExpiresAt,
     limpiarSesion

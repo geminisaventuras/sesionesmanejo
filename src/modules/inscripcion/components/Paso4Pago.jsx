@@ -18,7 +18,7 @@ const BANCOS = [
 
 export function Paso4Pago({
   form, updateForm,
-  precioFinalVES, baseUSD, tasaCobro, monedaCobroClientes, config,
+  precioFinalVES, baseUSD, precioCurso, tasaCobro, monedaCobroClientes, config,
   desglosePrecio, lockId, step, lockTimer, mostrarDetallesPago, onToggleDetalles,
   captchaA, captchaB, captchaValue, onCaptchaChange,
   showToast,
@@ -65,7 +65,7 @@ export function Paso4Pago({
             </div>
             <div className="flex items-center justify-between text-[10px] text-blue-100 mt-2">
               <div>
-                <p>Base: USD {baseUSD}</p>
+                <p>Base: USD {precioCurso ?? baseUSD}</p>
                 <p>Tasa {monedaCobroClientes || 'EUR'}: {tasaCobro}</p>
               </div>
               {lockId && step === '4' && lockTimer}

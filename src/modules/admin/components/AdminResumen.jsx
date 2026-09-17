@@ -1,8 +1,5 @@
-// ============================================================
-// Archivo: src/modules/admin/components/AdminResumen.jsx
-// @build: 2026-06-22 | id: DASHBOARD-COMPACTO | desc: Dashboard sin listados grandes, últimos 4 cursos en fila horizontal compacta
-// ============================================================
-import { useContext, useEffect, useMemo, memo, useCallback } from 'react';
+// @build: 2026-09-04 | id: ADMIN-RESUMEN-OPTIMIZADO | backup: AdminResumen.backup-20260904-000000 | desc: AdminResumen con hook local de reservas y purga manual de locks
+import { useContext, useState, useMemo, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button } from '../../../components/UI';
@@ -11,8 +8,9 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   Award, Bike, Settings, DollarSign, TrendingUp, Calendar,
-  Bell, AlertCircle, Users, BookOpen, Wallet, Activity
+  Bell, AlertCircle, Users, BookOpen, Wallet, Activity, Trash2
 } from 'lucide-react';
+import { useAdminReservas } from '../hooks/useAdminReservas';
 
 const TarjetaResumen = memo(({ titulo, valor, color, onClick, icon: Icon }) => (
   <div onClick={onClick} className={`${color} text-white p-4 rounded-2xl shadow-lg cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
@@ -62,14 +60,14 @@ const BannerAlertas = memo(({ alertas }) => {
 });
 
 const AdminResumen = () => {
-  const { reservas, instructores, sedes, motos, horarios, config, cleanExpiredLocks, seedDatabase, user, logoutUser } = useContext(AppContext);
-  const navigate = useNavigate();
+const { instructores, sedes, motos, horarios, config, cleanExpiredLocks, seedDatabase, user, logoutUser, notifications } = useContext(AppContext);  const navigate = useNavigate();
+  const { reservas, cargando, error } = useAdminReservas();
+  const [purgando, setPurgando] = useState(false);
+
   const res = reservas || [];
   const instrs = instructores || [];
   const motosList = motos || [];
   const hor = horarios || [];
-
-  useEffect(() => { if (cleanExpiredLocks) cleanExpiredLocks().catch(() => {}); }, [cleanExpiredLocks]);
 
   const completados = useMemo(() => res.filter(r => r.estadoCurso === 'Aprobado').slice(-4).reverse(), [res]);
 
@@ -118,6 +116,27 @@ const AdminResumen = () => {
     navigate('/');
   }, [logoutUser, navigate]);
 
+  const handlePurgarLocks = async () => {
+    if (!cleanExpiredLocks) return;
+    setPurgando(true);
+    try {
+      const resultado = await cleanExpiredLocks();
+      if (resultado?.success) {
+        alert(`Purga completada: ${resultado.eliminados || 0} locks eliminados`);
+      } else {
+        alert('Error al purgar locks');
+      }
+    } catch (err) {
+      console.error('[AdminResumen] Error purgando locks:', err);
+      alert('Error al purgar locks');
+    } finally {
+      setPurgando(false);
+    }
+  };
+
+  if (cargando) return <div className="p-4 text-center">Cargando reservas...</div>;
+  if (error) return <div className="p-4 text-red-600">Error al cargar reservas: {error.message}</div>;
+
   const footerTabs = [
     { id: 'inicio', icon: Activity, label: 'Inicio', action: () => navigate('/dashboard') },
     { id: 'reservas', icon: BookOpen, label: 'Reservas', action: () => navigate('/admin/reservas') },
@@ -126,7 +145,6 @@ const AdminResumen = () => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-  const { notifications } = useContext(AppContext);
   const header = <DashboardHeader title="Panel Administrativo" onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
     tabs={footerTabs}
@@ -172,6 +190,27 @@ const AdminResumen = () => {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Sección de mantenimiento */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-yellow-900">Mantenimiento del Sistema</h3>
+              <p className="text-sm text-yellow-700 mt-1">
+                Purgar locks vencidos para liberar horarios bloqueados
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={handlePurgarLocks}
+              disabled={purgando}
+              variant="warning"
+              icon={Trash2}
+            >
+              {purgando ? 'Purgando...' : 'Purgar Locks'}
+            </Button>
+          </div>
         </div>
       </div>
     </AppShell>

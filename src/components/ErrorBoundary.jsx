@@ -1,6 +1,6 @@
-// @build: 2026-06-22.FASE3 | id: ERROR-BOUNDARY | desc: Error Boundary global para capturar caídas del árbol de React.
+// @build: 2026-09-04 | id: ERROR-BOUNDARY-NO-RELOAD | backup: ErrorBoundary.backup-20260904-000000 | desc: Error boundary sin recarga forzada, con botón Reintentar que solo limpia estado
 import React from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -16,9 +16,8 @@ export class ErrorBoundary extends React.Component {
     console.error('ErrorBoundary capturó un error:', error, errorInfo);
   }
 
-  handleReload = () => {
+  handleRetry = () => {
     this.setState({ hasError: false, error: null });
-    window.location.reload();
   };
 
   render() {
@@ -29,14 +28,13 @@ export class ErrorBoundary extends React.Component {
             <AlertTriangle size={48} className="text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-black text-gray-900 mb-2">Algo salió mal</h2>
             <p className="text-sm text-gray-500 mb-6">
-              La aplicación encontró un error inesperado. Por favor, intenta recargar la página.
+              La aplicación encontró un error inesperado. Intenta continuar sin recargar la página.
             </p>
             <button
-              onClick={this.handleReload}
+              onClick={this.handleRetry}
               className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
             >
-              <RefreshCw size={18} />
-              Recargar aplicación
+              Reintentar
             </button>
           </div>
         </div>

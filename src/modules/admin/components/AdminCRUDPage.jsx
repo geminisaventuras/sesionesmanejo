@@ -5,6 +5,7 @@ import AdminHorarios from './AdminHorarios';
 import AdminMotos from './AdminMotos';
 import AdminInstructores from './AdminInstructores';
 import AdminProveedores from './AdminProveedores';
+import AdminMetodosPago from './AdminMetodosPago';
 
 const AdminCRUDPage = ({ vista, onBack }) => {
   switch (vista) {
@@ -14,6 +15,7 @@ const AdminCRUDPage = ({ vista, onBack }) => {
     case 'motos': return <AdminMotos onBack={onBack} />;
     case 'instructores': return <AdminInstructores onBack={onBack} />;
     case 'proveedores': return <AdminProveedores onBack={onBack} />;
+    case 'metodosPago': return <AdminMetodosPago onBack={onBack} />;
     default: return null;
   }
 };

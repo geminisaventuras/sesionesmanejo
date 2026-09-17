@@ -7,7 +7,7 @@ import { validarPaso1 } from '../../shared/schemas/validations';
 const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
 const SEXOS = ['Masculino', 'Femenino'];
 
-export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFechaNacimiento }) {
+export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFechaNacimiento, fbUser }) {  
   const [errores, setErrores] = useState({});
   const [tocados, setTocados] = useState({});
 
@@ -52,8 +52,9 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Contact size={14} className="text-gray-500" /> Cédula</label>
-          <input type="tel" value={form.cedula} onChange={e => handleChange('cedula', e.target.value.replace(/\D/g,'').slice(0,10))} placeholder="Ej: 12345678" inputMode="numeric" pattern="\d{7,10}" maxLength={10} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.cedula ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="off" />
+                   <input type="tel" value={form.cedula} onChange={e => !fbUser && handleChange('cedula', e.target.value.replace(/\D/g,'').slice(0,10))} placeholder="Ej: 12345678" inputMode="numeric" pattern="\d{7,10}" maxLength={10} disabled={!!fbUser} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.cedula ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'} ${fbUser ? 'opacity-60 cursor-not-allowed' : ''}`} required autoComplete="off" />
           {errores.cedula && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.cedula}</p>}
+          {fbUser && <p className="text-[10px] text-gray-500 mt-0.5 ml-1">Vinculada a tu cuenta</p>}
         </div>
         <div onClick={onOpenFechaNacimiento} className="cursor-pointer">
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Calendar size={14} className="text-gray-500" /> Fecha de Nac.</label>
@@ -77,8 +78,9 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Mail size={14} className="text-gray-500" /> Correo</label>
-          <input type="email" value={form.correo} onChange={e => handleChange('correo', e.target.value.trim().toLowerCase())} placeholder="ejemplo@correo.com" className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.correo ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="email" />
+                   <input type="email" value={form.correo} onChange={e => !fbUser && handleChange('correo', e.target.value.trim().toLowerCase())} placeholder="ejemplo@correo.com" disabled={!!fbUser} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.correo ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'} ${fbUser ? 'opacity-60 cursor-not-allowed' : ''}`} required autoComplete="email" />
           {errores.correo && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.correo}</p>}
+          {fbUser && <p className="text-[10px] text-gray-500 mt-0.5 ml-1">Vinculado a tu cuenta</p>}
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Users size={14} className="text-gray-500" /> Sexo</label>

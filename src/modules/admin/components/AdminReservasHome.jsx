@@ -1,14 +1,21 @@
-import { useContext, useMemo, memo, useCallback } from 'react';
+// @build: 2026-08-28.14-40-00 | id: BXX-BYY | backup: AdminReservasHome.jsx.backup-20260828-144000 | desc: Añade sección Hoy y En curso a la home de reservas + hook local
+import { useContext, useMemo, memo, useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox
+  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock
 } from 'lucide-react';
+import {
+  obtenerHoyVenezuela,
+  obtenerMinutosActualesVenezuela,
+  esReservaEnCurso
+} from '../utils/reservasHelpers';
+import { useAdminReservas } from '../hooks/useAdminReservas';
 
-const TarjetaMini = memo(({ reserva, onClick }) => {
+const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
   const estadoColor = {
     Pendiente: 'bg-orange-100 text-orange-700',
     Aprobado: 'bg-green-100 text-green-700',
@@ -19,10 +26,13 @@ const TarjetaMini = memo(({ reserva, onClick }) => {
   const horaStr = reserva.horaId || '';
   const horaCorta = horaStr.split(' - ')[0] || horaStr;
   return (
-    <button onClick={onClick} className="flex-shrink-0 w-20 bg-white rounded-xl shadow-sm border border-gray-100 p-2 text-left hover:border-blue-300 transition-colors active:scale-[0.98]">
-      <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${estadoColor[reserva.estadoPago] || 'bg-gray-100'}`}>
-        {reserva.estadoPago === 'Cancelado' ? 'CANC' : reserva.estadoPago.substring(0, 4)}
-      </span>
+    <button onClick={onClick} className="flex-shrink-0 w-24 bg-white rounded-xl shadow-sm border border-gray-100 p-2 text-left hover:border-blue-300 transition-colors active:scale-[0.98]">
+      <div className="flex items-center gap-1 flex-wrap mb-1">
+        <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${estadoColor[reserva.estadoPago] || 'bg-gray-100'}`}>
+          {reserva.estadoPago === 'Cancelado' ? 'CANC' : reserva.estadoPago.substring(0, 4)}
+        </span>
+        {enCurso && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN CURSO</span>}
+      </div>
       <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{reserva.nombre} {reserva.apellido?.charAt(0)}.</p>
       <p className="text-[9px] text-gray-500">{fechaStr.split('-').slice(1).join('/')}</p>
       <p className="text-[9px] text-gray-500">{horaCorta}</p>
@@ -31,9 +41,19 @@ const TarjetaMini = memo(({ reserva, onClick }) => {
 });
 
 const AdminReservasHome = () => {
-  const { reservas, user, logoutUser } = useContext(AppContext);
+  const { horarios, user, logoutUser } = useContext(AppContext);
+  const { reservas, cargando, error } = useAdminReservas();
   const navigate = useNavigate();
   const res = reservas || [];
+
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setTick(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hoyStr = useMemo(() => obtenerHoyVenezuela(), [tick]);
+  const minutosActuales = useMemo(() => obtenerMinutosActualesVenezuela(), [tick]);
 
   const pendientes = useMemo(() => res.filter(r => r.estadoPago === 'Pendiente').sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)), [res]);
   const hoy = new Date();
@@ -47,7 +67,14 @@ const AdminReservasHome = () => {
     return f >= hoy && f <= dentroDe7Dias;
   }).sort((a, b) => new Date(a.fecha || a.fecha1) - new Date(b.fecha || b.fecha1)), [res, hoy, dentroDe7Dias]);
 
-  const sinReservas = pendientes.length === 0 && proximas.length === 0;
+  const reservasHoy = useMemo(() => {
+    return res.filter(r => {
+      if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
+      return r.fecha === hoyStr || r.fecha2 === hoyStr;
+    });
+  }, [res, hoyStr]);
+
+  const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0;
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -73,6 +100,9 @@ const AdminReservasHome = () => {
     }}
   />;
 
+  if (cargando) return <div className="p-4 text-center">Cargando reservas...</div>;
+  if (error) return <div className="p-4 text-red-600">Error al cargar reservas: {error.message}</div>;
+
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
       <div className="p-4 space-y-4">
@@ -92,6 +122,25 @@ const AdminReservasHome = () => {
           </div>
         ) : (
           <>
+            {reservasHoy.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                    <Calendar size={14} className="text-yellow-600" /> Hoy ({reservasHoy.length})
+                  </h3>
+                  <button onClick={() => navigate('/admin/reservas/lista')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
+                    Ver todas <ChevronRight size={12} />
+                  </button>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {reservasHoy.slice(0, 6).map(r => {
+                    const enCurso = esReservaEnCurso(r, horarios, hoyStr, minutosActuales);
+                    return <TarjetaMini key={r.id} reserva={r} enCurso={enCurso} onClick={() => navigate(`/admin/reserva/${r.id}`)} />;
+                  })}
+                </div>
+              </div>
+            )}
+
             {pendientes.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -105,7 +154,7 @@ const AdminReservasHome = () => {
                     <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
                   ))}
                   {pendientes.length > 4 && (
-                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
+                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
                       +{pendientes.length - 4}
                     </button>
                   )}
@@ -126,7 +175,7 @@ const AdminReservasHome = () => {
                     <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
                   ))}
                   {proximas.length > 4 && (
-                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
+                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
                       +{proximas.length - 4}
                     </button>
                   )}

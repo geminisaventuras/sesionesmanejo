@@ -1,5 +1,7 @@
+// @build: 2026-09-10.00-41-00 | id: FIX-028-PRIORIDAD-INSTRUCTOR-B | backup: useDisponibilidad.js.backup-20260910-004100 | desc: Prioridad determinista in-line para estado reactivo de UI
 import { useMemo } from 'react';
-
+import { ordenarHorarios } from '../../shared/utils/horarios';
+import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 const MAX_DIAS_RESERVA = 30;
 
 const isPastBlock = (fecha, label, todayStr) => {
@@ -45,13 +47,15 @@ const calcularDisponibilidadBloque = (
                    !ocupacionCache.motos[`${fecha2}_${bloque.id}_${m.id}`]);
   }
 
-  if (!necesitaMoto) {
-    if (instructoresDisponibles.length > 0)
-      return { ...bloque, disponible: true, reason: '', instructorId: instructoresDisponibles[0].id, motoAsignadaId: null };
-  } else {
-    if (instructoresDisponibles.length > 0 && motosDisponibles.length > 0)
-      return { ...bloque, disponible: true, reason: '', instructorId: instructoresDisponibles[0].id, motoAsignadaId: motosDisponibles[0].id };
-  }
+const instructorSeleccionado = instructoresDisponibles.find(i => i.esPrincipal) || instructoresDisponibles[0];
+
+if (!necesitaMoto) {
+  if (instructorSeleccionado)
+    return { ...bloque, disponible: true, reason: '', instructorId: instructorSeleccionado.id, motoAsignadaId: null };
+} else {
+  if (instructorSeleccionado && motosDisponibles.length > 0)
+    return { ...bloque, disponible: true, reason: '', instructorId: instructorSeleccionado.id, motoAsignadaId: motosDisponibles[0].id };
+}
 
   const instructoresLibresSinLocks = instructores
     .filter(i => i.activo && (i.sedes || []).includes(sedeId))
@@ -81,7 +85,7 @@ const calcularDisponibilidadBloque = (
 export function useDisponibilidad({
   form, selectingBlockId, lockId,
   instructores, motos, ocupacionConfirmada, activeLocks, horarios,
-  getTodayStr, clockTick
+  getTodayStr, clockTick, currentUserId
 }) {
   const today = getTodayStr();
   const maxDate = useMemo(() => {
@@ -99,42 +103,46 @@ export function useDisponibilidad({
     return d.toISOString().split('T')[0];
   }, [form.fecha1]);
 
-  const ocupacionCache = useMemo(() => {
-    const cache = {
-      instructores: {},
-      motos: {},
-      instructoresReservas: {},
-      motosReservas: {},
-    };
+const ocupacionCache = useMemo(() => {
+  const cache = {
+    instructores: {},
+    motos: {},
+    instructoresReservas: {},
+    motosReservas: {},
+  };
 
-    (ocupacionConfirmada || []).forEach(r => {
-      if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return;
-      const fechas = [r.fecha, r.fecha2].filter(Boolean);
-      fechas.forEach(f => {
-        if (r.instructorId) {
-          const key = `${f}_${r.horaId}_${r.instructorId}`;
-          cache.instructores[key] = true;
-          cache.instructoresReservas[key] = true;
-        }
-        if (r.motoAsignadaId && r.traeMoto !== 'Sí') {
-          const key = `${f}_${r.horaId}_${r.motoAsignadaId}`;
-          cache.motos[key] = true;
-          cache.motosReservas[key] = true;
-        }
-      });
-    });
+  // ✅ CORREGIDO: declarar ANTES de usar
+  const reservasDeOtros = (ocupacionConfirmada || []).filter(r => r.userId !== currentUserId);
+  const locksDeOtros = filtrarLocksDeOtros(activeLocks, currentUserId);
 
-    (activeLocks || []).forEach(lock => {
-      if (lock.instructorId) {
-        cache.instructores[`${lock.fecha}_${lock.horaId}_${lock.instructorId}`] = true;
+  reservasDeOtros.forEach(r => {
+    if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return;
+    const fechas = [r.fecha, r.fecha2].filter(Boolean);
+    fechas.forEach(f => {
+      if (r.instructorId) {
+        const key = `${f}_${r.horaId}_${r.instructorId}`;
+        cache.instructores[key] = true;
+        cache.instructoresReservas[key] = true;
       }
-      if (lock.motoAsignadaId) {
-        cache.motos[`${lock.fecha}_${lock.horaId}_${lock.motoAsignadaId}`] = true;
+      if (r.motoAsignadaId && r.traeMoto !== 'Sí') {
+        const key = `${f}_${r.horaId}_${r.motoAsignadaId}`;
+        cache.motos[key] = true;
+        cache.motosReservas[key] = true;
       }
     });
+  });
 
-    return cache;
-  }, [ocupacionConfirmada, activeLocks]);
+  locksDeOtros.forEach(lock => {
+    if (lock.instructorId) {
+      cache.instructores[`${lock.fecha}_${lock.horaId}_${lock.instructorId}`] = true;
+    }
+    if (lock.motoAsignadaId) {
+      cache.motos[`${lock.fecha}_${lock.horaId}_${lock.motoAsignadaId}`] = true;
+    }
+  });
+
+  return cache;
+}, [ocupacionConfirmada, activeLocks, currentUserId]);
 
   const diasDisponibles = useMemo(() => {
     if (!form.sedeId || !form.tipoMoto) return [];
@@ -163,7 +171,7 @@ export function useDisponibilidad({
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
     if (!instructores?.length || !motos?.length) return [];
-    const hor = (horarios || []).filter(h => h.activo).sort((a, b) => a.id.localeCompare(b.id));
+    const hor = ordenarHorarios((horarios || []).filter(h => h.activo));
     return hor.map(b => {
       const info = calcularDisponibilidadBloque(
         b, form.fecha1, fecha2Calc, form.sedeId, form.tipoMoto, form.traeMoto,

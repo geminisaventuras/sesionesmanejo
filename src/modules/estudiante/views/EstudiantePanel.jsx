@@ -1,16 +1,19 @@
 import { useContext, useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
 import { AuthService } from '../../../services/AuthService';
 import { CursoService } from '../../shared/services/CursoService';
+import { formatearRangoCorto } from '../../shared/utils/fechas';
+import { CURSO_SECUENCIA, cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
+
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
   User, AlertCircle, ChevronLeft, Share2, Zap, Lock, Check, KeyRound
@@ -21,16 +24,7 @@ const APP_ID = 'motoescuela-pro-v1';
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_CORTOS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
-const formatearRangoCorto = (f1, f2) => {
-  if (!f1 || !f2) return '';
-  const [a1, m1, d1] = f1.split('-');
-  const [a2, m2, d2] = f2.split('-');
-  const fecha1 = new Date(a1, parseInt(m1)-1, d1);
-  const fecha2 = new Date(a2, parseInt(m2)-1, d2);
-  const dia1 = DIAS_SEMANA[fecha1.getDay()].substring(0, 3) + ' ' + parseInt(d1);
-  const dia2 = DIAS_SEMANA[fecha2.getDay()].substring(0, 3) + ' ' + parseInt(d2);
-  return dia1 + ' - ' + dia2;
-};
+
 
 const obtenerMesCortoYAnio = (fechaStr) => {
   if (!fechaStr) return { mes: '', anio: '' };
@@ -84,14 +78,19 @@ export function EstudiantePanel() {
   const ctx = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
-
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+  const tabFromUrl = searchParams.get('tab');
+  if (tabFromUrl === 'cursos') {
+    setTab('cursos');
+  }
+}, [searchParams]);
   const [tab, setTab] = useState('miCurso');
   const [cursoDirecto, setCursoDirecto] = useState(null);
   const [busquedaCursoFallida, setBusquedaCursoFallida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
   const [enviandoCorreccion, setEnviandoCorreccion] = useState(false);
-  
-  const [reservaRealTime, setReservaRealTime] = useState(null);
+    const [reservasUsuario, setReservasUsuario] = useState([]);
   const [isSearching, setIsSearching] = useState(true);
   
   const estadoPagoAnteriorRef = useRef(null);
@@ -112,23 +111,39 @@ export function EstudiantePanel() {
     const reservasRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'reservas');
     const q = query(reservasRef, where('userId', '==', String(uid)));
     
-    const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const orden = { 'Aprobado': 0, 'Pendiente': 1, 'Rechazado': 2, 'Cancelado': 3 };
-        docs.sort((a, b) => (orden[a.estadoPago] || 99) - (orden[b.estadoPago] || 99));
-        const mejorReserva = docs[0] || null;
-        setReservaRealTime(mejorReserva);
-      } else {
-        setReservaRealTime(null);
-      }
+            const unsub = onSnapshot(q, (snap) => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setReservasUsuario(docs);
       setIsSearching(false);
     }, (err) => {
       setIsSearching(false);
     });
-    
+
     return () => unsub();
   }, [uid]);
+
+    const reservaRealTime = useMemo(() => {
+    if (!reservasUsuario.length) return null;
+
+    const noCompletadas = reservasUsuario.filter(r => r.estadoCurso !== 'Aprobado');
+    const completadas = reservasUsuario.filter(r => r.estadoCurso === 'Aprobado');
+
+    const ordenarPorFecha = (a, b) => {
+      const ta = a.createdAt?.toMillis?.() || 0;
+      const tb = b.createdAt?.toMillis?.() || 0;
+      return tb - ta;
+    };
+
+    if (noCompletadas.length > 0) {
+      return [...noCompletadas].sort(ordenarPorFecha)[0];
+    }
+
+    if (completadas.length > 0) {
+      return [...completadas].sort(ordenarPorFecha)[0];
+    }
+
+    return null;
+  }, [reservasUsuario]);
 
   useEffect(() => {
     if (!reservaRealTime) return;
@@ -202,12 +217,44 @@ export function EstudiantePanel() {
     if (navigator.share) navigator.share({ title: 'MotoEscuela App', text: texto, url: window.location.origin }).catch(() => {});
     else { navigator.clipboard.writeText(texto).then(() => showToast('Enlace copiado', 'success')); }
   };
+    const misReservas = reservasUsuario.length > 0
+    ? reservasUsuario
+    : (reservas || []).filter(r => String(r.userId) === String(uid));
+
+  const reservasAprobadas = useMemo(() => misReservas.filter(r => r.estadoPago === 'Aprobado'), [misReservas]);
+    const cursosCompletados = misReservas.filter(r => r.estadoCurso === 'Aprobado');
+  const reservasActivasEstudiante = useMemo(
+    () => misReservas.filter(r => r.estadoCurso !== 'Aprobado'),
+    [misReservas]
+  );
+
+  const catalogoConEstado = useMemo(() => {
+    return (cursos || [])
+      .filter(c => c.activo !== false)
+      .map(curso => {
+        const config = CURSO_SECUENCIA[curso.tipoCurso];
+        const cumple = cumplePrerequisito(curso.tipoCurso, reservasAprobadas);
+        return {
+          ...curso,
+          ordenSecuencia: config?.orden || 99,
+          tienePrerequisito: cumple,
+          prerequisitoLabel: config?.prerequisito
+            ? (curso.tipoCurso === 'general'
+                ? 'Requiere curso básico aprobado'
+                : 'Requiere Práctica en la Vía aprobada')
+            : null
+        };
+      })
+      .sort((a, b) => a.ordenSecuencia - b.ordenSecuencia);
+  }, [cursos, reservasAprobadas]);
 
   if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
 
-  const misReservas = (reservas || []).filter(r => String(r.userId) === String(uid));
+  
   const modoCorreccion = reservaActual?.estadoPago === 'Rechazado' && misReservas.every(r => r.estadoPago !== 'Aprobado' && r.estadoCurso !== 'Aprobado');
 
+  const tieneReservaAprobada = misReservas.some(r => r.estadoPago === 'Aprobado');
+  const tieneReservaPendiente = misReservas.some(r => r.estadoPago === 'Pendiente');
   const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
     tabs={modoCorreccion
@@ -319,9 +366,7 @@ export function EstudiantePanel() {
     );
   };
 
-  const cursosCompletados = misReservas.filter(r => r.estadoCurso === 'Aprobado');
-  const cursoActivo = reservaActual && reservaActual.estadoCurso !== 'Aprobado' ? reservaActual : null;
-
+ 
   const VistaCursos = () => {
     if (cursoDetalle) {
       const cur = cursoDetalle.cursoInfo || { nombre: '', modulos: [], duracionTotal: 240 };
@@ -342,31 +387,76 @@ export function EstudiantePanel() {
               </div>
             </div>
           </div>
-          {cur.modulos.map((mod, i) => {
-            const completado = (cursoDetalle.reserva.modulosEstado || {})[mod];
+                    {cur.modulos.map((mod, i) => {
+            const nombreModulo = typeof mod === 'string' ? mod : mod.nombre;
+            const completado = (cursoDetalle.reserva.modulosEstado || {})[nombreModulo];
             return (
               <div key={i} className={`bg-white p-3 rounded-xl shadow-sm border flex items-center gap-2 ${completado?.fecha ? 'border-green-200 bg-green-50' : 'border-gray-100'}`}>
                 <div className={`w-5 h-5 rounded-full flex items-center justify-center ${completado?.fecha ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-300'}`}>
                   {completado?.fecha ? <Check size={12} strokeWidth={3} /> : <Clock size={12} />}
                 </div>
-                <div className="flex-1"><span className={`font-bold text-xs ${completado?.fecha ? 'text-green-900' : 'text-gray-800'}`}>{mod}</span>{completado?.fecha && <p className="text-[10px] font-bold text-green-700">{completado.fecha} · {completado.duracion || 0} min</p>}</div>
+                                <div className="flex-1"><span className={`font-bold text-xs ${completado?.fecha ? 'text-green-900' : 'text-gray-800'}`}>{nombreModulo}</span>{completado?.fecha && <p className="text-[10px] font-bold text-green-700">{completado.fecha} · {completado.duracion || 0} min</p>}</div>
                 <span className={`text-[10px] font-black uppercase ${completado?.fecha ? 'text-green-600' : 'text-gray-400'}`}>{completado?.fecha ? 'Superado' : 'Pendiente'}</span>
               </div>
             );
           })}
           <Button variant="primary" className="mt-3" icon={Share2} onClick={compartirCurso}>Compartir</Button>
+                    <Button
+            variant="outline"
+            className="mt-2"
+            onClick={() => navigate('/inscripcion', {
+              state: {
+                cursoId: cursoDetalle.reserva.cursoId,
+                origen: 'panel-estudiante',
+                modo: 'nueva',
+                esRecompra: true
+              }
+            })}
+            disabled={tieneReservaPendiente}
+          >
+            Volver a inscribirme
+          </Button>
         </div>
       );
     }
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mis Cursos</h2>
-        {cursoActivo && (
-          <button onClick={irAlAula} className="w-full bg-white p-4 rounded-xl shadow-sm border border-blue-200 text-left hover:border-blue-300 transition-colors">
-            <div className="flex items-center gap-3"><BookOpen size={20} className="text-blue-600" /><div className="flex-1"><p className="font-bold text-sm text-gray-900">{cursoAsignado.nombre || 'Curso'} · En Progreso</p><p className="text-xs text-gray-500">{cantCompletados}/{totalModulos} módulos</p></div><ChevronLeft size={16} className="text-gray-400 rotate-180" /></div>
-          </button>
+           {reservasActivasEstudiante.length > 0 ? (
+          reservasActivasEstudiante.map(r => {
+            const estaAprobado = r.estadoPago === 'Aprobado';
+            const cursoReserva = cursos.find(c => String(c.id) === String(r.cursoId)) || { nombre: 'Curso', modulos: [] };
+            const completadosMod = Object.values(r.modulosEstado || {}).filter(m => m?.fecha).length;
+
+            return (
+              <div key={r.id} className="w-full bg-white p-4 rounded-xl shadow-sm border border-blue-200 text-left">
+                <div className="flex items-center gap-3">
+                  <BookOpen size={20} className={estaAprobado ? 'text-blue-600' : 'text-yellow-500'} />
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-gray-900">{cursoReserva.nombre || 'Curso'} · En Progreso</p>
+                    <p className="text-xs text-gray-500">{completadosMod}/{cursoReserva.modulos?.length || 0} módulos</p>
+                    <p className={`text-xs mt-1 font-bold ${estaAprobado ? 'text-green-600' : 'text-yellow-600'}`}>
+                      {estaAprobado ? '✔ Pago aprobado' : '⏳ Pago pendiente'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => estaAprobado && navigate(`/aula/${r.id}`)}
+                    disabled={!estaAprobado}
+                    className={`text-xs font-bold px-3 py-2 rounded-lg ${
+                      estaAprobado
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {estaAprobado ? 'Entrar' : 'Pendiente'}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <p className="text-sm text-gray-500 text-center py-4">No tienes cursos activos.</p>
         )}
-        {cursosCompletados.length === 0 && !cursoActivo && <p className="text-sm text-gray-500 text-center py-4">No tienes cursos aún.</p>}
         {cursosCompletados.map(r => {
           const cur = cursos.find(c => String(c.id) === String(r.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 };
           const comp = Object.keys(r.modulosEstado || {}).length;
@@ -378,6 +468,64 @@ export function EstudiantePanel() {
             </button>
           );
         })}
+         <div className="mt-6">
+        <h3 className="font-bold text-gray-900 text-sm mb-3">📚 Catálogo de Cursos</h3>
+        {!tieneReservaAprobada ? (
+          <p className="text-xs text-gray-500">Completa tu primer curso para desbloquear el catálogo.</p>
+        ) : tieneReservaPendiente ? (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p className="text-xs text-yellow-600 font-bold">Tienes un pago pendiente. Complétalo antes de inscribirte en otro curso.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {catalogoConEstado.map(cur => {
+              const bloqueado = !cur.tienePrerequisito;
+              return (
+                <div
+                  key={cur.id}
+                  className={`bg-white p-3 rounded-xl border ${
+                    bloqueado ? 'border-gray-200 opacity-75' : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={`font-bold text-sm ${bloqueado ? 'text-gray-400' : 'text-gray-900'}`}>
+                      {cur.nombre}
+                    </p>
+                    {bloqueado && <Lock size={14} className="text-yellow-600 shrink-0" />}
+                  </div>
+                  <p className="text-xs text-gray-500">{cur.modulos?.length || 0} módulos</p>
+
+                  {bloqueado && (
+                    <p className="text-[10px] text-yellow-600 font-bold mt-1 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      {cur.prerequisitoLabel}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => navigate('/inscripcion', {
+                      state: {
+                        cursoId: cur.id,
+                        origen: 'panel-estudiante',
+                        modo: 'nueva',
+                        esRecompra: true
+                      }
+                    })}
+                    disabled={bloqueado}
+                    className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-colors ${
+                      bloqueado
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {bloqueado ? 'Bloqueado' : 'Inscribirme'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       </div>
     );
   };
