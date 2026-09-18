@@ -17,7 +17,8 @@ const TABS = [
 const FormCursos = memo(({ item, onSave, onCancel }) => {
   const ctx = useContext(AppContext);
   const sedesDisponibles = (ctx?.sedes || []).filter(s => s.activo);
-  const instructoresDisponibles = (ctx?.instructores || []).filter(i => i.activo);
+   const instructoresDisponibles = (ctx?.instructores || []).filter(i => i.activo);
+  const cursosDisponibles = (ctx?.cursos || []).filter(c => c.tipoCurso !== item?.tipoCurso);
 
   const inicializarModulos = (itemData) => {
     const mods = itemData.modulos || [''];
@@ -42,10 +43,9 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
     casco: item?.casco || '',
     hidratacion: item?.hidratacion || '',
     vestimenta: item?.vestimenta || '',
-    // Relaciones
-    
- 
-        sedesPermitidas: Array.isArray(item?.sedesPermitidas) ? item.sedesPermitidas : [],
+      // Relaciones
+    prerequisitos: Array.isArray(item?.prerequisitos) ? item.prerequisitos : [],
+    sedesPermitidas: Array.isArray(item?.sedesPermitidas) ? item.sedesPermitidas : [],
     instructoresPermitidos: Array.isArray(item?.instructoresPermitidos) ? item.instructoresPermitidos : [],
         comisionInstructor: item?.comisionInstructor ?? 0,
     comisionProveedor: item?.comisionProveedor ?? 0,
@@ -85,11 +85,18 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
       : [...prev.sedesPermitidas, sedeId]
   }));
 
-   const toggleInstructor = (instId) => setForm(prev => ({
+    const toggleInstructor = (instId) => setForm(prev => ({
     ...prev,
     instructoresPermitidos: prev.instructoresPermitidos.includes(instId)
       ? prev.instructoresPermitidos.filter(id => id !== instId)
       : [...prev.instructoresPermitidos, instId]
+  }));
+
+  const togglePrerequisito = (tipoCursoId) => setForm(prev => ({
+    ...prev,
+    prerequisitos: prev.prerequisitos.includes(tipoCursoId)
+      ? prev.prerequisitos.filter(t => t !== tipoCursoId)
+      : [...prev.prerequisitos, tipoCursoId]
   }));
 
    const toggleTipoMotoEscuela = (tipo) => setForm(prev => ({
@@ -246,11 +253,51 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
               placeholder={"Arranque y frenado\nEquilibrio y coordinación\nAceleración controlada"}
             />
           </div>
-          <Input label="Dirigido a" value={form.dirigidoA} onChange={e => setForm({ ...form, dirigidoA: e.target.value })} />
-          <Input label="Formato" value={form.formato} onChange={e => setForm({ ...form, formato: e.target.value })} />
-          <Input label="Casco" value={form.casco} onChange={e => setForm({ ...form, casco: e.target.value })} />
-          <Input label="Hidratación" value={form.hidratacion} onChange={e => setForm({ ...form, hidratacion: e.target.value })} />
-          <Input label="Vestimenta" value={form.vestimenta} onChange={e => setForm({ ...form, vestimenta: e.target.value })} />
+                   <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Dirigido a</label>
+            <textarea
+              value={form.dirigidoA}
+              onChange={e => setForm({ ...form, dirigidoA: e.target.value })}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none text-sm min-h-[80px]"
+              placeholder="Describe a quién va dirigido..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Formato</label>
+            <textarea
+              value={form.formato}
+              onChange={e => setForm({ ...form, formato: e.target.value })}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none text-sm min-h-[80px]"
+              placeholder="Ej: 4 horas en total: 2 horas diarias..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Casco</label>
+            <textarea
+              value={form.casco}
+              onChange={e => setForm({ ...form, casco: e.target.value })}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none text-sm min-h-[80px]"
+              placeholder="Ej: Nosotros ponemos el casco."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Hidratación</label>
+            <textarea
+              value={form.hidratacion}
+              onChange={e => setForm({ ...form, hidratacion: e.target.value })}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none text-sm min-h-[80px]"
+              placeholder="Ej: Debes traer hidratación."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Vestimenta</label>
+            <textarea
+              value={form.vestimenta}
+              onChange={e => setForm({ ...form, vestimenta: e.target.value })}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none text-sm min-h-[80px]"
+              placeholder="Ej: Pantalón jean, zapatos cerrados y suéter."
+            />
+          </div>
         </div>
       )}
 
@@ -301,8 +348,39 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
       )}
 
       {/* Tab: Relaciones */}
-      {tab === 'relaciones' && (
+           {tab === 'relaciones' && (
         <div className="space-y-4">
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+            <label className="block text-sm font-bold text-gray-700 mb-2">Prerequisitos (el estudiante debe haber completado uno)</label>
+            {cursosDisponibles.length === 0 ? (
+              <p className="text-xs text-gray-500">No hay otros cursos activos.</p>
+            ) : (
+              <div className="space-y-2">
+                {cursosDisponibles.map(c => {
+                  const desactivado = c.activo === false;
+                  return (
+                    <label key={c.id} className={`flex items-center gap-2 cursor-pointer ${desactivado ? 'opacity-50' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.prerequisitos.includes(c.tipoCurso)}
+                        onChange={() => togglePrerequisito(c.tipoCurso)}
+                        disabled={desactivado}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">
+                        {c.nombre} <span className="text-xs text-gray-400">({c.tipoCurso})</span>
+                        {desactivado && <span className="ml-1 text-xs text-orange-600">(Desactivado)</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[11px] text-gray-500 mt-2">
+              Si no seleccionas ninguno, el curso no tendrá prerequisitos.
+            </p>
+          </div>
+
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
             <label className="block text-sm font-bold text-gray-700 mb-2">Sedes permitidas</label>
             {sedesDisponibles.length === 0 ? (

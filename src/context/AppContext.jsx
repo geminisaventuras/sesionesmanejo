@@ -33,7 +33,11 @@ export const AppProvider = ({ children }) => {
     const s = firestore.sedes.find(x => String(x.id) === String(sedeId));
     if (s?.nombre === 'Guarenas') total += Number(cfg.config.recargoGuarenas) || 0;
     if (sabeBici === 'No') total += Number(cfg.config.recargoSinBici) || 0;
-    if (traeMoto === 'Sí') total -= Number(cfg.config.descuentoMotoPropia) || 0;
+        if (traeMoto === 'Sí') total -= Number(cfg.config.descuentoMotoPropia) || 0;
+    // A2.2-bis: suma el alquiler de moto si la escuela la provee y el alumno no la trae
+    if (traeMoto !== 'Sí' && curso?.motoIncluida !== false) {
+      total += Number(curso?.precioAlquilerMoto) || 0;
+    }
     total -= Number(cfg.config.descuentoPromo) || 0;
     return total > 0 ? total : 0;
   }, [cfg.config, firestore.sedes]); 

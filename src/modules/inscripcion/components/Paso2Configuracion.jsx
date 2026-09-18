@@ -4,8 +4,16 @@ import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
 
 function evaluarCompatibilidad(curso, form) {
-  if (!curso) return { ok: false, razon: '' };
+    if (!curso) return { ok: false, razon: '' };
   const tipoCurso = curso.tipoCurso;
+
+    // A2.2-bis: bloquear cursos con prerequisitos duros (excepto básicos, que son soft)
+  if (Array.isArray(curso.prerequisitos) && curso.prerequisitos.length > 0) {
+    const esBasico = tipoCurso === 'basico_auto' || tipoCurso === 'basico_sincro';
+    if (!esBasico) {
+      return { ok: false, razon: 'Requiere curso previo' };
+    }
+  }
 
   // Regla 1: sabeBicicleta
   if (form.sabeBicicleta === 'No' && tipoCurso !== 'equilibrio') {
@@ -101,10 +109,28 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   const tiposMotoEscuela = cursoSeleccionado?.tiposMotoEscuela || [];
   const bloqueaTraeMoto = !!cursoSeleccionado && !motoIncluida;
 
-  const bloqueaTipoMoto = (tipo) => {
+    const bloqueaTipoMoto = (tipo) => {
     if (form.sabeBicicleta === 'No' && tipo !== 'Automática') return true;
+    // A2.2-ter: en básicos, permitir cambio de tipo moto (cambia el curso automáticamente)
+    const esBasicoActual = cursoSeleccionado?.tipoCurso === 'basico_auto' || cursoSeleccionado?.tipoCurso === 'basico_sincro';
+    if (esBasicoActual) return false;
     if (motoIncluida && tiposMotoEscuela.length > 0 && !tiposMotoEscuela.includes(tipo)) return true;
     return false;
+  };
+
+  // A2.2-ter: cambiar tipo moto en básico → cambia el curso al básico correspondiente
+  const handleTipoMotoChange = (tipo) => {
+    if (bloqueaTipoMoto(tipo)) return;
+    const esBasicoActual = cursoSeleccionado?.tipoCurso === 'basico_auto' || cursoSeleccionado?.tipoCurso === 'basico_sincro';
+    if (form.sabeBicicleta === 'Sí' && (esBasicoActual || !cursoSeleccionado)) {
+      const nuevoTipoCurso = tipo === 'Automática' ? 'basico_auto' : 'basico_sincro';
+      const nuevoCurso = (cursos || []).find(c => c.tipoCurso === nuevoTipoCurso);
+      if (nuevoCurso) {
+        updateForm({ tipoMoto: tipo, cursoId: nuevoCurso.id, cursoSeleccionadoManual: false });
+        return;
+      }
+    }
+    updateForm({ tipoMoto: tipo });
   };
 
   // Sedes filtradas por curso
@@ -139,9 +165,16 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">¿Sabes andar en bicicleta?</label>
             <div className="grid grid-cols-2 gap-3">
-              <button
+                            <button
                 type="button"
-                onClick={() => updateForm({ sabeBicicleta: 'Sí' })}
+                onClick={() => {
+                  const cursoActual = cursoSeleccionado;
+                  const esEquilibrio = cursoActual?.tipoCurso === 'equilibrio';
+                  updateForm({
+                    sabeBicicleta: 'Sí',
+                    ...(esEquilibrio ? { cursoId: '', cursoSeleccionadoManual: false } : {})
+                  });
+                }}
                 className={`p-4 border-2 rounded-xl transition-colors ${
                   form.sabeBicicleta === 'Sí' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
                 }`}
@@ -149,9 +182,16 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
                 <Bike size={24} className="mx-auto mb-1 text-blue-600" />
                 <p className="font-bold text-sm">Sí sé</p>
               </button>
-              <button
+                           <button
                 type="button"
-                onClick={() => updateForm({ sabeBicicleta: 'No' })}
+                onClick={() => {
+                  const cursoEquilibrio = (cursos || []).find(c => c.tipoCurso === 'equilibrio');
+                  updateForm({
+                    sabeBicicleta: 'No',
+                    tipoMoto: 'Automática',
+                    ...(cursoEquilibrio ? { cursoId: cursoEquilibrio.id, cursoSeleccionadoManual: false } : {})
+                  });
+                }}
                 className={`p-4 border-2 rounded-xl transition-colors ${
                   form.sabeBicicleta === 'No' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
                 }`}
@@ -171,9 +211,9 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Tipo de Moto</label>
               <div className="grid grid-cols-2 gap-3">
-                <button
+                               <button
                   type="button"
-                  onClick={() => !bloqueaTipoMoto('Automática') && updateForm({ tipoMoto: 'Automática' })}
+                  onClick={() => handleTipoMotoChange('Automática')}
                   disabled={bloqueaTipoMoto('Automática')}
                   className={`p-4 border-2 rounded-xl transition-colors ${
                     form.tipoMoto === 'Automática' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
@@ -182,9 +222,9 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
                   <Zap size={24} className="mx-auto mb-1 text-blue-600" />
                   <p className="font-bold text-sm">Automática</p>
                 </button>
-                <button
+                                <button
                   type="button"
-                  onClick={() => !bloqueaTipoMoto('Sincrónica') && updateForm({ tipoMoto: 'Sincrónica' })}
+                  onClick={() => handleTipoMotoChange('Sincrónica')}
                   disabled={bloqueaTipoMoto('Sincrónica')}
                   className={`p-4 border-2 rounded-xl transition-colors ${
                     form.tipoMoto === 'Sincrónica' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'

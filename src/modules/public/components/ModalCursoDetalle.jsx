@@ -1,5 +1,5 @@
 import { X, Clock, Users, Shirt, Droplet, HardHat, Bike, CheckCircle2, AlertCircle } from 'lucide-react';
-
+import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 const formatearDuracion = (minutos) => {
   if (!minutos && minutos !== 0) return 'N/A';
   const horas = Math.floor(minutos / 60);
@@ -94,8 +94,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                 <Users className="text-blue-600" size={20} />
                 A quién va dirigido
               </h3>
-              <p className="text-sm text-gray-700">{curso.dirigidoA}</p>
-            </div>
+              <TextoEnriquecido texto={curso.dirigidoA} className="text-sm text-gray-700" />            </div>
           )}
 
           {curso.formato && (
@@ -104,8 +103,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                 <Clock className="text-purple-600" size={20} />
                 Formato de clases
               </h3>
-              <p className="text-sm text-gray-700">{curso.formato}</p>
-            </div>
+              <TextoEnriquecido texto={curso.formato} className="text-sm text-gray-700" />            </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -115,8 +113,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                   <Shirt className="text-gray-600 flex-shrink-0 mt-0.5" size={18} />
                   <div>
                     <h4 className="font-bold text-gray-900 text-sm mb-1">Vestimenta</h4>
-                    <p className="text-xs text-gray-700">{curso.vestimenta}</p>
-                  </div>
+                    <TextoEnriquecido texto={curso.vestimenta} className="text-xs text-gray-700" />                  </div>
                 </div>
               </div>
             )}
@@ -127,8 +124,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                   <Droplet className="text-blue-600 flex-shrink-0 mt-0.5" size={18} />
                   <div>
                     <h4 className="font-bold text-gray-900 text-sm mb-1">Hidratación</h4>
-                    <p className="text-xs text-gray-700">{curso.hidratacion}</p>
-                  </div>
+                    <TextoEnriquecido texto={curso.hidratacion} className="text-xs text-gray-700" />                  </div>
                 </div>
               </div>
             )}
@@ -139,8 +135,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                   <HardHat className="text-orange-600 flex-shrink-0 mt-0.5" size={18} />
                   <div>
                     <h4 className="font-bold text-gray-900 text-sm mb-1">Casco</h4>
-                    <p className="text-xs text-gray-700">{curso.casco}</p>
-                  </div>
+                    <TextoEnriquecido texto={curso.casco} className="text-xs text-gray-700" />                  </div>
                 </div>
               </div>
             )}
@@ -187,12 +182,23 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
         </div>
 
         <div className="sticky bottom-0 bg-white border-t px-6 py-4 flex gap-3">
-          <button
-            onClick={() => onInscribirme(curso.id)}
-            className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors"
-          >
-            Inscribirme ahora
-          </button>
+                 {(() => {
+            const tienePrereq = Array.isArray(curso.prerequisitos) && curso.prerequisitos.length > 0;
+            const esBasico = curso.tipoCurso === 'basico_auto' || curso.tipoCurso === 'basico_sincro';
+            const bloqueado = tienePrereq && !esBasico;
+            return bloqueado ? (
+              <div className="flex-1 bg-gray-100 text-gray-500 px-6 py-3 rounded-lg text-center font-medium text-sm">
+                Requiere curso previo
+              </div>
+            ) : (
+              <button
+                onClick={() => onInscribirme(curso.id)}
+                className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              >
+                Inscribirme ahora
+              </button>
+            );
+          })()}
           <button
             onClick={onClose}
             className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"

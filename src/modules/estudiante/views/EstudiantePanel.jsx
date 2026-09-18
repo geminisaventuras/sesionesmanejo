@@ -228,21 +228,29 @@ export function EstudiantePanel() {
     [misReservas]
   );
 
-  const catalogoConEstado = useMemo(() => {
+   const catalogoConEstado = useMemo(() => {
     return (cursos || [])
       .filter(c => c.activo !== false)
       .map(curso => {
         const config = CURSO_SECUENCIA[curso.tipoCurso];
-        const cumple = cumplePrerequisito(curso.tipoCurso, reservasAprobadas);
+        const cumple = cumplePrerequisito(curso.tipoCurso, reservasAprobadas, curso);
+        // A2.2: prereqs editables (curso.prerequisitos) con fallback al hardcode
+        const prereqs = Array.isArray(curso.prerequisitos)
+          ? curso.prerequisitos
+          : (config?.prerequisito || []);
+        let prerequisitoLabel = null;
+        if (prereqs.length > 0) {
+          const nombres = prereqs.map(tc => {
+            const c = (cursos || []).find(x => x.tipoCurso === tc);
+            return c?.nombre || tc;
+          });
+          prerequisitoLabel = `Requiere ${nombres.join(' o ')} aprobado`;
+        }
         return {
           ...curso,
           ordenSecuencia: config?.orden || 99,
           tienePrerequisito: cumple,
-          prerequisitoLabel: config?.prerequisito
-            ? (curso.tipoCurso === 'general'
-                ? 'Requiere curso básico aprobado'
-                : 'Requiere Práctica en la Vía aprobada')
-            : null
+          prerequisitoLabel
         };
       })
       .sort((a, b) => a.ordenSecuencia - b.ordenSecuencia);

@@ -4,6 +4,7 @@ import { collection, doc, onSnapshot, getDoc, query, where } from 'firebase/fire
 import { CURSO_SECUENCIA } from '../../../constants/cursoSecuencia';
 import { AlertCircle, Clock, MapPin, Phone, CheckCircle, GraduationCap, ChevronLeft } from 'lucide-react';
 import ModalCursoDetalle from '../components/ModalCursoDetalle';
+import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 const APP_ID = 'motoescuela-pro-v1';
 
 
@@ -15,9 +16,13 @@ const formatearDuracion = (minutos) => {
   if (mins === 0) return `${horas} ${horas === 1 ? 'hora' : 'horas'}`;
   return `${horas}h ${mins} min`;
 };
-const getPrerequisitoLabel = (tipoCurso) => {
-  const prerequisito = CURSO_SECUENCIA[tipoCurso]?.prerequisito;
-  if (!prerequisito) return null;
+const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
+  // A2.2: preferir curso.prerequisitos (editable), fallback al hardcode
+  const prereqs = Array.isArray(curso?.prerequisitos)
+    ? curso.prerequisitos
+    : (CURSO_SECUENCIA[tipoCurso]?.prerequisito || []);
+
+  if (!Array.isArray(prereqs) || prereqs.length === 0) return null;
 
   const labels = {
     basico_auto: 'Curso Básico Automática',
@@ -25,11 +30,11 @@ const getPrerequisitoLabel = (tipoCurso) => {
     general: 'Práctica en la Vía'
   };
 
-  if (Array.isArray(prerequisito)) {
-    return prerequisito.map(p => labels[p] || p).join(' o ');
-  }
-
-  return labels[prerequisito] || prerequisito;
+  // Preferir nombre real del curso si está en la lista; fallback al label hardcodeado
+  return prereqs.map(p => {
+    const c = (cursos || []).find(x => x.tipoCurso === p);
+    return c?.nombre || labels[p] || p;
+  }).join(' o ');
 };
 
 function AvisoMoto({ curso }) {
@@ -66,6 +71,7 @@ export default function CursosPublicosView() {
   const [contacto, setContacto] = useState(null);
   const [sedes, setSedes] = useState(null);
     const [cursoDetalle, setCursoDetalle] = useState(null);
+  const [avisoBasico, setAvisoBasico] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -119,7 +125,17 @@ const unsub = onSnapshot(q, (snap) => {
     return () => unsubscribe();
   }, []);
 
-  const handleInscribirme = (cursoId) => {
+    const handleInscribirme = (cursoId) => {
+    const curso = (cursos || []).find(c => String(c.id) === String(cursoId));
+    const esBasico = curso?.tipoCurso === 'basico_auto' || curso?.tipoCurso === 'basico_sincro';
+    const tienePrereq = Array.isArray(curso?.prerequisitos) && curso.prerequisitos.length > 0;
+
+    // A2.2-bis: aviso para básicos con prereq de Equilibrio
+    if (esBasico && tienePrereq) {
+      setAvisoBasico(curso);
+      return;
+    }
+
     navigate('/inscripcion', {
       state: {
         cursoId,
@@ -127,6 +143,38 @@ const unsub = onSnapshot(q, (snap) => {
         cursoSugerido: true
       }
     });
+  };
+
+  const confirmarAvisoBasico = (hacerEquilibrio) => {
+    if (hacerEquilibrio) {
+      // Buscar Equilibrio y navegar a su inscripción
+      const equilibrio = (cursos || []).find(c => c.tipoCurso === 'equilibrio');
+      if (equilibrio) {
+        setAvisoBasico(null);
+        navigate('/inscripcion', {
+          state: {
+            cursoId: equilibrio.id,
+            origen: 'publico',
+            cursoSugerido: true
+          }
+        });
+      } else {
+        setAvisoBasico(null);
+      }
+    } else {
+      // Continuar con el básico elegido
+      const cursoId = avisoBasico?.id;
+      setAvisoBasico(null);
+      if (cursoId) {
+        navigate('/inscripcion', {
+          state: {
+            cursoId,
+            origen: 'publico',
+            cursoSugerido: true
+          }
+        });
+      }
+    }
   };
 
   if (loading) {
@@ -170,8 +218,7 @@ const unsub = onSnapshot(q, (snap) => {
               </div>
 
               <div className="p-4 space-y-4">
-                <p className="text-gray-700 text-sm">{curso.descripcion}</p>
-
+                <TextoEnriquecido texto={curso.descripcion} className="text-gray-700 text-sm" />
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2 text-gray-600">
                     <Clock className="w-4 h-4" />
@@ -200,30 +247,41 @@ const unsub = onSnapshot(q, (snap) => {
                   </div>
                 )}
 
-                {getPrerequisitoLabel(curso.tipoCurso) && (
+                                {getPrerequisitoLabel(curso.tipoCurso, curso, cursos) && (
                   <div className="bg-yellow-50 border border-yellow-200 p-3 rounded">
                     <p className="text-xs text-yellow-800 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                       <span>
-                        <strong>Requisito:</strong> {getPrerequisitoLabel(curso.tipoCurso)}.
+                                                <strong>Requisito:</strong> {getPrerequisitoLabel(curso.tipoCurso, curso, cursos)}.
                       </span>
                     </p>
                   </div>
                 )}
 
-                              <div className="flex flex-col gap-2 pt-2">
+                                <div className="flex flex-col gap-2 pt-2">
                   <button
                     onClick={() => setCursoDetalle(curso)}
                     className="w-full border-2 border-blue-600 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm"
                   >
                     Leer más
                   </button>
-                  <button
-                    onClick={() => handleInscribirme(curso.id)}
-                    className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                  >
-                    Inscribirme
-                  </button>
+                                    {(() => {
+                    const tienePrereq = Array.isArray(curso.prerequisitos) && curso.prerequisitos.length > 0;
+                    const esBasico = curso.tipoCurso === 'basico_auto' || curso.tipoCurso === 'basico_sincro';
+                    const bloqueado = tienePrereq && !esBasico;
+                    return bloqueado ? (
+                      <div className="w-full bg-gray-100 text-gray-500 px-4 py-3 rounded-lg text-center font-medium text-sm">
+                        Requiere curso previo
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleInscribirme(curso.id)}
+                        className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                      >
+                        Inscribirme
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -317,16 +375,60 @@ const unsub = onSnapshot(q, (snap) => {
         </div>
       )}
 
-            {cursoDetalle && (
+           {cursoDetalle && (
         <ModalCursoDetalle
           curso={cursoDetalle}
-          prerequisitoLabel={getPrerequisitoLabel(cursoDetalle.tipoCurso)}
+          prerequisitoLabel={getPrerequisitoLabel(cursoDetalle.tipoCurso, cursoDetalle, cursos)}
           onClose={() => setCursoDetalle(null)}
           onInscribirme={(cursoId) => {
             setCursoDetalle(null);
             handleInscribirme(cursoId);
           }}
         />
+      )}
+
+      {/* A2.2-bis: Aviso para básicos con prereq de Equilibrio */}
+      {avisoBasico && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setAvisoBasico(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 mb-2">Aviso importante</h2>
+                <p className="text-sm text-gray-700 mb-3">
+                  Este curso (<strong>{avisoBasico.nombre}</strong>) recomienda haber completado el curso de <strong>Equilibrio</strong> primero.
+                </p>
+                <p className="text-sm text-gray-700 mb-2">
+                  Si ya sabes andar en bicicleta o has manejado moto y tienes equilibrio, puedes continuar.
+                </p>
+                <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-2">
+                  ⚠️ Si te estás saltando el curso de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance del curso será muy lento.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => confirmarAvisoBasico(true)}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              >
+                Hacer Equilibrio primero
+              </button>
+              <button
+                onClick={() => confirmarAvisoBasico(false)}
+                className="w-full border-2 border-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+              >
+                Ya sé andar, continuar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

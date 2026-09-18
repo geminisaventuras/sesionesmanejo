@@ -645,6 +645,9 @@ const disponibilidad = useMemo(() => {
   const recargoSinBici = form.sabeBicicleta === 'No' ? (Number(ctx.config.recargoSinBici) || 0) : 0;
   const descuentoMotoPropia = form.traeMoto === 'Sí' ? (Number(ctx.config.descuentoMotoPropia) || 0) : 0;
   const descuentoPromo = Number(ctx.config.descuentoPromo) || 0;
+   const recargoAlquilerMoto = (form.traeMoto !== 'Sí' && cursoSeleccionado?.motoIncluida !== false)
+    ? (Number(cursoSeleccionado?.precioAlquilerMoto) || 0)
+    : 0;
     const tasaCobro = ctx.config.monedaCobroClientes === 'USD' ? ctx.config.tasaUSD : ctx.config.tasaEUR;
   const precioFinalVES = (baseUSD * (Number(tasaCobro) || 1)).toFixed(2);
   const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
@@ -1151,6 +1154,7 @@ if (necesitaMoto) {
   ];
   if (recargoSede > 0) items.push({ label: 'Recargo Sede', value: '+$' + recargoSede });
   if (recargoSinBici > 0) items.push({ label: 'Recargo sin Bici', value: '+$' + recargoSinBici });
+   if (recargoAlquilerMoto > 0) items.push({ label: 'Alquiler Moto', value: '+$' + recargoAlquilerMoto });
   if (descuentoMotoPropia > 0) items.push({ label: 'Descuento Moto', value: '-$' + descuentoMotoPropia });
   if (descuentoPromo > 0) items.push({ label: 'Descuento Promo', value: '-$' + descuentoPromo });
   items.push({ label: 'Total USD', value: '$' + baseUSD, bold: true });

@@ -65,7 +65,7 @@ export default function ResumenFinal({ modulos, modulosEstado }) {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1 text-sm font-bold text-green-700 ml-3">
+                        <div className="flex items-center gap-1 text-sm font-bold text-green-700 ml-3 flex-shrink-0 whitespace-nowrap">
               <Clock className="w-4 h-4" />
               {formatearMinutos(modulo.duracionTotal)}
             </div>
