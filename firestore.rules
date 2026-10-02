@@ -189,11 +189,19 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      match /progresoInscripcion/{docId} {
+            match /progresoInscripcion/{docId} {
         allow get: if true;
         allow list: if false;
         allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
-        allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+        // A6: adopción de docs huérfanos solo si correo coincide Y pin está vacío
+        allow update: if isAuth() && (
+          resource.data.userId == request.auth.uid ||
+          (resource.data.correo == request.auth.token.email && resource.data.pin == '')
+        );
+        allow delete: if isAuth() && (
+          resource.data.userId == request.auth.uid ||
+          (resource.data.correo == request.auth.token.email && resource.data.pin == '')
+        );
       }
       match /pagosStaff/{pagoId} {
         allow read: if isAuth() && (isAdmin() || resource.data.staffId == request.auth.uid);

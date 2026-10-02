@@ -1162,6 +1162,17 @@ if (necesitaMoto) {
     navigate('/');
   }, [lockId, limpiarSesion, ctx.logoutUser, navigate]);
 
+  // A6 + OP-A: guardar progreso con retry (1s + 2s). Si falla 3 veces, retorna {success: false}.
+  const guardarProgresoConRetry = async (uid, paso, datos, correo, intentos = 3) => {
+    for (let i = 0; i < intentos; i++) {
+      const res = await ReservaService.guardarProgreso(uid, paso, datos, correo);
+      if (res.success) return res;
+      if (i === intentos - 1) return res;
+      showToast(`Reintentando guardar progreso (${i + 2}/${intentos})...`, 'info');
+      await new Promise(resolve => setTimeout(resolve, i === 0 ? 1000 : 2000));
+    }
+  };
+
   const handleNext = async () => {
           if (step === '1') {
       // Validar siempre con Zod antes de cualquier acción
@@ -1193,7 +1204,13 @@ if (necesitaMoto) {
           sessionStorage.setItem('inscripcion_generatedPin', pin);
                     updateForm({ pin });
           const uid = result.data.user?.uid || auth.currentUser?.uid;
-          await ReservaService.guardarProgreso(uid, 2, { ...form, pin }, form.correo).catch(() => {});
+          const guardadoPaso1 = await guardarProgresoConRetry(uid, 2, { ...form, pin }, form.correo);
+          if (!guardadoPaso1.success) {
+            console.error('[InscripcionView] Error guardando progreso paso 1:', guardadoPaso1.error);
+            showToast('Error de conexión al guardar tu progreso. Verifica tu internet e intenta de nuevo.', 'error');
+            setIsSubmitting(false);
+            return;
+          }
           setStep('2');
                 } else if (result.error.code === 'already-enrolled' || result.error.code === 'auth/email-already-in-use') {
           // El correo ya existe → buscar progreso en Firestore (reinscripción)
@@ -1310,7 +1327,14 @@ if (necesitaMoto) {
         }
       }
 
-      if (!esRecompra) await ReservaService.guardarProgreso(ctx.fbUser?.uid, 3, form, form.correo).catch(() => {});
+      if (!esRecompra) {
+        const guardadoPaso2 = await guardarProgresoConRetry(ctx.fbUser?.uid, 3, form, form.correo);
+        if (!guardadoPaso2.success) {
+          console.error('[InscripcionView] Error guardando progreso paso 2:', guardadoPaso2.error);
+          showToast('Error de conexión al guardar tu progreso. Verifica tu internet e intenta de nuevo.', 'error');
+          return;
+        }
+      }
       setStep('3');
       return;
     }
@@ -1318,7 +1342,15 @@ if (necesitaMoto) {
       if (!form.horaId || !lockId) { showToast('Selecciona un horario', 'error'); return; }
       await LockService.renovarLock(lockId).catch(() => {});      updateLockExpiresAt(Date.now() + LOCK_DURATION - 10000);
       setLockExpirado(false); setRenovacionUsada(false);
-      if (!esRecompra) await ReservaService.guardarProgreso(ctx.fbUser?.uid, 4, form, form.correo).catch(() => {});      setStep('4');
+      if (!esRecompra) {
+        const guardadoPaso3 = await guardarProgresoConRetry(ctx.fbUser?.uid, 4, form, form.correo);
+        if (!guardadoPaso3.success) {
+          console.error('[InscripcionView] Error guardando progreso paso 3:', guardadoPaso3.error);
+          showToast('Error de conexión al guardar tu progreso. Verifica tu internet e intenta de nuevo.', 'error');
+          return;
+        }
+      }
+      setStep('4');
       return;
     }
         if (step === '4') {

@@ -24,6 +24,16 @@ export const ReservaService = {
       const snapExistente = await getDoc(ref);
       const existente = snapExistente.exists() ? snapExistente.data() : {};
 
+      // A6: log de adopción cuando el userId cambia (doc huérfano adoptado)
+      if (snapExistente.exists() && existente.userId && existente.userId !== userId) {
+        console.warn('[ReservaService] Adopción de progreso huérfano:', {
+          correo,
+          userIdAnterior: existente.userId,
+          userIdNuevo: userId,
+          pinAnterior: existente.pin || '(vacío)'
+        });
+      }
+
       const pinExistente = existente.pin || '';
       const pinNuevo = datosFormulario.pin;
       let pinFinal = pinExistente;
