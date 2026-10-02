@@ -1,5 +1,5 @@
-﻿// src/modules/inscripcion/components/Paso3Horario.jsx
-// @build: 2026-06-24 | id: PASO3-FIX | desc: Exportación corregida, alineación mejorada, cinta de fechas azul oscuro
+// src/modules/inscripcion/components/Paso3Horario.jsx
+//@build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PASO3 | desc: Exportación corregida, alineación mejorada, cinta de fechas azul oscuro
 import React, { useMemo } from 'react';
 import { Calendar, Eye, ArrowRight, BookOpen, MapPin, Bike, Zap } from 'lucide-react';
 import { Spinner } from '../../../components/UI';
@@ -38,7 +38,7 @@ export function Paso3Horario({
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
             <div className="flex items-center gap-2">
               <BookOpen size={18} className="text-blue-200 shrink-0" />
-              <span className="font-bold truncate">{cursoNombre || 'Curso'}</span>
+              <span className="font-bold truncate">{cursoNombre || 'Sesión'}</span>
             </div>
             <div className="flex items-center gap-2">
               <MapPin size={18} className="text-blue-200 shrink-0" />
@@ -50,7 +50,7 @@ export function Paso3Horario({
             </div>
             <div className="flex items-center gap-2">
               <Bike size={18} className="text-blue-200 shrink-0" />
-              <span className="font-bold">{traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'}</span>
+              <span className="font-bold">{traeMoto === 'Sí' ? 'Moto propia' : 'Moto App'}</span>
             </div>
           </div>
           <div className="flex items-center justify-center gap-2 mt-3 pt-2 border-t border-blue-400/40">
@@ -100,7 +100,7 @@ export function Paso3Horario({
         </div>
       ) : cargando ? (
         <div className="flex-1 flex items-center justify-center">
-          <Spinner message="Cargando instructores y motos..." />
+          <Spinner message="Cargando tutores y motos..." />
         </div>
       ) : bloques.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">

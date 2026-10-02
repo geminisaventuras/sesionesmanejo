@@ -1,13 +1,38 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    function isAuth() { return request.auth != null; }
+    function isAdmin() {
+      return isAuth() && 
+             request.auth.token.email == 'armandoaventurasve@gmail.com' && 
+             request.auth.token.email_verified == true;
+    }
+    function canUpdateReserva() {
+      return isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin() ||
+        resource.data.instructorId == request.auth.uid
+      );
+    }
+
+    function esLockCorrupto(lockData) {
+      return !(
+        'userId' in lockData &&
+        'instructorId' in lockData &&
+        'fecha' in lockData &&
+        'horaId' in lockData &&
+        'expiresAt' in lockData &&
+        lockData.userId != null &&
+        lockData.instructorId != null &&
+        lockData.fecha != null &&
+        lockData.horaId != null &&
+        lockData.expiresAt != null
+      );
     }
 
     match /locks/{lockId} {
-      allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuth() && 
                       request.resource.data.userId == request.auth.uid &&
                       request.resource.data.expiresAt is timestamp &&
@@ -16,36 +41,303 @@ service cloud.firestore {
                         !exists(/databases/$(database)/documents/locks/$(lockId)) ||
                         get(/databases/$(database)/documents/locks/$(lockId)).data.expiresAt < request.time
                       ); 
-                      
-      allow delete: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if false;
+      allow update: if isAuth() &&
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt']);
+      allow delete: if isAuth() && (
+        ('userId' in resource.data && resource.data.userId == request.auth.uid) ||
+        isAdmin()
+      );
     }
 
-    match /ocupacionTemporal/{docId} {
+    match /ocupacionTemporal/{lockId} {
       allow read: if isAuth();
-      allow create, delete: if isAuth() && request.auth.uid == get(/databases/$(database)/documents/locks/$(docId)).data.userId;
-      allow update: if false;
+      allow create: if isAuth() && 
+                      request.resource.data.expiresAt is timestamp &&
+                      request.resource.data.expiresAt <= request.time + duration.value(900, 's') &&
+                      getAfter(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid;
+      allow update: if isAuth() &&
+                      exists(/databases/$(database)/documents/locks/$(lockId)) &&
+                      get(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt']);
+      allow delete: if isAuth() && (
+        ('userId' in resource.data && resource.data.userId == request.auth.uid) ||
+        isAdmin()
+      );
     }
 
     match /ocupacionConfirmada/{docId} {
       allow read: if isAuth();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin();
+      allow create: if isAdmin() || (
+        isAuth() && 
+        request.resource.data.userId == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.userId == request.auth.uid
+      );
+      allow update, delete: if isAdmin();
     }
 
-    match /artifacts/{appId}/public/data/{collection}/{docId} {
-      function isAuth() { return request.auth != null; }
-      function isAdmin() { return isAuth() && (
-        get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/admins/$(request.auth.uid)).data.role == 'admin'
-      );}
-      
-      allow read: if isAuth();
-      allow create, update, delete: if isAuth() && (
-        collection == 'reservas' || collection == 'cursos' || collection == 'sedes' ||
-        collection == 'horarios' || collection == 'instructores' || collection == 'proveedores' ||
-        collection == 'motos' || collection == 'movimientos' || collection == 'admins' ||
-        collection == 'notificaciones'
+    match /artifacts/{appId}/public/data {
+
+      match /configuraciones/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /sedes/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /horarios/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /cursos/{docId} { allow read: if true; allow write: if isAdmin(); }
+      match /instructores/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /proveedores/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /motos/{docId} {
+        allow read: if isAuth();
+        allow create: if isAuth() && (
+          isAdmin() || request.resource.data.proveedorId == request.auth.uid
+        );
+        allow update: if isAuth() && (
+          isAdmin() || resource.data.proveedorId == request.auth.uid
+        );
+        allow delete: if isAdmin();
+      }
+      match /admins/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+
+      match /reservas/{docId} {
+        allow read: if isAuth() && (
+          isAdmin() || 
+          resource.data.userId == request.auth.uid || 
+          resource.data.instructorId == request.auth.uid ||
+          request.auth.uid in resource.data.get('implicadosIds', [])
+        );
+
+        allow create: if isAuth() && 
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.precio > 0 &&
+                      !('sesionTotalInicio' in request.resource.data) &&
+                      !('pausaTotalAcumulada' in request.resource.data) &&
+                      (
+                        (
+                          !('tipoReserva' in request.resource.data) &&
+                          request.resource.data.estadoPago == 'Pendiente'
+                        ) ||
+                        (
+                          'tipoReserva' in request.resource.data &&
+                          request.resource.data.tipoReserva == 'pack_sub' &&
+                          request.resource.data.estadoPago in ['Pendiente', 'Aprobado'] &&
+                          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.userId == request.auth.uid
+                        )
+                      );
+
+        allow update: if isAuth() && (
+          isAdmin() ||
+          (
+            resource.data.instructorId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'pausaActiva',
+              'pausas',
+              'pausaTotalAcumulada',
+              'tiempoEfectivo',
+              'moduloEnProgreso',
+              'modulosEstado',
+              'sesionDiariaInicio',
+              'sesionDiariaLimite',
+              'sesionTotalInicio',
+              'sesionTotalLimite',
+              'diaActual',
+              'tiempoAcumuladoHastaD1',
+              'pausasHastaD1',
+              'reservaActiva',
+              'reservaRestante',
+              'reservaInicio',
+              'reservaRestanteInicial',
+              'estadoCurso',
+              'emergencia'
+            ])
+          ) ||
+          (
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.precio == resource.data.precio &&
+            (
+              (
+                request.resource.data.estadoPago == resource.data.estadoPago ||
+                (resource.data.estadoPago == 'Rechazado' && request.resource.data.estadoPago == 'Pendiente')
+              ) &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'pagoRef',
+                'pagoBanco',
+                'pagoTelefono',
+                'pagoCedula',
+                'estadoPago'
+              ])
+            )
+          ) ||
+          (
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estudiantePresente'
+            ])
+          )
+        );
+
+        allow delete: if false;
+      }
+
+      match /movimientos/{docId} {
+        allow read: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /notificaciones/{docId} {
+        allow read: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
+        allow create: if isAuth() && (isAdmin() || request.auth.uid == request.resource.data.userId);
+        allow update: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
+        allow delete: if isAdmin();
+      }
+
+      match /progresoInscripcion/{docId} {
+        allow get: if true;
+        allow list: if false;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+      }
+      match /pagosStaff/{pagoId} {
+        allow read: if isAuth() && (isAdmin() || resource.data.staffId == request.auth.uid);
+        allow create: if isAdmin();
+        allow update, delete: if false;
+      }
+      match /metodosPago/{metodoId} {
+        allow read: if isAuth(); allow write: if isAdmin();
+      }
+
+      match /packs/{packId} { allow read: if true; allow write: if isAdmin(); }
+
+      match /reservasPack/{packReservaId} {
+        allow read: if isAuth() && (
+          isAdmin() || 
+          resource.data.userId == request.auth.uid ||
+          (
+            resource.data.cursoReservaId != null &&
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(resource.data.cursoReservaId)).data.instructorId == request.auth.uid
+          )
+        );
+        allow create: if isAuth() && 
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.estado == 'activo' &&
+          request.resource.data.cursoActual == 0 &&
+          request.resource.data.subReservas is list &&
+          request.resource.data.subReservas.size() > 0 &&
+          request.resource.data.precioTotalCongelado > 0;
+        allow update: if isAuth() && (
+          isAdmin() || 
+          resource.data.userId == request.auth.uid ||
+          (
+            resource.data.cursoReservaId != null &&
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(resource.data.cursoReservaId)).data.instructorId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subReservas', 'cursoActual', 'estado'])
+          )
+        );
+        allow delete: if false;
+      }
+
+      match /cursosTeoricos/{cursoId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /modulosTeoricos/{moduloId} {
+        allow read: if isAuth();
+        allow write: if isAdmin();
+      }
+
+      match /quizzesTeoricos/{quizId} {
+        allow read: if isAuth();
+        allow write: if isAdmin();
+      }
+
+      match /packsTeoricos/{packId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /accesosTeoricos/{accesoId} {
+        allow read: if isAuth() && (
+          isAdmin() || resource.data.userId == request.auth.uid
+        );
+        allow create: if isAuth() &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.estadoPago == 'Pendiente' &&
+          request.resource.data.precio > 0 &&
+          !('logrosCurso' in request.resource.data) &&
+          !('progreso' in request.resource.data);
+        allow update: if isAuth() && (
+          isAdmin() ||
+          (
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.userId == resource.data.userId &&
+            request.resource.data.precio == resource.data.precio &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'progreso',
+              'logrosCurso',
+              'streak',
+              'estadoPago'
+            ])
+          )
+        );
+        allow delete: if false;
+      }
+    }
+
+    match /audit_logs/{logId} {
+      allow create: if isAuth() && request.auth.token.email == 'armandoaventurasve@gmail.com';
+      allow read, update, delete: if false;
+    }
+
+    match /bloqueosGlobales/{bloqueoId} {
+      allow read: if true;
+      allow create: if isAuth() && (
+        isAdmin() || request.resource.data.proveedorId == request.auth.uid
       );
+      allow update, delete: if isAuth() && (
+        isAdmin() || resource.data.proveedorId == request.auth.uid
+      );
+    }
+
+    match /bloqueosAdmin/{bloqueoId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /proveedores/{proveedorUid}/bloqueos/{bloqueoId} {
+      allow read: if true;
+      allow create: if isAuth() && (
+        isAdmin() || request.auth.uid == proveedorUid
+      );
+      allow update, delete: if isAuth() && (
+        isAdmin() || request.auth.uid == proveedorUid
+      );
+    }
+
+    match /cedulasRegistradas/{cedula} {
+      allow get: if true;
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /informacionPublica/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /logrosUsuario/{uid} {
+      allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+      allow create: if isAuth() &&
+        request.auth.uid == uid &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.logros is list &&
+        request.resource.data.stats is map &&
+        request.resource.data.streak is map;
+      allow update: if isAuth() && request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'logros',
+          'streak',
+          'stats'
+        ]);
+      allow delete: if false;
     }
   }
 }

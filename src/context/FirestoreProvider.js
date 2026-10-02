@@ -1,4 +1,4 @@
-// @build: 2026-09-04 | id: OPTIMIZACION-FIRESTORE-V3 | backup: FirestoreProvider.backup-20260904-000000 | desc: Catálogos getDocs, reservas admin onSnapshot limit 100, sin ocupacionConfirmada global
+// @build: 2026-10-01 | id: FIX-NOTIF-DUPLICADOS-V1 | backup: FirestoreProvider.js.backup-<timestamp> | desc: saveNotificacion memoizada + idempotencia de setNotifications
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -18,7 +18,9 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [sedes, setSedes] = useState([]);
   const [horarios, setHorarios] = useState([]);
   const [metodosPago, setMetodosPago] = useState([]);
-  const [cursos, setCursos] = useState([]);
+  const [packs, setPacks] = useState([]);  
+   const [cursos, setCursos] = useState([]);
+  const [cursosTeoricos, setCursosTeoricos] = useState([]);
   const [instructores, setInstructores] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [motos, setMotos] = useState([]);
@@ -30,11 +32,13 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const cargarCatalogos = useCallback(async () => {
     if (!fbUser || !authReady) return;
     try {
-           const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, instructoresSnap, proveedoresSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
+                 const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, cursosTeoricosSnap, packsSnap, instructoresSnap, proveedoresSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
         getDocs(collection(db, buildPath('sedes'))),
         getDocs(collection(db, buildPath('horarios'))),
         getDocs(collection(db, buildPath('metodosPago'))),
         getDocs(collection(db, buildPath('cursos'))),
+        getDocs(collection(db, buildPath('cursosTeoricos'))),
+        getDocs(collection(db, buildPath('packs'))),
         getDocs(collection(db, buildPath('instructores'))),
         getDocs(collection(db, buildPath('proveedores'))),
         getDocs(collection(db, buildPath('motos'))),
@@ -45,7 +49,8 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
       setSedes(sedesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
             setHorarios(horariosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setMetodosPago(metodosPagoSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCursos(cursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setPacks(packsSnap.docs.map(d => ({ id: d.id, ...d.data() })));      setCursos(cursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCursosTeoricos(cursosTeoricosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setInstructores(instructoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setProveedores(proveedoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setMotos(motosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -61,8 +66,8 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const saveCatalogo = (setter) => async (item) => {
     const id = item.id ? String(item.id) : Date.now().toString();
     const newItem = { ...item, id };
+       const colName = setter === setSedes ? 'sedes' : setter === setHorarios ? 'horarios' : setter === setMetodosPago ? 'metodosPago' : setter === setCursos ? 'cursos' : setter === setCursosTeoricos ? 'cursosTeoricos' : setter === setPacks ? 'packs' : setter === setInstructores ? 'instructores' : setter === setProveedores ? 'proveedores' : setter === setMotos ? 'motos' : setter === setAdmins ? 'admins' : 'movimientos';
     try {
-            const colName = setter === setSedes ? 'sedes' : setter === setHorarios ? 'horarios' : setter === setMetodosPago ? 'metodosPago' : setter === setCursos ? 'cursos' : setter === setInstructores ? 'instructores' : setter === setProveedores ? 'proveedores' : setter === setMotos ? 'motos' : setter === setAdmins ? 'admins' : 'movimientos';
       await setDoc(doc(db, buildPath(colName), id), newItem);
       setter(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
       return newItem;
@@ -75,7 +80,8 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const saveSede = saveCatalogo(setSedes);
     const saveHorario = saveCatalogo(setHorarios);
   const saveMetodoPago = saveCatalogo(setMetodosPago);
-  const saveCurso = saveCatalogo(setCursos);
+  const savePack = saveCatalogo(setPacks);  const saveCurso = saveCatalogo(setCursos);
+  const saveCursoTeorico = saveCatalogo(setCursosTeoricos);
   const saveInstructor = saveCatalogo(setInstructores);
   const saveProveedorRaw = saveCatalogo(setProveedores);
   const saveMoto = saveCatalogo(setMotos);
@@ -89,31 +95,24 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     return () => unsub();
   }, [isAdmin, fbUser, authReady, buildPath]);
 
-    useEffect(() => {
+    const refreshNotificaciones = useCallback(async () => {
     if (!fbUser || !authReady) { setNotifications([]); return; }
-
     const ref = collection(db, buildPath('notificaciones'));
-
-    if (isAdmin) {
-      const q = query(ref, orderBy('fecha', 'desc'), limit(100));
-      const unsub = onSnapshot(q, (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => { console.warn('[FirestoreProvider] Error en notificaciones:', err.code); setNotifications([]); });
-      return () => unsub();
+    try {
+      const q = isAdmin
+        ? query(ref, orderBy('createdAt', 'desc'), limit(30))
+        : query(ref, where('userId', '==', user?.uid || ''), orderBy('createdAt', 'desc'), limit(30));
+      const snapshot = await getDocs(q);
+      setNotifications(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      console.warn('[FirestoreProvider] Error en notificaciones:', err.code || err.message);
+      setNotifications([]);
     }
-
-    // No admin: cargar una sola vez con getDocs
-    const cargarNotificaciones = async () => {
-      try {
-        const q = query(ref, where('userId', '==', user?.uid || ''), orderBy('fecha', 'desc'), limit(50));
-        const snapshot = await getDocs(q);
-        setNotifications(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        console.warn('[FirestoreProvider] Error en notificaciones:', err.code || err.message);
-        setNotifications([]);
-      }
-    };
-
-    cargarNotificaciones();
   }, [fbUser, authReady, isAdmin, user?.uid, buildPath]);
+
+  useEffect(() => {
+    refreshNotificaciones();
+  }, [refreshNotificaciones]);
 
   const saveReserva = async (item) => {
     const id = item.id ? String(item.id) : Date.now().toString();
@@ -123,17 +122,22 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     return newItem;
   };
 
-  const saveNotificacion = async (item) => {
-    const id = item.id ? String(item.id) : Date.now().toString();
+    const saveNotificacion = useCallback(async (item) => {
+        const id = item.id ? String(item.id) : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
     const newItem = { ...item, id };
     await setDoc(doc(db, buildPath('notificaciones'), id), newItem);
-    setNotifications(prev => [...prev, newItem]);
+    setNotifications(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
     return newItem;
-  };
+  }, [buildPath]);
 
-  const markNotificationRead = useCallback(async (id) => {
+   const markNotificationRead = useCallback(async (id) => {
     if (!db || !fbUser) return;
-    await updateDoc(doc(db, buildPath('notificaciones'), id), { leida: true });
+    try {
+      await updateDoc(doc(db, buildPath('notificaciones'), id), { leida: true });
+      setNotifications(prev => prev.map(n => String(n.id) === String(id) ? { ...n, leida: true } : n));
+    } catch (e) {
+      console.warn('[FirestoreProvider] Error marking notification:', e.code || e.message);
+    }
   }, [fbUser, buildPath]);
 
   const saveMovimiento = useCallback(async (item) => {
@@ -244,11 +248,10 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const refreshCatalogos = useCallback(() => cargarCatalogos(), [cargarCatalogos]);
 
     return {
-    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso,
-    instructores, saveInstructor, handleSaveInstructorSeguro,
+    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso,cursosTeoricos, saveCursoTeorico, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
-    notifications, saveNotificacion, markNotificationRead,
+    notifications, saveNotificacion, markNotificationRead, refreshNotificaciones,    
     activeLocks, suscribirLocks,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources,
     seedDatabase, cleanExpiredLocks, createStaffUser,

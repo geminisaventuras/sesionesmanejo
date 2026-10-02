@@ -28,7 +28,7 @@ export const CURSO_SECUENCIA = {
   }
 };
 
-export function cumplePrerequisito(tipoCurso, reservasAprobadas = [], curso = null) {
+export function cumplePrerequisito(tipoCurso, reservasAprobadas = [], curso = null, cursos = []) {
   const config = CURSO_SECUENCIA[tipoCurso];
   // A2.2: preferir curso.prerequisitos (editable desde admin).
   // Fallback a CURSO_SECUENCIA[tipoCurso].prerequisito (hardcode legacy).
@@ -39,7 +39,13 @@ export function cumplePrerequisito(tipoCurso, reservasAprobadas = [], curso = nu
   if (!Array.isArray(prereqs) || prereqs.length === 0) return true;
 
   return reservasAprobadas.some(r => {
-    if (!prereqs.includes(r.tipoCurso)) return false;
+    // A2.4: resolver tipoCurso desde cursoId si está null (reservas legacy)
+    let tc = r.tipoCurso;
+    if (!tc && r.cursoId && Array.isArray(cursos) && cursos.length > 0) {
+      const cursoRef = cursos.find(c => String(c.id) === String(r.cursoId));
+      tc = cursoRef?.tipoCurso || null;
+    }
+    if (!prereqs.includes(tc)) return false;
 
     if (r.estadoCurso === 'Aprobado') return true;
 

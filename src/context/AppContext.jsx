@@ -51,6 +51,8 @@ export const AppProvider = ({ children }) => {
     saveHorario: firestore.saveHorario,
     cursos: firestore.cursos,
     saveCurso: firestore.saveCurso,
+    cursosTeoricos: firestore.cursosTeoricos,
+    saveCursoTeorico: firestore.saveCursoTeorico,
     instructores: firestore.instructores,
     saveInstructor: firestore.saveInstructor,
     handleSaveInstructorSeguro: firestore.handleSaveInstructorSeguro,
@@ -59,7 +61,8 @@ export const AppProvider = ({ children }) => {
     motos: firestore.motos,
     saveMoto: firestore.saveMoto,
     metodosPago: firestore.metodosPago,
-    saveMetodoPago: firestore.saveMetodoPago,
+    packs: firestore.packs,
+    savePack: firestore.savePack,    saveMetodoPago: firestore.saveMetodoPago,
     reservas: firestore.reservas,
     saveReserva: firestore.saveReserva,
    
@@ -69,6 +72,7 @@ export const AppProvider = ({ children }) => {
     saveAdmin: firestore.saveAdmin,
     notifications: firestore.notifications,
     markNotificationRead: firestore.markNotificationRead,
+    refreshNotificaciones: firestore.refreshNotificaciones,
     user: auth.user,
     setUser: auth.setUser,
     toast,
@@ -91,7 +95,8 @@ export const AppProvider = ({ children }) => {
     calcularBaseUSD,
     createStaffUser: firestore.createStaffUser,
     seedDatabase: firestore.seedDatabase,
-    cleanExpiredLocks: firestore.cleanExpiredLocks
+        cleanExpiredLocks: firestore.cleanExpiredLocks,
+    refreshCatalogos: firestore.refreshCatalogos
   }), [cfg, firestore, auth, toast, showToast, calcularBaseUSD]);
 
   return (

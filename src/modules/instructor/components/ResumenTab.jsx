@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-RESUMEN-TAB-SKELETON | backup: ResumenTab.backup-20260903-000000 | desc: Resumen con skeleton loaders y orden por hora
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-RESUMEN-TUTOR | desc: Terminología legal - sesiones en lugar de clases.
 import React, { useMemo } from 'react';
 import { Calendar, History } from 'lucide-react';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
@@ -51,13 +51,13 @@ export default function ResumenTab({
     <div className="space-y-4">
       <div className="bg-blue-600 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl transform translate-x-10 -translate-y-10"></div>
-        <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">Clases hoy</p>
+        <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">Sesiones hoy</p>
         <h2 className="text-4xl font-black mt-1">{clasesHoy}</h2>
         <p className="text-blue-200 text-xs mt-2">{activas.length} activas · {completadas.length} completadas</p>
       </div>
 
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Próximas Clases</h2>
+        <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Próximas Sesiones</h2>
         {activas.length > 0 && (
           <button onClick={onVerTodasPendientes} className="text-xs text-blue-600 font-bold">
             Ver todas ({activas.length})
@@ -66,7 +66,7 @@ export default function ResumenTab({
       </div>
 
       {activas.length === 0 ? (
-        <EmptyState icon={Calendar} title="No tienes clases activas" description="Cuando tengas clases programadas, aparecerán aquí." />
+        <EmptyState icon={Calendar} title="No tienes sesiones activas" description="Cuando tengas sesiones programadas, aparecerán aquí." />
       ) : (
         <>
           <GrupoReservas titulo="Hoy" reservas={ordenarPorHora(grupos.hoy, horarios)} cursos={cursos} horarios={horarios} sedes={sedes} onIniciarClase={onIniciarClase} onVerDetalle={onVerDetalle} />

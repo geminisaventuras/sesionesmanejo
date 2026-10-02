@@ -1,8 +1,8 @@
-// @build: 2026-09-14 | id: PASO2-VALIDACIONES-CURSO | desc: Validacion de compatibilidad curso-caracteristicas + auto-ajuste segun campos del curso
+// @build: 2026-09-14 | id: LEGAL-TERMINOLOGIA-PASO2-CONFIG | desc: Validacion de compatibilidad curso-caracteristicas + auto-ajuste segun campos del curso
 import React, { useRef, useEffect, useMemo } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
-
+import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
   const tipoCurso = curso.tipoCurso;
@@ -11,7 +11,7 @@ function evaluarCompatibilidad(curso, form) {
   if (Array.isArray(curso.prerequisitos) && curso.prerequisitos.length > 0) {
     const esBasico = tipoCurso === 'basico_auto' || tipoCurso === 'basico_sincro';
     if (!esBasico) {
-      return { ok: false, razon: 'Requiere curso previo' };
+      return { ok: false, razon: 'Requiere sesión previa' };
     }
   }
 
@@ -33,7 +33,7 @@ function evaluarCompatibilidad(curso, form) {
   return { ok: true };
 }
 
-export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSinBici }) {
+export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSinBici, reservas, fbUser }) {  
   const esOrigenPublico = form.origenPublico || form.cursoSugeridoActivo;
 
   const { cursoAsignado, esAutomatico } = useCursoAutomatico(
@@ -104,6 +104,39 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
     }
   }, [cursos, form.origenPublico, form.cursoSugeridoActivo, form.cursoSeleccionadoManual, form.cursoId, updateForm]);
 
+  
+  // ✅ NUEVO (FIX-PREREQ-BYPASS): Revalidar prereqs cuando el cursoId está preseleccionado.
+  // Aplica cuando el curso llega por location.state (URL directa, botón "Inscribirme", etc.)
+  // y el dropdown no revalidó porque el valor ya estaba seteado.
+  useEffect(() => {
+    if (!form.cursoId || !cursos?.length || !reservas) return;
+    if (form.esRecompra || form.esReintento) return;
+
+    const cursoSel = cursos.find(c => String(c.id) === String(form.cursoId));
+    if (!cursoSel) return;
+
+    const esBasico = cursoSel.tipoCurso === 'basico_auto' || cursoSel.tipoCurso === 'basico_sincro';
+    if (esBasico) return;
+
+    const uid = fbUser?.uid;
+    if (!uid) return;
+
+    const reservasAprobadas = reservas.filter(r =>
+      String(r.userId) === String(uid) &&
+      r.estadoPago === 'Aprobado'
+    );
+
+    const cumple = cumplePrerequisito(
+      cursoSel.tipoCurso,
+      reservasAprobadas,
+      cursoSel,
+      cursos
+    );
+
+    if (!cumple) {
+      updateForm({ cursoId: '' });
+    }
+  }, [form.cursoId, form.esRecompra, form.esReintento, cursos, reservas, fbUser, updateForm]);
   // Reglas activas para UI
   const motoIncluida = cursoSeleccionado?.motoIncluida !== false;
   const tiposMotoEscuela = cursoSeleccionado?.tiposMotoEscuela || [];
@@ -253,13 +286,13 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
 
       {esOrigenPublico && (
         <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Curso Seleccionado</label>
+          <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Sesión Seleccionada</label>
           <select
             value={form.cursoId || ''}
             onChange={e => handleCursoChange(e.target.value)}
             className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none"
           >
-            <option value="">Selecciona curso</option>
+            <option value="">Selecciona sesión</option>
             {(cursos || []).filter(c => c.activo !== false).map(c => {
               const compat = evaluarCompatibilidad(c, form);
               return (
@@ -278,17 +311,17 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
       {form.esRecompra ? (
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1 flex items-center gap-1">
-            Curso Seleccionado <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Fijado</span>
+            Sesión Seleccionada <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Fijado</span>
           </label>
           <div className="w-full bg-blue-50 border border-blue-200 rounded-xl py-3 px-4 text-gray-700 flex items-center gap-2">
             <BookOpen size={18} className="text-blue-500" />
-            <span>{cursoSeleccionado?.nombre || 'Curso no encontrado'}</span>
+            <span>{cursoSeleccionado?.nombre || 'Sesión no encontrada'}</span>
           </div>
         </div>
       ) : esOrigenPublico ? null : esAutomatico && cursoAsignado ? (
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1 flex items-center gap-1">
-            Curso Asignado <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Automático</span>
+            Sesión Asignada <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Automático</span>
           </label>
           <div className="w-full bg-gray-100 border border-gray-200 rounded-xl py-3 px-4 text-gray-700 flex items-center gap-2">
             <BookOpen size={18} className="text-gray-400" />
@@ -303,7 +336,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         </div>
       ) : (
         <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl text-xs text-yellow-700">
-          Selecciona si sabes bicicleta y tipo de moto para asignar curso.
+          Selecciona si sabes bicicleta y tipo de moto para asignar sesión.
         </div>
       )}
 
@@ -323,7 +356,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         </select>
         {cursoSeleccionado?.sedesPermitidas?.length > 0 && sedesPermitidas.length === 0 && (
           <p className="text-xs text-red-700 mt-1 ml-1">
-            Este curso no esta disponible en ninguna sede activa.
+            Esta sesión no está disponible en ninguna sede activa.
           </p>
         )}
       </div>
@@ -355,7 +388,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         </div>
         {bloqueaTraeMoto && (
           <p className="text-[11px] text-yellow-700 mt-2 ml-1">
-            Este curso requiere que traigas tu propia moto.
+            Esta sesión requiere que traigas tu propia moto.
           </p>
         )}
       </div>

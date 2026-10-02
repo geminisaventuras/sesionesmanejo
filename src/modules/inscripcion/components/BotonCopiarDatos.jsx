@@ -1,11 +1,20 @@
 // @build: 2026-06-22.REFACTOR | id: BOTON-COPIAR | desc: Componente puro para copiar datos de pago móvil al portapapeles.
 import React from 'react';
 
-export function BotonCopiarDatos({ config, showToast }) {
+export function BotonCopiarDatos({ config, showToast, montoVES }) {
+  // Formato Venezuela (bancos): 33.860,40
+  const formatearMontoVES = (valor) => {
+    const num = Number(valor);
+    if (!isFinite(num) || num <= 0) return '';
+    const [entero, decimal] = num.toFixed(2).split('.');
+    const enteroConPuntos = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return `${enteroConPuntos},${decimal}`;
+  };
+
   const handleCopiarDatos = () => {
     const { codigo, telefono, cedula } = config?.pagoMovilEscuela || {};
-    const texto = `${codigo || ''} ${telefono || ''} ${cedula || ''}`.trim();
-
+    const montoStr = formatearMontoVES(montoVES);
+    const texto = `${codigo || ''} ${telefono || ''} ${cedula || ''}${montoStr ? ` Bs. ${montoStr}` : ''}`.trim();
     const copiar = (text) => {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         return navigator.clipboard.writeText(text);

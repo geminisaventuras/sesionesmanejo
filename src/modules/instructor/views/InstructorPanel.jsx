@@ -13,6 +13,7 @@ import PendientesTab from '../components/PendientesTab';
 import ModalDetalleReserva from '../components/ModalDetalleReserva';
 import HistorialTab from '../components/HistorialTab';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
+import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 import FinanzasTab from '../components/FinanzasTab';
 import PerfilTab from '../components/PerfilTab';
 
@@ -148,8 +149,9 @@ export default function InstructorPanel() {
           <ModalDetalleReserva
             reserva={reservaSeleccionada}
             curso={cursos.find(c => String(c.id) === String(reservaSeleccionada.cursoId))}
-            horario={horarios.find(h => String(h.id) === String(reservaSeleccionada.horaId))}
-            sede={sedes.find(s => String(s.id) === String(reservaSeleccionada.sedeId))}
+horario={horarios.find(h => String(h.id) === String(getHoraIdEfectivoHoy(reservaSeleccionada)))}            
+                        horarios={horarios}
+sede={sedes.find(s => String(s.id) === String(reservaSeleccionada.sedeId))}
             onClose={handleCerrarModal}
             onIniciarClase={handleIniciarClase}
            puedeIniciarClase={

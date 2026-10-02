@@ -6,7 +6,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock
+  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock, Package
 } from 'lucide-react';
 import {
   obtenerHoyVenezuela,
@@ -31,7 +31,7 @@ const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
         <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${estadoColor[reserva.estadoPago] || 'bg-gray-100'}`}>
           {reserva.estadoPago === 'Cancelado' ? 'CANC' : reserva.estadoPago.substring(0, 4)}
         </span>
-        {enCurso && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN CURSO</span>}
+        {enCurso && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN PROGRESO</span>}
       </div>
       <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{reserva.nombre} {reserva.apellido?.charAt(0)}.</p>
       <p className="text-[9px] text-gray-500">{fechaStr.split('-').slice(1).join('/')}</p>
@@ -42,7 +42,7 @@ const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
 
 const AdminReservasHome = () => {
   const { horarios, user, logoutUser } = useContext(AppContext);
-  const { reservas, cargando, error } = useAdminReservas();
+    const { reservas, packs, cargando, error } = useAdminReservas();
   const navigate = useNavigate();
   const res = reservas || [];
 
@@ -74,8 +74,25 @@ const AdminReservasHome = () => {
     });
   }, [res, hoyStr]);
 
-  const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0;
+   const packsPendientes = useMemo(() => {
+    return (packs || [])
+      .filter(p => p.estadoPago === 'Pendiente')
+      .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
+  }, [packs]);
 
+  const packsRechazados = useMemo(() => {
+    return (packs || [])
+      .filter(p => p.estadoPago === 'Rechazado')
+      .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
+  }, [packs]);
+
+  const reservasRechazadas = useMemo(() => {
+    return res
+      .filter(r => r.estadoPago === 'Rechazado' && r.tipoReserva !== 'pack_sub')
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+  }, [res]);
+
+  const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0 && packsPendientes.length === 0 && packsRechazados.length === 0 && reservasRechazadas.length === 0;
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
@@ -135,8 +152,67 @@ const AdminReservasHome = () => {
                 <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                   {reservasHoy.slice(0, 6).map(r => {
                     const enCurso = esReservaEnCurso(r, horarios, hoyStr, minutosActuales);
-                    return <TarjetaMini key={r.id} reserva={r} enCurso={enCurso} onClick={() => navigate(`/admin/reserva/${r.id}`)} />;
-                  })}
+                    return <TarjetaMini key={r.id} reserva={r} enCurso={enCurso} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />;
+                  })}                </div>
+              </div>
+            )}
+
+                     {packsPendientes.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-purple-700 uppercase tracking-wider flex items-center gap-1">
+                    <Package size={14} className="text-purple-600" /> Packs Pendientes ({packsPendientes.length})
+                  </h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {packsPendientes.slice(0, 4).map(p => (
+                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-purple-200 p-2 text-left hover:border-purple-400 active:scale-[0.98] transition-colors">                      <div className="flex items-center gap-1 flex-wrap mb-1">
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-700">PEND</span>
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
+                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
+                                          <p className="text-[9px] text-purple-600 font-bold mt-0.5">Toca para ver →</p>
+                    </button>
+                                  ))}
+                </div>
+              </div>
+            )}
+
+            {packsRechazados.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-red-700 uppercase tracking-wider flex items-center gap-1">
+                    <Package size={14} className="text-red-600" /> Packs Rechazados ({packsRechazados.length})
+                  </h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {packsRechazados.slice(0, 4).map(p => (
+                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-red-200 p-2 text-left hover:border-red-400 active:scale-[0.98] transition-colors">
+                      <div className="flex items-center gap-1 flex-wrap mb-1">
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-red-100 text-red-700">RECH</span>
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
+                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
+                      <p className="text-[9px] text-red-600 font-bold mt-0.5">Esperando corrección</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {reservasRechazadas.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-red-700 uppercase tracking-wider flex items-center gap-1">
+                    <Inbox size={14} className="text-red-600" /> Reservas Rechazadas ({reservasRechazadas.length})
+                  </h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {reservasRechazadas.slice(0, 4).map(r => (
+                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />
+                  ))}
                 </div>
               </div>
             )}
@@ -151,8 +227,7 @@ const AdminReservasHome = () => {
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                   {pendientes.slice(0, 4).map(r => (
-                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
-                  ))}
+<TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />                  ))}
                   {pendientes.length > 4 && (
                     <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
                       +{pendientes.length - 4}
@@ -171,8 +246,8 @@ const AdminReservasHome = () => {
                   </button>
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {proximas.slice(0, 4).map(r => (
-                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`)} />
+                                 {proximas.slice(0, 4).map(r => (
+                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />
                   ))}
                   {proximas.length > 4 && (
                     <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">

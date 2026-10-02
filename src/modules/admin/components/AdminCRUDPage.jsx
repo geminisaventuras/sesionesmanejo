@@ -6,7 +6,7 @@ import AdminMotos from './AdminMotos';
 import AdminInstructores from './AdminInstructores';
 import AdminProveedores from './AdminProveedores';
 import AdminMetodosPago from './AdminMetodosPago';
-
+import AdminPacks from './AdminPacks';
 const AdminCRUDPage = ({ vista, onBack }) => {
   switch (vista) {
     case 'cursos': return <AdminCursos onBack={onBack} />;
@@ -16,7 +16,7 @@ const AdminCRUDPage = ({ vista, onBack }) => {
     case 'instructores': return <AdminInstructores onBack={onBack} />;
     case 'proveedores': return <AdminProveedores onBack={onBack} />;
     case 'metodosPago': return <AdminMetodosPago onBack={onBack} />;
-    default: return null;
+    case 'packs': return <AdminPacks onBack={onBack} />;    default: return null;
   }
 };
 

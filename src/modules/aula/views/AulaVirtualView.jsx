@@ -1,21 +1,24 @@
-// @build: 2026-09-01 | id: RELOJES-D1D2-CORRECCION | desc: Se agrega toggle de alerta sonora en header. Se usan nuevos campos de hook.
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-AULA | desc: Terminología legal - panel de sesiones, usuario, tutor. Se agrega LegalFooter.
 import { useContext, useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
+import LegalFooter from '../../shared/components/LegalFooter';
 import RelojSesion from '../../shared/components/RelojSesion';
 import FilaTiempo from '../../shared/components/FilaTiempo';
 import BannerPausa from '../../shared/components/BannerPausa';
 import ModuloItem from '../../shared/components/ModuloItem';
 import CarruselModulos from '../../shared/components/CarruselModulos';
 import ModalConfirmacion from '../../shared/components/ModalConfirmacion';
+import BadgeReposicion from '../../shared/components/BadgeReposicion';
 import { useSessionTimer } from '../../sesiones/hooks/useSessionTimer';
 import { MOTIVOS_PAUSA } from '../../sesiones/constants';
 import { alertas } from '../../shared/utils/alertas';
 import { formatearRangoCorto, obtenerMesCortoYAnio } from '../../shared/utils/fechas';
-import { ChevronLeft, Calendar, Clock, MapPin, Bike, BookOpen, Award, Pause, User, Library, MessageCircle, Siren, X, CheckCircle, Timer, Volume2, VolumeX } from 'lucide-react';
+import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
+import { ChevronLeft, Calendar, Clock, MapPin, Bike, BookOpen, Award, Pause, User, Library, MessageCircle, Siren, X, CheckCircle, Timer, Volume2, VolumeX, Lock } from 'lucide-react';
 import ResumenFinal from '../components/ResumenFinal';
 import ReservaPanel from '../components/ReservaPanel';
 import ReservaActivaPanel from '../components/ReservaActivaPanel';
@@ -40,9 +43,13 @@ export default function AulaVirtualView() {
   const [seccionMaterial, setSeccionMaterial] = useState('senales');
   const [mostrarModalCompletar, setMostrarModalCompletar] = useState(false);
   const [alertaSonora, setAlertaSonoraState] = useState(isAlertaSonoraHabilitada());
+  const [accessDenied, setAccessDenied] = useState(false);
 
-  const rol = user?.role; const esInstructor = rol === 'instructor' || rol === 'admin'; const esEstudiante = rol === 'estudiante';
-
+  const rol = user?.role;
+  const esInstructor = rol === 'instructor' || rol === 'admin';
+  const esEstudiante = rol === 'estudiante';
+  const uid = user?.uid;
+  const esAdmin = rol === 'admin';
   useEffect(() => { alertas.inicializar(); }, []);
 
   const toggleAlertaSonora = () => {
@@ -53,16 +60,55 @@ export default function AulaVirtualView() {
 
   const opcionesRef = useRef({ curso: null, hor: null });
 
-  const { reserva, sgta, modalConfirmacion, conexionPerdida, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva, completarCursoManualmente } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef);
-
+const { reserva, sgta, modalConfirmacion, conexionPerdida, error: errorReserva, toggleModulo, pausarSesion, reanudarSesion, activarReserva, pausarReserva, reanudarReserva, detenerReserva, completarCursoManualmente } = useSessionTimer(reservaId, esInstructor, saveReserva, showToast, opcionesRef);
   const curso = useMemo(() => { if (!reserva) return { nombre: '', modulos: [], duracionTotal: 240 }; return (cursos || []).find(c => String(c.id) === String(reserva.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 }; }, [cursos, reserva]);
-  const hor = useMemo(() => reserva ? (horarios || []).find(h => String(h.id) === String(reserva.horaId)) : null, [horarios, reserva]);
+const hor = useMemo(() => {
+  if (!reserva) return null;
+  const horaIdEfectivo = getHoraIdEfectivoHoy(reserva);
+  return (horarios || []).find(h => String(h.id) === String(horaIdEfectivo));
+}, [horarios, reserva]);  
   const sede = useMemo(() => reserva ? (sedes || []).find(s => String(s.id) === String(reserva.sedeId)) : null, [sedes, reserva]);
   const inst = useMemo(() => reserva ? (instructores || []).find(i => String(i.id) === String(reserva.instructorId)) : null, [instructores, reserva]);
 
   useEffect(() => {
     opcionesRef.current = { curso, hor };
   }, [curso, hor]);
+
+   // Limpieza al cambiar de reserva
+  useEffect(() => {
+    setAccessDenied(false);
+  }, [reservaId]);
+
+  // Validación explícita de permisos (defensa en profundidad contra BOLA)
+  useEffect(() => {
+    if (!reserva || !uid) return;
+    const tieneAcceso =
+      esAdmin ||
+      String(reserva.userId) === String(uid) ||
+      String(reserva.instructorId) === String(uid) ||
+      (Array.isArray(reserva.implicadosIds) && reserva.implicadosIds.includes(uid));
+
+    if (!tieneAcceso) {
+      console.warn('[AulaVirtualView] Intento de acceso no autorizado:', {
+        userId: uid,
+        reservaId: reserva.id,
+        reservaInstructorId: reserva.instructorId,
+        timestamp: new Date().toISOString()
+      });
+      setAccessDenied(true);
+    }
+  }, [reserva, uid, esAdmin]);
+
+    // Manejo de errores del listener (permission-denied → bloqueo)
+  useEffect(() => {
+    if (!errorReserva) return;
+    if (errorReserva.code === 'permission-denied') {
+      setAccessDenied(true);
+    } else {
+      showToast('Error al cargar la reserva. Intente de nuevo.', 'error');
+      navigate(esInstructor ? '/instructor' : '/portal-reservas');
+    }
+  }, [errorReserva, showToast, navigate, esInstructor]);
 
   useEffect(() => {
     if (!reserva) return;
@@ -71,7 +117,7 @@ export default function AulaVirtualView() {
         showToast('Tu pago aún no ha sido aprobado. Espera la validación del administrador.', 'error');
         navigate('/portal-reservas', { replace: true });
       } else if (esInstructor) {
-        showToast('El pago de esta reserva aún no ha sido aprobado. No puedes iniciar la clase.', 'error');
+        showToast('El pago de esta reserva aún no ha sido aprobado. No puedes iniciar la sesión.', 'error');
         navigate('/instructor', { replace: true });
       }
     }
@@ -94,26 +140,47 @@ const tiempoAgotado = sgta.totalCompletado;
   const tiempoMaximoCurso = curso.duracionTotal || 240;
   const tiempoConsumido = Object.values(reserva?.modulosEstado || {}).reduce((acc, mod) => acc + (mod.duracion || 0) + (mod.duracionExtra || 0), 0);
   const tiempoRestanteCurso = Math.floor((sgta?.tiempoRestanteCurso || 0) / 60);
-  const modulosCompletados = curso.modulos.filter(mod => (reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha).map(mod => ({ nombre: typeof mod === 'string' ? mod : mod.nombre, duracion: typeof mod === 'string' ? 60 : (mod.duracion || 60) }));
-  const modulosPendientes = curso.modulos.filter(mod => !(reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha);
+  const modulosCompletados = curso.modulos
+    .filter(mod => (reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha)
+    .map(mod => {
+      const nombre = typeof mod === 'string' ? mod : mod.nombre;
+      const estado = (reserva?.modulosEstado || {})[nombre] || {};
+      return {
+        nombre,
+        duracion: typeof mod === 'string' ? 60 : (mod.duracion || 60),
+        horaInicio: estado.horaInicio || null,   // A2.8
+        horaFin: estado.horaFin || null           // A2.8
+      };
+    });  const modulosPendientes = curso.modulos.filter(mod => !(reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha);
 
   const handleVolver = () => navigate(esInstructor ? '/instructor' : '/portal-reservas');
   const handleEmergencia = () => { showToast('Emergencia reportada.', 'error'); if (reserva && saveReserva) saveReserva({ ...reserva, emergencia: { timestamp: Date.now(), reportadoPor: rol } }); };
   const handleCompletarManualmente = async () => {
     setMostrarModalCompletar(false);
-    showToast('Registrando curso completado...', 'info');
+    showToast('Registrando sesión completada...', 'info');
     const resultado = await completarCursoManualmente();
     if (resultado.success && resultado.modulosCompletados > 0) {
-      showToast(`✅ Curso completado manualmente. ${resultado.modulosCompletados} módulos registrados.`, 'success');
+      showToast(`✅ Sesión completada manualmente. ${resultado.modulosCompletados} módulos registrados.`, 'success');
     } else if (resultado.success && resultado.modulosCompletados === 0) {
       showToast('No había módulos pendientes por completar', 'info');
     } else {
-      showToast('Error al completar el curso manualmente', 'error');
+      showToast('Error al completar la sesión manualmente', 'error');
     }
   };
+  if (accessDenied) {
+    return (
+      <AppShell bgColor="bg-gray-50">
+        <div className="flex flex-col items-center justify-center min-h-full p-6 text-center">
+          <Lock size={48} className="text-red-500 mb-4" />
+          <h2 className="text-xl font-black text-gray-900 mb-2">Acceso Restringido</h2>
+          <p className="text-sm text-gray-500 mb-6">No tenés permiso para acceder a este panel. Si creés que es un error, contactá al administrador.</p>
+          <Button onClick={() => navigate(esInstructor ? '/instructor' : '/portal-reservas')} variant="primary">Volver al Panel</Button>
+        </div>
+      </AppShell>
+    );
+  }
 
-  if (!reserva) return (<AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando aula..." /></div></AppShell>);
-
+  if (!reserva) return (<AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando panel de sesiones..." /></div></AppShell>);
   if (reserva.estadoPago !== 'Aprobado' && esEstudiante) {
     return (
       <AppShell bgColor="bg-gray-50">
@@ -131,7 +198,7 @@ const tiempoAgotado = sgta.totalCompletado;
     <div className="bg-gradient-to-r from-gray-900 via-slate-800 to-gray-900 text-white px-4 py-2.5 flex items-center gap-3 relative overflow-hidden shadow-lg rounded-b-2xl">
       <div className="absolute -top-4 -right-4 w-16 h-16 bg-blue-500/20 rounded-full blur-xl"></div>
       <button onClick={handleVolver} className="p-1.5 bg-white/10 rounded-full relative z-10"><ChevronLeft size={18} className="text-white" /></button>
-      <h2 className="text-base font-black uppercase tracking-widest flex-1 relative z-10">Aula Virtual</h2>
+      <h2 className="text-base font-black uppercase tracking-widest flex-1 relative z-10">Panel de Sesiones</h2>
       <button onClick={toggleAlertaSonora} className="p-1.5 bg-white/10 rounded-full relative z-10" title={alertaSonora ? 'Desactivar sonido' : 'Activar sonido'}>
         {alertaSonora ? <Volume2 size={18} className="text-white" /> : <VolumeX size={18} className="text-white" />}
       </button>
@@ -153,21 +220,21 @@ const tiempoAgotado = sgta.totalCompletado;
                 {sgta.diarioCompletado && !sgta.totalCompletado && (
           <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl">
             <p className="text-yellow-800 font-bold text-sm">
-              Has completado tus {Math.floor(sgta.limiteDiario || 120)} minutos de hoy. Regresa mañana para continuar tu curso.
+              Has completado tus {Math.floor(sgta.limiteDiario || 120)} minutos de hoy. Regresa mañana para continuar tu sesión.
             </p>
           </div>
         )}
         <div className="rounded-xl shadow-xl shadow-blue-600/20 overflow-hidden">
           <div className="bg-blue-600 text-white p-3 relative">
-            <div className="flex items-center gap-2 mb-2"><Bike size={18} className="text-blue-200" /><p className="text-sm font-bold uppercase tracking-widest flex-1">{curso.nombre || 'Curso'}</p></div>
-            <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {sede?.nombre || 'N/A'}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">{esEstudiante ? `Inst: ${inst?.nombre || 'N/A'}` : `Alumno: ${reserva.nombre || 'N/A'}`}</span></div></div>
+            <div className="flex items-center gap-2 mb-2"><Bike size={18} className="text-blue-200" /><p className="text-sm font-bold uppercase tracking-widest flex-1">{curso.nombre || 'Sesión'}</p></div>
+            <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {sede?.nombre || 'N/A'}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">{esEstudiante ? `Tutor: ${inst?.nombre || 'N/A'}` : `Usuario: ${reserva.nombre || 'N/A'}`}</span></div></div>
             <div className="absolute top-2 right-2 bg-white/20 rounded-lg px-2 py-1 text-center"><p className="text-lg font-black leading-none">{sello.mes}</p><p className="text-[10px] font-bold leading-none">{sello.anio}</p></div>
             <div className="bg-gray-800/50 p-3 rounded-xl text-xs">
               <div className="flex items-start gap-3">
                 <div className="flex-1 space-y-1.5">
                   <div className="flex items-center gap-2"><Calendar size={12} className="text-blue-300" /><span className="font-bold">Días: {formatearRangoCorto(reserva.fecha, reserva.fecha2)}</span></div>
                   <div className="flex items-center gap-2"><Clock size={12} className="text-blue-300" /><span className="font-bold">Hora: {horaInicio} - {horaFin}</span></div>
-                  <div className="flex items-center gap-2"><Bike size={12} className="text-blue-300" /><span className="font-bold">{reserva.traeMoto === 'Sí' ? 'Propia' : 'Escuela'} · {reserva.tipoMoto}</span></div>
+                  <div className="flex items-center gap-2"><Bike size={12} className="text-blue-300" /><span className="font-bold">{reserva.traeMoto === 'Sí' ? 'Propia' : 'Moto App'} · {reserva.tipoMoto}</span></div>
                 </div>
                 <RelojSesion
                   generalSegundos={sgta.generalSegundos}
@@ -190,12 +257,14 @@ const tiempoAgotado = sgta.totalCompletado;
                 <span className="text-[10px] font-bold text-white/70">{tiempoRestanteCurso} min rest.</span>
               </div>
             </div>
-            <div className="bg-gray-100 -mx-3 -mb-3 px-3 py-2.5 mt-2 border-t border-blue-400/30">
-              <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-700">Avance Académico</span><span className="text-xs font-bold text-blue-600">{cantCompletados}/{totalModulos}</span></div>
+                      <div className="bg-gray-100 -mx-3 -mb-3 px-3 py-2.5 mt-2 border-t border-blue-400/30">
+              <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-700">Avance</span><span className="text-xs font-bold text-blue-600">{cantCompletados}/{totalModulos}</span></div>
               <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div className="h-2 rounded-full transition-all duration-500" style={{ width: totalModulos > 0 ? `${(cantCompletados / totalModulos) * 100}%` : '0%', background: 'repeating-linear-gradient(-45deg, #4ade80, #4ade80 6px, #22c55e 6px, #22c55e 12px)', animation: 'progress-stripes 1s linear infinite' }}></div></div>
             </div>
           </div>
         </div>
+
+        <BadgeReposicion reserva={reserva} horarios={horarios} variant="full" />
 
         {todosCompletados && sgta.pausaTotalAcumulada > 0 && (
           <ReservaPanel tiempoReservaSegundos={sgta.pausaTotalAcumulada} />
@@ -250,7 +319,7 @@ const tiempoAgotado = sgta.totalCompletado;
               <div className="flex-1">
                 <h4 className="font-bold text-blue-900 mb-1">Tiempo agotado</h4>
                 <p className="text-sm text-blue-800">
-                  El tiempo de sesión se agotó, pero puedes registrar manualmente que el estudiante completó el curso.
+                  El tiempo de sesión se agotó, pero puedes registrar manualmente que el usuario completó la sesión.
                 </p>
               </div>
             </div>
@@ -258,7 +327,7 @@ const tiempoAgotado = sgta.totalCompletado;
               onClick={() => setMostrarModalCompletar(true)}
               className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
             >
-              Registrar curso completado
+              Registrar sesión completada
             </button>
           </div>
         )}
@@ -270,14 +339,14 @@ const tiempoAgotado = sgta.totalCompletado;
             className="mt-3 w-full"
             icon={BookOpen}
           >
-            Ver otros cursos
+            Ver otras sesiones
           </Button>
         )}
       </div>
       {mostrarSelectorPausa && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-5">{!mostrandoInputOtro ? (<><div className="flex items-center justify-between mb-4"><h3 className="font-black text-gray-900">Motivo de pausa</h3><button onClick={() => setMostrarSelectorPausa(false)} className="p-1 bg-gray-100 rounded-full"><X size={16} /></button></div><div className="space-y-2">{MOTIVOS_PAUSA.map(m => (<button key={m.id} onClick={() => { if (m.id === 'otro') setMostrandoInputOtro(true); else { pausarSesion(m.label); setMostrarSelectorPausa(false); } }} className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"><m.icon size={18} className="text-gray-500" /><span className="font-bold text-sm">{m.label}</span></button>))}</div></>) : (<><div className="flex items-center justify-between mb-4"><h3 className="font-black text-gray-900">Especificar motivo</h3><button onClick={() => setMostrandoInputOtro(false)} className="p-1 bg-gray-100 rounded-full"><X size={16} /></button></div><div className="space-y-3"><input type="text" value={otroMotivoTexto} onChange={e => setOtroMotivoTexto(e.target.value)} placeholder="¿Qué ocurrió?" className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl py-2.5 px-3 text-sm outline-none focus:border-blue-500" /><Button type="button" onClick={() => { if (otroMotivoTexto.trim()) { pausarSesion(otroMotivoTexto.trim()); setMostrarSelectorPausa(false); setMostrandoInputOtro(false); } }} variant="dark" disabled={!otroMotivoTexto.trim()}>Confirmar</Button></div></>)}</div></div>)}
       {mostrarModalCompletar && (
         <ModalConfirmacion
-          titulo="Registrar curso completado manualmente"
+          titulo="Registrar sesión completada manualmente"
           mensaje={
             <div>
               <p className="mb-3 text-gray-700">
@@ -288,10 +357,10 @@ const tiempoAgotado = sgta.totalCompletado;
                 <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
                   <li>No se registrará el tiempo real de cada módulo</li>
                   <li>Esta acción es irreversible</li>
-                  <li>Úsela solo si el estudiante realmente completó el curso</li>
+                  <li>Úsela solo si el usuario realmente completó la sesión</li>
                 </ul>
               </div>
-              <p className="text-sm text-gray-600">¿Confirma que el estudiante completó todos los módulos pendientes?</p>
+              <p className="text-sm text-gray-600">¿Confirma que el usuario completó todos los módulos pendientes?</p>
             </div>
           }
           onConfirm={handleCompletarManualmente}
@@ -300,6 +369,9 @@ const tiempoAgotado = sgta.totalCompletado;
       )}
       {modalConfirmacion && <ModalConfirmacion titulo={modalConfirmacion.titulo} mensaje={modalConfirmacion.mensaje} onConfirm={modalConfirmacion.onConfirm} onCancel={modalConfirmacion.onCancel} />}
       {mostrarMaterial && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 max-h-[80vh] overflow-y-auto"><div className="flex items-center justify-between mb-4"><h3 className="font-black text-gray-900">Material de Apoyo</h3><button onClick={() => setMostrarMaterial(false)} className="p-1 bg-gray-100 rounded-full"><X size={16} /></button></div><div className="flex gap-2 mb-4">{['senales','leyes','glosario'].map(s => (<button key={s} onClick={() => setSeccionMaterial(s)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${seccionMaterial === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>))}</div><div className="space-y-3">{MATERIAL_APOYO[seccionMaterial]?.map((item, i) => (<div key={i} className="bg-gray-50 p-3 rounded-xl"><p className="font-bold text-sm text-gray-900">{item.nombre || item.titulo || item.termino}</p><p className="text-xs text-gray-600">{item.descripcion || item.texto || item.definicion}</p></div>))}</div></div></div>)}
+      <div className="px-4 pb-2">
+        <LegalFooter />
+      </div>
     </AppShell>
   );
 }

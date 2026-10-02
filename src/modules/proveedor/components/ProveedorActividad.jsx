@@ -76,7 +76,7 @@ const ProveedorActividad = () => {
 
       {clasesDelDia.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
-          <p className="text-sm font-bold">Sin clases para esta fecha</p>
+          <p className="text-sm font-bold">Sin sesiones para esta fecha</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -101,7 +101,7 @@ const ProveedorActividad = () => {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <User size={14} />
-                  Instructor: {instructor ? `${instructor.nombre} ${instructor.apellido || ''}` : 'No asignado'}
+                  Tutor: {instructor ? `${instructor.nombre} ${instructor.apellido || ''}` : 'No asignado'}
                 </div>
               </div>
             );

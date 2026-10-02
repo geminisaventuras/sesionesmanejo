@@ -7,8 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   BookOpen, MapPin, Clock, Bike, Users, Briefcase, Settings, ChevronRight,
-  Activity, Wallet, Calendar, CreditCard
-} from 'lucide-react';
+  Activity, Wallet, Calendar, CreditCard, Package} from 'lucide-react';
 import AdminCRUDPage from './AdminCRUDPage';
 
 const AdminConfigHub = memo(() => {
@@ -64,8 +63,11 @@ const AdminConfigHub = memo(() => {
                             <button type="button" onClick={() => setVista('proveedores')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <Briefcase size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Proveedores</span>
               </button>
-              <button type="button" onClick={() => setVista('metodosPago')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
+                           <button type="button" onClick={() => setVista('metodosPago')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <CreditCard size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Métodos de Pago</span>
+              </button>
+              <button type="button" onClick={() => setVista('packs')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
+                <Package size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Packs</span>
               </button>
             </div>
             <button type="button" onClick={() => navigate('/admin/config/ajustes')} className="w-full bg-gray-900 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between hover:bg-black transition-colors">

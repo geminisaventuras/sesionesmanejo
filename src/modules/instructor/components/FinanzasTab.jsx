@@ -1,4 +1,4 @@
-// @build: 2026-09-16 | id: FINANZAS-TAB-V2 | desc: Finanzas del instructor con cuenta por cobrar + historial de pagos
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-FINANZAS-TUTOR | desc: Terminología legal - sesiones, Moto App.
 import React, { useState, useEffect, useMemo } from 'react';
 import { DollarSign, Clock, TrendingUp, Calendar } from 'lucide-react';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
@@ -28,7 +28,7 @@ const ETIQUETAS_CURSO = {
   basico_auto: 'Básico Automática',
   basico_sincro: 'Básico Sincrónica',
   general: 'Práctica en la Vía',
-  motero: 'Curso Motero'
+  motero: 'Sesión Motero'
 };
 
 const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
@@ -218,7 +218,7 @@ export default function FinanzasTab({ reservas, cursos, user }) {
    const cursoNombre = (cursoId, tipoCurso) => {
     const porId = (cursos || []).find(c => String(c.id) === String(cursoId));
     if (porId) return porId.nombre;
-    return ETIQUETAS_CURSO[tipoCurso] || tipoCurso || cursoId || 'Curso';
+    return ETIQUETAS_CURSO[tipoCurso] || tipoCurso || cursoId || 'Sesión';
   };
 
   // Filtros aplicados al historial
@@ -425,7 +425,7 @@ export default function FinanzasTab({ reservas, cursos, user }) {
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <p className="text-xs text-blue-700">
-          <strong>Nota:</strong> Los montos corresponden a tu comisión fija por clase al momento de crear la reserva.
+          <strong>Nota:</strong> Los montos corresponden a tu comisión fija por sesión al momento de crear la reserva.
         </p>
       </div>
 
@@ -494,7 +494,7 @@ export default function FinanzasTab({ reservas, cursos, user }) {
             <EmptyState
               icon={DollarSign}
               title="Sin comisiones por cobrar"
-              description="Cuando tengas clases aprobadas pendientes de pago, aparecerán aquí."
+              description="Cuando tengas sesiones aprobadas pendientes de pago, aparecerán aquí."
             />
           ) : reservasPorCobrarFiltradas.length === 0 ? (
             <div className="bg-white border border-gray-100 rounded-xl p-6 text-center">
@@ -510,7 +510,7 @@ export default function FinanzasTab({ reservas, cursos, user }) {
                     <div className="flex justify-between items-start gap-2">
                                          <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1">
-                          <p className="text-sm font-bold text-gray-800 truncate">{curso?.nombre || 'Curso'}</p>
+                          <p className="text-sm font-bold text-gray-800 truncate">{curso?.nombre || 'Sesión'}</p>
                           {r.esReservaCompartida && (() => {
                             const inv = (r.instructoresInvolucrados || []).find(i => String(i.id) === String(uid));
                             return inv ? (
@@ -578,13 +578,13 @@ export default function FinanzasTab({ reservas, cursos, user }) {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-1">Curso</label>
+                <label className="block text-[10px] font-bold text-gray-600 mb-1">Sesión</label>
                 <select
                   value={filtroCursoId}
                   onChange={e => setFiltroCursoId(e.target.value)}
                   className="w-full bg-gray-50 border rounded-lg py-1.5 px-2 text-xs"
                 >
-                  <option value="">Todos</option>
+                  <option value="">Todas</option>
                   {(cursos || []).filter(c => c.activo !== false).map(c => (
                     <option key={c.id} value={c.id}>{c.nombre}</option>
                   ))}
@@ -619,7 +619,7 @@ export default function FinanzasTab({ reservas, cursos, user }) {
             <EmptyState
               icon={DollarSign}
               title="Sin pagos recibidos"
-              description="Cuando la escuela te registre un pago, aparecerá aquí."
+              description="Cuando Moto App te registre un pago, aparecerá aquí."
             />
           ) : pagosFiltrados.length === 0 ? (
             <div className="bg-white border border-gray-100 rounded-xl p-6 text-center">

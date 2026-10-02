@@ -34,7 +34,7 @@ const formatearFecha = (timestamp) => {
 };
 
 export default function NotificationDropdown({ notifications = [], onClose }) {
-  const { markNotificationRead } = useContext(AppContext);
+    const { markNotificationRead, refreshNotificaciones } = useContext(AppContext);
   const dropdownRef = useRef(null);
 
   // Cerrar al hacer clic fuera
@@ -47,9 +47,23 @@ export default function NotificationDropdown({ notifications = [], onClose }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
-
+  // Refrescar notificaciones al abrir el dropdown
+  useEffect(() => {
+    if (refreshNotificaciones) refreshNotificaciones();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+   // Dedupe defensivo por id (evita warnings de "duplicate key")
+  const dedup = (arr) => {
+    const seen = new Set();
+    return arr.filter(n => {
+      const id = String(n.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  };
   // Ordenar: no leídas primero, luego por fecha
-  const ordenadas = [...notifications].sort((a, b) => {
+  const ordenadas = dedup([...notifications]).sort((a, b) => {
     if (a.leida !== b.leida) return a.leida ? 1 : -1;
     const fechaA = a.createdAt?.toMillis?.() || 0;
     const fechaB = b.createdAt?.toMillis?.() || 0;

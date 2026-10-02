@@ -94,7 +94,7 @@ useEffect(() => {
             {usoPorMoto.map(moto => (
               <div key={moto.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                 <div className="flex items-center gap-4 mb-3"><div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center text-gray-400"><Bike size={24} /></div><div><h3 className="font-black text-lg text-gray-900">{moto.marca} {moto.modelo}</h3><p className="text-xs text-gray-500">{moto.tipo} · {moto.cilindrada}</p></div></div>
-                <div className="grid grid-cols-2 gap-3 text-center"><div className="bg-blue-50 p-3 rounded-xl"><p className="text-2xl font-black text-blue-700">{moto.activas}</p><p className="text-[10px] text-blue-600 uppercase">En Curso</p></div><div className="bg-green-50 p-3 rounded-xl"><p className="text-2xl font-black text-green-700">{moto.completadas}</p><p className="text-[10px] text-green-600 uppercase">Completadas</p></div></div>
+                <div className="grid grid-cols-2 gap-3 text-center"><div className="bg-blue-50 p-3 rounded-xl"><p className="text-2xl font-black text-blue-700">{moto.activas}</p><p className="text-[10px] text-blue-600 uppercase">En Progreso</p></div><div className="bg-green-50 p-3 rounded-xl"><p className="text-2xl font-black text-green-700">{moto.completadas}</p><p className="text-[10px] text-green-600 uppercase">Completadas</p></div></div>
               </div>
             ))}
             <div className="grid grid-cols-2 gap-4">

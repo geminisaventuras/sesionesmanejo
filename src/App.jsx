@@ -1,4 +1,4 @@
-// @build: 2026-06-23.FASE3-FINAL | id: APP-LAZY-RBAC-FIX | desc: Enrutador con lazy loading, Suspense y ProtectedRoute corregido (useEffect)
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-APP | backup: App.jsx.backup-AQUI-VA-TU-TIMESTAMP | desc: Ruta /cursos migrada a /sesiones + redirect legacy.
 import React, { useContext, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
@@ -14,6 +14,8 @@ const LoginView = React.lazy(() => import('./modules/auth/views/LoginView').then
 const TestBloquesView = React.lazy(() => import('./modules/test/views/TestBloquesView').then(m => ({ default: m.TestBloquesView })));
 const TestDatePicker = React.lazy(() => import('./modules/test/views/TestDatePicker'));
 const EstudiantePanel = React.lazy(() => import('./modules/estudiante/views/EstudiantePanel').then(m => ({ default: m.EstudiantePanel })));
+const PackDetalleEstudiante = React.lazy(() => import('./modules/estudiante/views/PackDetalleEstudiante').then(m => ({ default: m.PackDetalleEstudiante })));
+const AgendarPackView = React.lazy(() => import('./modules/estudiante/views/AgendarPackView').then(m => ({ default: m.AgendarPackView })));
 //const InstructorPanel = React.lazy(() => import('./modules/instructor/views/InstructorPanel'));
 
 const AulaVirtualView = React.lazy(() => import('./modules/aula/views/AulaVirtualView'));
@@ -21,6 +23,9 @@ const AdminResumen = React.lazy(() => import('./modules/admin/components/AdminRe
 const AdminReservasHome = React.lazy(() => import('./modules/admin/components/AdminReservasHome'));
 const AdminReservasList = React.lazy(() => import('./modules/admin/components/AdminReservasList'));
 const AdminReservaDetalle = React.lazy(() => import('./modules/admin/components/AdminReservaDetalle'));
+const AdminPackDetalle = React.lazy(() => import('./modules/admin/components/AdminPackDetalle'));
+const ProgresoAcademicoView = React.lazy(() => import('./modules/shared/views/ProgresoAcademicoView'));
+
 const AdminOcupacion = React.lazy(() => import('./modules/admin/components/AdminOcupacion'));
 const AdminFinanzas = React.lazy(() => import('./modules/admin/components/AdminFinanzas'));
 const StaffFinanzasView = React.lazy(() => import('./modules/admin/components/StaffFinanzasView'));
@@ -28,6 +33,7 @@ const AdminConfigHub = React.lazy(() => import('./modules/admin/components/Admin
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
 const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
 const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
+const PacksPublicosView = React.lazy(() => import('./modules/public/views/PacksPublicosView'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -66,7 +72,10 @@ function App() {
         <Routes>
           {/* Rutas públicas */}
           <Route path="/" element={<HomeView />} />
-          <Route path="/cursos" element={<CursosPublicosView />} />
+                    <Route path="/sesiones" element={<CursosPublicosView />} />
+          <Route path="/cursos" element={<Navigate to="/sesiones" replace />} />          
+          <Route path="/packs" element={<PacksPublicosView />} />
+
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />
           <Route path="/login" element={<LoginView />} />
@@ -75,9 +84,19 @@ function App() {
           <Route path="/test-datepicker" element={<TestDatePicker />} />
 
           {/* Panel del estudiante */}
-          <Route path="/portal-reservas" element={
+               <Route path="/portal-reservas" element={
             <ProtectedRoute allowedRoles={['estudiante']}>
               <EstudiantePanel />
+            </ProtectedRoute>
+          } />
+                   <Route path="/mi-pack/:packReservaId" element={
+            <ProtectedRoute allowedRoles={['estudiante']}>
+              <PackDetalleEstudiante />
+            </ProtectedRoute>
+          } />
+          <Route path="/mi-pack/:packReservaId/agendar" element={
+            <ProtectedRoute allowedRoles={['estudiante']}>
+              <AgendarPackView />
             </ProtectedRoute>
           } />
 
@@ -102,10 +121,22 @@ function App() {
             </ProtectedRoute>
           } />
 
-          {/* Gestión de reservas (admin) */}
-          <Route path="/admin/reserva/:reservaId" element={
+                   {/* Gestión de reservas (admin) */}
+                  <Route path="/admin/reserva/:reservaId" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminReservaDetalle />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/pack/:packReservaId" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminPackDetalle />
+            </ProtectedRoute>
+          } />
+
+          {/* A2.8-bis: Progreso académico (admin, instructor, estudiante) */}
+          <Route path="/reservas/:reservaId/progreso" element={
+            <ProtectedRoute allowedRoles={['admin', 'instructor', 'estudiante']}>
+              <ProgresoAcademicoView />
             </ProtectedRoute>
           } />
           <Route path="/admin/reservas/lista" element={

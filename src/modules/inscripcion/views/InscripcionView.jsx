@@ -15,6 +15,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import { useInscripcionState } from '../hooks/useInscripcionState';
 import { Paso1DatosPersonales } from '../components/Paso1DatosPersonales';
 import { Paso2Configuracion } from '../components/Paso2Configuracion';
+import { Paso2Pack } from '../components/Paso2Pack';
 import { Paso3Horario } from '../components/Paso3Horario';
 import { Paso4Pago } from '../components/Paso4Pago';
 import { Stepper } from '../components/Stepper';
@@ -32,6 +33,8 @@ import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
 import { EmailService } from '../../shared/services/EmailService';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros, eliminarLockLocal } from '../utils/locksHelpers';
+import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
 const LOCK_DURATION = 10 * 60 * 1000;
 const MAX_REINTENTOS_EXPIRACION = 3;
@@ -65,7 +68,8 @@ const isPastBlock = (fecha, label, todayStr) => {
 const evaluarDisponibilidad = ({
   form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
 }) => {
-  const necesitaMoto = form.traeMoto !== 'Sí';
+    const cursoIncluyeMoto = cursoSeleccionado?.motoIncluida !== false;
+  const necesitaMoto = cursoIncluyeMoto && form.traeMoto !== 'Sí';
     const locksDeOtros = (activeLocks || []).filter(l => {
   if (l.userId === currentUserId) return false;
   // Validar estructura mínima del lock (evita locks corruptos)
@@ -78,33 +82,38 @@ const evaluarDisponibilidad = ({
 });
     // FIX-035: Sin filtro de userId. Las reservas propias también ocupan.
   const reservasDeOtros = reservasConfirmadas || [];
-  const isInstructorOcupado = (instructorId, bloqueId, fecha1, fecha2) => {
-       const enReserva = reservasDeOtros.some(r => {
+   const isInstructorOcupado = (instructorId, bloqueId, fecha1, fecha2) => {
+    const enReserva = reservasDeOtros.some(r => {
       if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
       if (r.instructorId !== instructorId) return false;
-      if (r.horaId !== bloqueId) return false;            // ← añadir esta línea
-          return r.fecha === fecha1 || (fecha2 && r.fecha === fecha2) || r.fecha2 === fecha1 || (fecha2 && r.fecha2 === fecha2);
+      // Helper unificado: resuelve el bloque efectivo según la fecha buscada.
+      if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloqueId) return true;
+      if (fecha2 && getHoraIdOcupacion(r, fecha2) === bloqueId) return true;
+      return false;
     });
     if (enReserva) return true;
     const enLock = locksDeOtros.some(lock => {
       if (lock.instructorId !== instructorId) return false;
       if (lock.horaId !== bloqueId) return false;
-      return lock.fecha === fecha1 || (fecha2 && lock.fecha === fecha2);    });
+      return lock.fecha === fecha1 || (fecha2 && lock.fecha === fecha2);
+    });
     return enLock;
   };
   const isMotoOcupada = (motoId, bloqueId, fecha1, fecha2) => {
-        const enReserva = reservasDeOtros.some(r => {
+    const enReserva = reservasDeOtros.some(r => {
       if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
-      if (r.motoAsignadaId !== motoId) return false;
+      if (r.motoAsignadaId !== motoId && r.motoReposicionId !== motoId) return false;
       if (r.traeMoto === 'Sí') return false;
-      if (r.horaId !== bloqueId) return false;             // ← añadir esta línea
-          return r.fecha === fecha1 || (fecha2 && r.fecha === fecha2) || r.fecha2 === fecha1 || (fecha2 && r.fecha2 === fecha2);
+      if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloqueId) return true;
+      if (fecha2 && getHoraIdOcupacion(r, fecha2) === bloqueId) return true;
+      return false;
     });
     if (enReserva) return true;
     const enLock = locksDeOtros.some(lock => {
       if (lock.motoAsignadaId !== motoId) return false;
-      if (lock.horaId !== bloqueId) return false;          // ← añadir esta línea
-      return lock.fecha === fecha1 || (fecha2 && lock.fecha === fecha2);    });
+      if (lock.horaId !== bloqueId) return false;
+      return lock.fecha === fecha1 || (fecha2 && lock.fecha === fecha2);
+    });
     return enLock;
   };
 
@@ -116,15 +125,20 @@ const evaluarDisponibilidad = ({
         return d.toISOString().split('T')[0];
       })() : null);
   const calcularBloque = (bloque, fecha1, fecha2) => {
-   if (bloque.isLunch) return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
-    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b => {
-      if (fecha1 < b.fechaInicio) return false;
+      if (bloque.isLunch) return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
+    // A2.3: el bloqueo debe aplicar a fecha1 Y fecha2 (cursos de 2 días)
+    const afectaFecha = (b, f) => {
+      if (!f) return false;
+      if (f < b.fechaInicio) return false;
       const fin = b.fechaFin || b.fechaInicio;
-      if (fecha1 > fin) return false;
+      if (f > fin) return false;
       if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
       if (b.todoElDia) return true;
       return (b.horarios || []).includes(bloque.id);
-    });
+    };
+    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b =>
+      afectaFecha(b, fecha1) || afectaFecha(b, fecha2)
+    );
     if (hayBloqueoAdmin) {
       return { ...bloque, disponible: false, reason: 'BLOQUEO_ADMIN', instructorId: null, motoAsignadaId: null };
     }
@@ -153,26 +167,31 @@ const evaluarDisponibilidad = ({
         .filter(m => !isMotoOcupada(m.id, bloque.id, fecha1, fecha2));
     }
     const motosDisponiblesBase = motosDisponibles;
-    // Filtrar motos bloqueadas por el proveedor (solo si el estudiante necesita moto)
+      // Filtrar motos bloqueadas por el proveedor (solo si el estudiante necesita moto)
     if (necesitaMoto && motosDisponibles.length > 0) {
+      // A2.3: bloqueo de proveedor debe aplicar a fecha1 Y fecha2 (cursos de 2 días)
+      const afectaProveedor = (b, motoId, f) => {
+        if (!f) return false;
+        if (b.motoId !== motoId && b.motoId !== 'ALL') return false;
+        if (b.fecha !== f) return false;
+        const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
+        const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
+        const bloqueInicio = hIni * 60 + mIni;
+        const bloqueFin = hFin * 60 + mFin;
+        const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (!labelParts) return false;
+        let hBloque = parseInt(labelParts[1], 10);
+        const mBloque = parseInt(labelParts[2], 10);
+        const mod = labelParts[3].toUpperCase();
+        if (mod === 'PM' && hBloque < 12) hBloque += 12;
+        if (mod === 'AM' && hBloque === 12) hBloque = 0;
+        const bloqueMinutos = hBloque * 60 + mBloque;
+        return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
+      };
       motosDisponibles = motosDisponibles.filter(m => {
-        const bloqueado = (bloqueosProveedor || []).some(b => {
-          if (b.motoId !== m.id && b.motoId !== 'ALL') return false;
-          if (b.fecha !== fecha1) return false;
-          const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
-          const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
-          const bloqueInicio = hIni * 60 + mIni;
-          const bloqueFin = hFin * 60 + mFin;
-          const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
-          if (!labelParts) return false;
-          let hBloque = parseInt(labelParts[1], 10);
-          const mBloque = parseInt(labelParts[2], 10);
-          const mod = labelParts[3].toUpperCase();
-          if (mod === 'PM' && hBloque < 12) hBloque += 12;
-          if (mod === 'AM' && hBloque === 12) hBloque = 0;
-          const bloqueMinutos = hBloque * 60 + mBloque;
-          return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
-        });
+        const bloqueado = (bloqueosProveedor || []).some(b =>
+          afectaProveedor(b, m.id, fecha1) || afectaProveedor(b, m.id, fecha2)
+        );
         return !bloqueado;
       });
     }
@@ -194,17 +213,25 @@ if (!necesitaMoto) {
 
     const instructoresTotal = (instructores || []).filter(i => i.activo && (i.sedes || []).includes(form.sedeId));
            const motosTotal = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
-    const instructoresLibresSinLocks = instructoresTotal.filter(i => !reservasDeOtros.some(r => r.instructorId === i.id && r.horaId === bloque.id && (r.fecha === fecha1 || (fecha2 && r.fecha === fecha2) || r.fecha2 === fecha1 || (fecha2 && r.fecha2 === fecha2)))).length;    const motosLibresSinLocks = necesitaMoto ? motosTotal.filter(m => !reservasDeOtros.some(r => r.motoAsignadaId === m.id && r.traeMoto !== 'Sí' && r.horaId === bloque.id && (r.fecha === fecha1 || (fecha2 && r.fecha === fecha2) || r.fecha2 === fecha1 || (fecha2 && r.fecha2 === fecha2)))).length : 999; if (!necesitaMoto) {
+        const instructoresLibresSinLocks = instructoresTotal.filter(i => !reservasDeOtros.some(r => {
+      if (r.instructorId !== i.id) return false;
+      if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloque.id) return true;
+      if (fecha2 && getHoraIdOcupacion(r, fecha2) === bloque.id) return true;
+      return false;
+    })).length;
+
+    const motosLibresSinLocks = necesitaMoto
+      ? motosTotal.filter(m => !reservasDeOtros.some(r => {
+          if (r.traeMoto === 'Sí') return false;
+          if (r.motoAsignadaId !== m.id && r.motoReposicionId !== m.id) return false;
+          if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloque.id) return true;
+          if (fecha2 && getHoraIdOcupacion(r, fecha2) === bloque.id) return true;
+          return false;
+        })).length
+      : 999; if (!necesitaMoto) {
+      
       if (instructoresLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
-            console.log('🔍 [DEBUG EN_ESPERA_PAGO]', {
-        bloqueId: bloque?.id,
-        fecha1,
-        fecha2,
-        instructoresLibresSinLocks,
-        motosLibresSinLocks,
-        reservasConfirmadas,
-        locksDeOtros,
-      });
+    
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
     } else {
       if (instructoresLibresSinLocks === 0 || motosLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
@@ -257,7 +284,7 @@ const {
   } = useInscripcionState();
 
   // Cálculos derivados ANTES del hook
-  const cursoSeleccionado = (ctx.cursos || []).find(c => String(c.id) === String(form.cursoId));
+    const cursoSeleccionado = (ctx.cursos || []).find(c => String(c.id) === String(form.cursoId));
   const cursoUnDia = (cursoSeleccionado?.duracionTotal || 240) <= 120;
   const fecha2Calc = useMemo(() => {
     if (!form.fecha1 || cursoUnDia) return null;
@@ -273,36 +300,127 @@ const {
     limitDocs: 100 
   });
 
-  const navigate = useNavigate();
+    const navigate = useNavigate();
     const location = useLocation();
-      const esRecompra = location.state?.esRecompra && location.state?.modo === 'nueva';
-      
-  const recompraInicializadaRef = useRef(false);
-    const publicoInicializadoRef = useRef(false);
+       const esRecompra = location.state?.esRecompra && location.state?.modo === 'nueva';
+      const esReintento = location.state?.esReintento && location.state?.modo === 'nueva' && !esRecompra;
+       // Fase 3 Pack: detección. Cambios de flujo vienen en sub-pasos posteriores.
+             const esPack = location.state?.esPack === true && !!location.state?.packId;
+       const packId = location.state?.packId || null;
+  const packActivo = useMemo(
+    () => esPack ? (ctx.packs || []).find(p => String(p.id) === String(packId)) : null,
+    [ctx.packs, esPack, packId]
+  );
+   const recompraInicializadaRef = useRef(false);
+    const reintentoInicializadoRef = useRef(false);
+      const bootstrapEjecutado = useRef(false);
+    const packInicializadoRef = useRef(false);
   const [inicializandoRecompra, setInicializandoRecompra] = useState(esRecompra);
+  const [inicializandoReintento, setInicializandoReintento] = useState(esReintento);
   
 
 
+  // ✅ FIX-REGISTRO-BOOTSTRAP: Consolidación de useEffect de mount.
+  // Reemplaza: origen público + restauración de progreso + redirección FIX-035.
+  // 6 fases secuenciales, sin race conditions.
   useEffect(() => {
-    if (publicoInicializadoRef.current) return;
+    if (bootstrapEjecutado.current) return;
+    bootstrapEjecutado.current = true;
 
-    const state = location.state || {};
-    if (state.origen !== 'publico' || !state.cursoSugerido || !state.cursoId) return;
+    let isMounted = true;
 
-    publicoInicializadoRef.current = true;
+    const bootstrap = async () => {
+      try {
+        const state = location.state || {};
 
-    limpiarSesion();
-    resetForm();
+        // FASE 1 — Origen público: limpiar + Paso 1 con curso preseleccionado
+        if (state.origen === 'publico' && state.cursoSugerido && state.cursoId) {
+          limpiarSesion();
+          resetForm();
+          updateForm({
+            cursoId: state.cursoId,
+            cursoSugeridoActivo: true,
+            cursoSeleccionadoManual: false,
+            origenPublico: true
+          });
+          navigate(location.pathname, { replace: true, state: {} });
+          setStep('1');
+          return;
+        }
 
-    updateForm({
-      cursoId: state.cursoId,
-      cursoSugeridoActivo: true,
-      cursoSeleccionadoManual: false,
-      origenPublico: true
-    });
+        // FASE 2 — Sin sesión: terminar bootstrap
+        if (!ctx.authReady || !ctx.fbUser) return;
 
-    setStep('1');
-  }, [location.state, limpiarSesion, resetForm, updateForm, setStep]);
+        // FASE 3 — Rol no-estudiante: redirigir a su panel
+        const rol = ctx.user?.role;
+        if (rol === 'admin') { navigate('/admin', { replace: true }); return; }
+        if (rol === 'instructor') { navigate('/instructor', { replace: true }); return; }
+        if (rol === 'proveedor') { navigate('/proveedor', { replace: true }); return; }
+
+        // FASE 4 — Excepciones: recompra, reintento, pack (dejar sus flujos)
+        if (state.esRecompra || state.esReintento || state.esPack) return;
+
+        // FASE 5 — Redirección temprana: usuario con reservas (cualquier estado)
+        const resReservas = await ReservaService.obtenerReservasPorUsuario(ctx.fbUser.uid);
+        if (!isMounted) return;
+        const reservas = resReservas.success ? (resReservas.data || []) : [];
+
+        if (reservas.length > 0) {
+          showToast('Ya tienes cursos en gestión. Te llevamos a tu portal.', 'info');
+          navigate('/portal-reservas', { replace: true });
+          return;
+        }
+
+        // FASE 6 — Restauración de progreso (usuario sin reserva)
+        const pinSession = sessionStorage.getItem('inscripcion_generatedPin');
+        if (pinSession) {
+          if (!generatedPinRef.current) generatedPinRef.current = pinSession;
+          if (!generatedPin) setGeneratedPin(pinSession);
+          return;
+        }
+        if (generatedPinRef.current || generatedPin) return;
+
+        const correoBusqueda = form.correo || ctx.fbUser.email;
+        if (!correoBusqueda) return;
+
+        const progreso = await ReservaService.buscarProgresoPorCorreo(correoBusqueda);
+        if (!isMounted) return;
+
+        if (progreso.success && progreso.data) {
+          const cedulaGuardada = progreso.data.cedula || progreso.data.datosFormulario?.cedula;
+          const cedulaIngresada = form.cedula;
+          if (cedulaIngresada && cedulaGuardada && cedulaIngresada !== cedulaGuardada) {
+            showToast('La cédula no coincide con la registrada. No puedes continuar.', 'error');
+            if (ctx.logoutUser) await ctx.logoutUser();
+            return;
+          }
+          const pinGuardado = progreso.data.pin || progreso.data.datosFormulario?.pin;
+          if (pinGuardado) {
+            generatedPinRef.current = pinGuardado;
+            setGeneratedPin(pinGuardado);
+            sessionStorage.setItem('inscripcion_generatedPin', pinGuardado);
+            updateForm({ pin: pinGuardado });
+          }
+          if (progreso.data.datosFormulario) {
+            updateForm(progreso.data.datosFormulario);
+            setStep(String(progreso.data.paso || '2'));
+          }
+          return;
+        }
+
+        // FASE 7 — Precarga correo (usuario sin reserva, sin progreso)
+        if (!form.correo && ctx.fbUser.email) {
+          updateForm({ correo: ctx.fbUser.email });
+        }
+      } catch (err) {
+        console.error('[InscripcionView] Error en bootstrap:', err);
+      }
+    };
+
+    bootstrap();
+
+    return () => { isMounted = false; };
+  }, []); // Solo en mount
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
@@ -332,6 +450,7 @@ const {
   }, []);
   const calendarioRef = useRef(null);
   const generatedPinRef = useRef(null);
+    
   const [generatedPin, setGeneratedPin] = useState(() => {
     return sessionStorage.getItem('inscripcion_generatedPin') || null;
   });
@@ -449,76 +568,131 @@ const {
 
     
 
-    iniciarRecompra();
+       iniciarRecompra();
 }, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm, ctx.cursos]);
-  useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
-    useEffect(() => {
-    if (!ctx.authReady || !ctx.fbUser || esRecompra) return;
 
-    const pinSession = sessionStorage.getItem('inscripcion_generatedPin');
-    if (pinSession) {
-      if (!generatedPinRef.current) generatedPinRef.current = pinSession;
-      if (!generatedPin) setGeneratedPin(pinSession);
-      return;
-    }
+  // A2.6: useEffect de reintento (estudiante con reserva cancelada por pago no coincidente)
+  useEffect(() => {
+    const state = location.state || {};
+    if (!ctx.fbUser || !state.esReintento || state.modo !== 'nueva') return;
+    if (reintentoInicializadoRef.current) return;
+    reintentoInicializadoRef.current = true;
 
-    if (generatedPinRef.current || generatedPin) return;
-
-    const correoBusqueda = form.correo || ctx.fbUser?.email;
-    if (!correoBusqueda) return;
-
-    let activo = true;
-
-    const restaurarProgreso = async () => {
+    const iniciarReintento = async () => {
+      setInicializandoReintento(true);
+      limpiarSesion();
+      resetForm();
       try {
-        const progreso = await ReservaService.buscarProgresoPorCorreo(correoBusqueda);
-
-        if (!activo) return;
-
-        if (!progreso.success || !progreso.data) return;
-
-        const cedulaGuardada = progreso.data.cedula || progreso.data.datosFormulario?.cedula;
-        const cedulaIngresada = form.cedula;
-
-             if (cedulaIngresada && cedulaGuardada && cedulaIngresada !== cedulaGuardada) {
-          console.error('[Seguridad] Cédula no coincide:', {
-            ingresada: cedulaIngresada,
-            guardada: cedulaGuardada
-          });
-
-          showToast(
-            'La cédula no coincide con la registrada. No puedes continuar.',
-            'error'
-          );
-
-          if (ctx.logoutUser) await ctx.logoutUser();
-
+        const resultado = await ReservaService.obtenerReservasCanceladas(ctx.fbUser.uid);
+        if (!resultado.success || !resultado.data || resultado.data.length === 0) {
+          showToast('No se encontraron reservas canceladas para reintento', 'error');
+          navigate('/portal-reservas');
           return;
         }
 
-        const pinGuardado = progreso.data.pin || progreso.data.datosFormulario?.pin;
+        // La primera ya viene ordenada por createdAt desc
+        const r = resultado.data[0];
 
-        if (pinGuardado) {
-          generatedPinRef.current = pinGuardado;
-          setGeneratedPin(pinGuardado);
-          sessionStorage.setItem('inscripcion_generatedPin', pinGuardado);
-          updateForm({ pin: pinGuardado });
-        }
+        // Solo se prellenan datos estáticos / semi-estáticos.
+        // Los campos volátiles (sabeBicicleta, tipoMoto, traeMoto, curso, sede)
+        // quedan vacíos para forzar confirmación explícita del estudiante en Paso 2.
+        updateForm({
+          nombre: r.nombre || '',
+          apellido: r.apellido || '',
+          cedula: r.cedula || '',
+          correo: r.correo || ctx.fbUser.email || '',
+          telefono: r.telefono || '',
+          contactoEmergencia: r.contactoEmergencia || '',
+          diaNac: r.fechaNacimiento ? String(Number(r.fechaNacimiento.split('-')[2]) || '') : '',
+          mesNac: r.fechaNacimiento ? String(Number(r.fechaNacimiento.split('-')[1]) || '') : '',
+          anoNac: r.fechaNacimiento ? String(Number(r.fechaNacimiento.split('-')[0]) || '') : '',
+          sexo: r.sexo || '',
+          estado: r.estado || '',
+          zona: r.zona || '',
+          condicionMedica: r.condicionMedica || '',
+          detalleCondicion: r.detalleCondicion || '',
+                  // Volátiles vacíos — el estudiante los confirma en Paso 2
+          sabeBicicleta: '',
+          tipoMoto: '',
+          traeMoto: '',
+          cursoId: state.cursoId || '',
+          // A2.7-bis: mismos flags que el flujo público para que el dropdown
+          // de cursos aparezca con el curso prellenado (editables ambos)
+          origenPublico: true,
+          cursoSugeridoActivo: true,
+          cursoSeleccionadoManual: false,
+          sedeId: '',
+          horaId: '',
+          fecha1: '',
+          fecha2: '',
+          pagoBanco: '',
+          pagoTelefono: '',
+          pagoCedula: '',
+          pagoRef: '',
+          esReintento: true
+        });
 
-        if (progreso.data.datosFormulario) {
-          updateForm(progreso.data.datosFormulario);
-        }
+        // FIRE + MAMBA (P4): aterrizar en Paso 1 con datos prellenados
+        setStep('1');
       } catch (error) {
-        console.error('[PIN] Error restaurando progreso:', error);
+        showToast('Error al preparar la reinscripción', 'error');
+        navigate('/portal-reservas');
+      } finally {
+        setInicializandoReintento(false);
       }
     };
 
-    restaurarProgreso();
+    iniciarReintento();
+  }, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm]);
 
-    return () => {
-      activo = false;
-    };
-  }, [ctx.authReady, ctx.fbUser, esRecompra, form.correo, form.cedula, navigate, showToast, ctx.logoutUser, updateForm, generatedPin]);
+  useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
+
+  // Fase 3 Pack: cargar pack y prellenar form cuando llega desde /packs
+  useEffect(() => {
+    if (!esPack || !packId || !ctx.cursos?.length) return;
+    if (packInicializadoRef.current) return;
+
+    const pack = (ctx.packs || []).find(p => String(p.id) === String(packId));
+    if (!pack) {
+      showToast('Pack no encontrado. Contacta a la escuela.', 'error');
+      navigate('/packs', { replace: true });
+      return;
+    }
+
+    const cursosPack = (pack.cursoIds || [])
+      .map(id => (ctx.cursos || []).find(c => String(c.id) === String(id)))
+      .filter(Boolean);
+
+    const cursoEquilibrio = cursosPack[0];
+    const cursoBasico = cursosPack[1];
+    if (!cursoEquilibrio || !cursoBasico) {
+      showToast('El pack está mal configurado. Contacta a la escuela.', 'error');
+      navigate('/packs', { replace: true });
+      return;
+    }
+
+    packInicializadoRef.current = true;
+
+    const tipoMotoDerivado = (cursoBasico.tiposMotoEscuela || [])[0] || 'Automática';
+
+    updateForm({
+      cursoId: cursoEquilibrio.id,
+      cursoSugeridoActivo: true,
+      cursoSeleccionadoManual: false,
+      tipoMoto: tipoMotoDerivado,
+      sedeId: '',
+           traeMoto: 'No',
+      traeMotoPorCurso: {},
+      sabeBicicleta: 'No',
+      esPack: true,
+      packId
+    });
+
+    setStep('1');
+   }, [esPack, packId, ctx.cursos, ctx.packs, updateForm, setStep, navigate, showToast]);
+
+
+  
 useEffect(() => {
   if (!ctx.fbUser) return;
   const fechaAEscuchar = form.fecha1 || ctx.getTodayStr();
@@ -589,32 +763,7 @@ useEffect(() => {
     }
   }, [step, ctx.fbUser, ctx.logoutUser, showToast, navigate]);
 
-  // FIX-035: Redirección temprana si el usuario tiene reserva activa y no es recompra
-  useEffect(() => {
-    if (!ctx.fbUser || !ctx.authReady) return;
-    if (location.state?.esRecompra) return;
-
-    let activo = true;
-    const verificar = async () => {
-      try {
-        const resultado = await ReservaService.obtenerReservasPorUsuario(ctx.fbUser.uid);
-        if (!activo) return;
-        const reservas = resultado.data || [];
-        const tieneActiva = reservas.some(r =>
-          (r.estadoPago === 'Pendiente' || r.estadoPago === 'Aprobado') &&
-          r.estadoCurso !== 'Aprobado'
-        );
-        if (tieneActiva) {
-          showToast('Ya tienes una reserva activa. Gestiona tus cursos desde el portal.', 'info');
-          navigate('/portal-reservas', { replace: true });
-        }
-      } catch (error) {
-        console.error('[InscripcionView] Error verificando reserva activa:', error);
-      }
-    };
-    verificar();
-    return () => { activo = false; };
-  }, [ctx.fbUser, ctx.authReady, location.state, navigate, showToast]);
+ 
 
   // ─── Cálculo de disponibilidad ────────────────────────
       const todayStr = ctx.getTodayStr();
@@ -638,8 +787,32 @@ const disponibilidad = useMemo(() => {
   }, [step, form.fecha1, disponibilidad, updateForm, todayStr]);
 
     
-  const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
-  const precioBaseMostrar = cursoSeleccionado?.precioBase ?? ctx.config.precioBase ?? 0;
+    const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
+
+  // Fase 3 Pack: cuando es pack, el precio total se calcula desde packActivo
+  const packPrecioBase = useMemo(() => {
+    if (!esPack || !packActivo) return 0;
+    return (packActivo.cursoIds || []).reduce((acc, cid) => {
+      const c = (ctx.cursos || []).find(x => String(x.id) === String(cid));
+      return acc + (Number(c?.precioBase) || 0);
+    }, 0);
+  }, [esPack, packActivo, ctx.cursos]);
+
+  const packDescuentoMonto = useMemo(() => {
+    if (!esPack || !packActivo) return 0;
+    return packActivo.descuentoTipo === 'porcentaje'
+      ? (packPrecioBase * (Number(packActivo.descuentoValor) || 0)) / 100
+      : (Number(packActivo.descuentoValor) || 0);
+  }, [esPack, packActivo, packPrecioBase]);
+
+  const packPrecioFinal = Math.max(0, packPrecioBase - packDescuentoMonto);
+
+  // Precio efectivo a cobrar (pack o curso individual)
+  const baseUSDFinal = esPack ? packPrecioFinal : baseUSD;
+
+  const precioBaseMostrar = esPack
+    ? packPrecioFinal
+    : (cursoSeleccionado?.precioBase ?? ctx.config.precioBase ?? 0);
     const sedeActual = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
   const recargoSede = sedeActual?.nombre === 'Guarenas' ? (Number(ctx.config.recargoGuarenas) || 0) : 0;
   const recargoSinBici = form.sabeBicicleta === 'No' ? (Number(ctx.config.recargoSinBici) || 0) : 0;
@@ -649,8 +822,7 @@ const disponibilidad = useMemo(() => {
     ? (Number(cursoSeleccionado?.precioAlquilerMoto) || 0)
     : 0;
     const tasaCobro = ctx.config.monedaCobroClientes === 'USD' ? ctx.config.tasaUSD : ctx.config.tasaEUR;
-  const precioFinalVES = (baseUSD * (Number(tasaCobro) || 1)).toFixed(2);
-  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
+  const precioFinalVES = (baseUSDFinal * (Number(tasaCobro) || 1)).toFixed(2);  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
 
     const handleConfirmarPago = useCallback(async () => {
     const uid = auth.currentUser?.uid;
@@ -694,8 +866,54 @@ const disponibilidad = useMemo(() => {
 
     // ✅ PASO 4: Crear reserva incluyendo el PIN
     const { esRecompra: _esRecompra, ...formLimpio } = form;
-    const result = await ReservaService.crearReserva({
-      ...formLimpio,
+    let result;
+
+    if (esPack && packActivo) {
+      // ─── Compra de pack ──────────────────────────
+      const cursosPackSnapshot = (packActivo.cursoIds || [])
+        .map(cid => (ctx.cursos || []).find(c => String(c.id) === String(cid)))
+        .filter(Boolean);
+
+            const traeMotoPorCurso = form.traeMotoPorCurso || {};
+      result = await ReservaService.crearReservaPack({
+        packId: packActivo.id,
+        userId: uid,
+        nombre: form.nombre,
+        apellido: form.apellido,
+        cedula: form.cedula,
+        correo: form.correo,
+        telefono: form.telefono,
+        contactoEmergencia: form.contactoEmergencia,
+        fechaNacimiento,
+        sexo: form.sexo,
+        estado: form.estado,
+        zona: form.zona,
+        condicionMedica: form.condicionMedica,
+        detalleCondicion: form.detalleCondicion,
+        sedeId: form.sedeId,
+        tipoMoto: form.tipoMoto,
+        traeMotoPorCurso,
+        cursoSnapshot: cursosPackSnapshot,
+        fecha: form.fecha1,
+        fecha2: disponibilidad?.fecha2Calc || null,
+        horaId: form.horaId,
+        instructorId: form.instructorId,
+        motoAsignadaId: form.motoAsignadaId,
+        proveedorId: form.proveedorId || null,
+        pagoTotalMoneda: baseUSDFinal,
+        pagoTotalVES: parseFloat(precioFinalVES),
+        pagoBanco: form.pagoBanco,
+        pagoTelefono: form.pagoTelefono,
+        pagoCedula: form.pagoCedula,
+        pagoRef: form.pagoRef,
+        pin: pinParaMostrar,
+        terminosAceptados: true,
+        fechaAceptacionTerminos: new Date().toISOString(),
+        origen: 'pack-publico'
+      }, lockId);
+    } else {
+      // ─── Reserva individual (flujo normal) ────────
+      result = await ReservaService.crearReserva({      ...formLimpio,
       userId: uid,
       fecha: form.fecha1,
       fecha2: disponibilidad?.fecha2Calc || null,
@@ -708,14 +926,16 @@ const disponibilidad = useMemo(() => {
       fechaAceptacionTerminos: new Date().toISOString(),
       pin: pinParaMostrar,
            comisionInstructor: typeof cursoSeleccionado?.comisionInstructor === 'number' ? cursoSeleccionado.comisionInstructor : 0,
-      comisionProveedor: (() => {
+          comisionProveedor: (() => {
         const mapa = cursoSeleccionado?.comisionProveedorPorSede || {};
         const sedeId = form.sedeId;
         if (sedeId && typeof mapa[sedeId] === 'number') return mapa[sedeId];
         return typeof cursoSeleccionado?.comisionProveedor === 'number' ? cursoSeleccionado.comisionProveedor : 0;
-      })()
-      
-    }, lockId);
+      })(),
+        // A2.6: trazabilidad del origen de la inscripción para métricas
+      origenReinscripcion: esRecompra ? 'recompra' : (esReintento ? 'reintento' : 'nueva')
+      }, lockId);
+    }
 
     setIsSubmitting(false);
 
@@ -760,7 +980,7 @@ const disponibilidad = useMemo(() => {
         showToast(result.error.message || 'Error al crear la reserva', 'error');
       }
     }
-  }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, navigate, updateForm]);
+    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm]);
   const handleIrAlPanel = useCallback(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error de sesión. No se puede acceder al panel.', 'error'); return; }
@@ -768,12 +988,50 @@ const disponibilidad = useMemo(() => {
     navigate('/portal-reservas');
   }, [ctx, form, navigate, showToast]);
 
-  const handleSelectHorario = useCallback(async (bloque) => {
+   const handleSelectHorario = useCallback(async (bloque) => {
     if (lockId && form.horaId === bloque.id) { setModalLiberar({ bloque }); return; }
     if (isSelectingHorario) return;
     if (!ctx.fbUser) { showToast('Espera un momento...', 'error'); return; }
 
-        const locksDeOtros = (activeLocks || []).filter(l => {
+    // A2.4: revalidar bloqueos admin (fecha1 y fecha2)
+    const afectaFechaLocal = (b, f) => {
+      if (!f) return false;
+      if (f < b.fechaInicio) return false;
+      const fin = b.fechaFin || b.fechaInicio;
+      if (f > fin) return false;
+      if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
+      if (b.todoElDia) return true;
+      return (b.horarios || []).includes(bloque.id);
+    };
+    const bloqueadoAdmin = (bloqueosAdmin || []).some(b =>
+      afectaFechaLocal(b, form.fecha1) || afectaFechaLocal(b, disponibilidad?.fecha2Calc)
+    );
+    if (bloqueadoAdmin) {
+      showToast('Este horario acaba de ser bloqueado por la administración.', 'error');
+      return;
+    }
+
+    // A2.4: helper para bloqueos de proveedor (fecha1 y fecha2)
+    const afectaProveedorLocal = (b, motoId, f) => {
+      if (!f || !bloque.label) return false;
+      if (b.motoId !== motoId && b.motoId !== 'ALL') return false;
+      if (b.fecha !== f) return false;
+      const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
+      const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
+      const bloqueInicio = hIni * 60 + mIni;
+      const bloqueFin = hFin * 60 + mFin;
+      const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (!labelParts) return false;
+      let hBloque = parseInt(labelParts[1], 10);
+      const mBloque = parseInt(labelParts[2], 10);
+      const mod = labelParts[3].toUpperCase();
+      if (mod === 'PM' && hBloque < 12) hBloque += 12;
+      if (mod === 'AM' && hBloque === 12) hBloque = 0;
+      const bloqueMinutos = hBloque * 60 + mBloque;
+      return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
+    };
+
+    const locksDeOtros = (activeLocks || []).filter(l => {
       if (l.userId === ctx.fbUser?.uid) return false;
       if (!l.instructorId || !l.fecha || !l.horaId || !l.expiresAt) return false;
       if (l.expiresAt.toMillis() <= Date.now()) return false;
@@ -798,7 +1056,8 @@ const disponibilidad = useMemo(() => {
       fecha2Calc: disponibilidad?.fecha2Calc,
       ocupacionConfirmada: ocupacionConfirmada,
     });
-    const necesitaMoto = form.traeMoto !== 'Sí';
+     const cursoIncluyeMoto = cursoSeleccionado?.motoIncluida !== false;
+  const necesitaMoto = cursoIncluyeMoto && form.traeMoto !== 'Sí';
    const instructoresLibres = (ctx.instructores || [])
   .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
   .filter(i => !locksDeOtros.some(lock => lock.instructorId === i.id && lock.horaId === bloque.id && (lock.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && lock.fecha === disponibilidad.fecha2Calc))))  .filter(i => !reservasDeOtros.some(r => {
@@ -806,7 +1065,7 @@ const disponibilidad = useMemo(() => {
     if (r.instructorId !== i.id) return false;
     if (String(r.horaId) !== String(bloque.id)) return false;
     return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);  }));
-   let motosLibres = [];
+     let motosLibres = [];
 if (necesitaMoto) {
   motosLibres = (ctx.motos || [])
     .filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId))
@@ -815,8 +1074,13 @@ if (necesitaMoto) {
       if (r.motoAsignadaId !== m.id) return false;
       if (r.traeMoto === 'Sí') return false;
       if (String(r.horaId) !== String(bloque.id)) return false;
-      return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);    }));
+      return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);    }))
+    // A2.4: filtrar motos bloqueadas por proveedor (fecha1 y fecha2)
+    .filter(m => !(bloqueosProveedor || []).some(b =>
+      afectaProveedorLocal(b, m.id, form.fecha1) || afectaProveedorLocal(b, m.id, disponibilidad?.fecha2Calc)
+    ));
 }
+
 
     const instructorId = instructoresLibres.find(i => i.esPrincipal)?.id || instructoresLibres[0]?.id;
     const motoAsignadaId = necesitaMoto ? motosLibres[0]?.id : null;
@@ -848,8 +1112,7 @@ if (necesitaMoto) {
       else showToast(result.error?.message || 'No se pudo bloquear el horario', 'error');
     }
     setIsSelectingHorario(false); setSelectingBlockId(null);
-  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, updateLockId, updateForm, updateLockExpiresAt, showToast]);
-
+  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, bloqueosAdmin, bloqueosProveedor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
   const handleRenovarLock = useCallback(async () => {
     if (!lockId || renovacionUsada) return;
     setRenovacionUsada(true);
@@ -993,6 +1256,20 @@ if (necesitaMoto) {
       setStep('2');
       return;
     }
+
+          // FIX-REGISTRO: Sin sesión → verificar si el usuario ya existe
+      if (!ctx.fbUser && form.correo && form.cedula) {
+        try {
+          const progreso = await ReservaService.buscarProgresoPorCorreo(form.correo);
+          if (progreso.success && progreso.data) {
+            showToast('Ya tienes una cuenta. Ingresa tu PIN para continuar.', 'info');
+            navigate('/login');
+            return;
+          }
+        } catch (err) {
+          console.error('[InscripcionView] Error verificando cuenta existente:', err);
+        }
+      }
         if (step === '2') {
       // Validar campos requeridos del paso 2
       if (!form.cursoId) {
@@ -1011,7 +1288,29 @@ if (necesitaMoto) {
         showToast('Indica si sabes andar en bicicleta', 'error');
         return;
       }
-            if (!esRecompra) await ReservaService.guardarProgreso(ctx.fbUser?.uid, 3, form, form.correo).catch(() => {});
+
+      // ✅ NUEVO: Validar prerequisitos (excepto básicos que son soft)
+      const cursoSel = (ctx.cursos || []).find(c => String(c.id) === String(form.cursoId));
+      const esBasico = cursoSel?.tipoCurso === 'basico_auto' || cursoSel?.tipoCurso === 'basico_sincro';
+
+      if (cursoSel && !esBasico) {
+        const resultado = await ReservaService.obtenerReservasAprobadas(ctx.fbUser?.uid);
+        const reservasAprobadas = resultado.success ? (resultado.data || []) : [];
+
+        const cumple = cumplePrerequisito(
+          cursoSel.tipoCurso,
+          reservasAprobadas,
+          cursoSel,
+          ctx.cursos || []
+        );
+
+        if (!cumple) {
+          showToast('Este curso requiere que apruebes un curso previo primero.', 'error');
+          return;
+        }
+      }
+
+      if (!esRecompra) await ReservaService.guardarProgreso(ctx.fbUser?.uid, 3, form, form.correo).catch(() => {});
       setStep('3');
       return;
     }
@@ -1061,11 +1360,22 @@ if (necesitaMoto) {
   };
 
   if (!ctx.authReady) return <Spinner message="Cargando..." />;
-    if (esRecompra && inicializandoRecompra) {
+       if (esRecompra && inicializandoRecompra) {
     return (
       <AppShell bgColor="bg-white">
         <div className="flex items-center justify-center min-h-full">
           <Spinner message="Preparando inscripción..." />
+        </div>
+      </AppShell>
+    );
+  }
+
+  // A2.6: spinner durante la preparación del reintento
+  if (esReintento && inicializandoReintento) {
+    return (
+      <AppShell bgColor="bg-white">
+        <div className="flex items-center justify-center min-h-full">
+          <Spinner message="Preparando reinscripción..." />
         </div>
       </AppShell>
     );
@@ -1077,7 +1387,7 @@ if (necesitaMoto) {
         <div className="flex flex-col items-center justify-center min-h-full p-6 text-center">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6"><Award size={48} className="text-green-600" /></div>
           <h2 className="text-2xl font-black text-gray-900 mb-2">¡Inscripción Completada!</h2>
-          <p className="text-sm text-gray-500 mb-8">Bienvenido a MotoEscuela. Guarda tu PIN de acceso.</p>
+          <p className="text-sm text-gray-500 mb-8">Bienvenido a Moto App. Guarda tu PIN de acceso.</p>
                     {pinFinal ? (
             <>
               <div className="bg-gray-50 border-2 border-gray-200 rounded-2xl p-6 mb-8 w-full max-w-xs">
@@ -1126,8 +1436,17 @@ if (necesitaMoto) {
       </div>
       <div className="px-5 pb-4">
                 {step === '1' && <Paso1DatosPersonales form={form} updateForm={updateForm} fbUser={ctx.fbUser} onOpenSalud={() => setMostrarFormularioSalud(true)} onOpenFechaNacimiento={() => { setTempFechaNacimiento({ dia: form.diaNac || '01', mes: form.mesNac || String(new Date().getMonth() + 1).padStart(2, '0'), ano: form.anoNac || String(new Date().getFullYear()) }); setMostrarCalendarioNacimiento(true); }} />}
-        {step === '2' && <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} />}
-        {step === '3' && !ctx.fbUser ? (
+        {step === '2' && (esPack && packActivo ? (
+          <Paso2Pack
+            form={form}
+            updateForm={updateForm}
+            pack={packActivo}
+            cursos={ctx.cursos}
+            sedes={ctx.sedes}
+          />
+        ) : (
+                    <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} reservas={ctx.reservas} fbUser={ctx.fbUser} />
+        ))}        {step === '3' && !ctx.fbUser ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Verificando sesión..." /></div>
 ) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length) ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Sincronizando disponibilidad..." /></div>
@@ -1148,7 +1467,21 @@ if (necesitaMoto) {
             />
           )
         )}
-        {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSD} precioCurso={precioBaseMostrar} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} desglosePrecio={() => {
+        {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSDFinal} precioCurso={precioBaseMostrar} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} 
+ desglosePrecio={() => {
+  if (esPack && packActivo) {
+    const items = [
+      { label: 'Suma de cursos', value: '$' + packPrecioBase.toFixed(2) }
+    ];
+    const descLabel = packActivo.descuentoTipo === 'porcentaje'
+      ? `Descuento (${packActivo.descuentoValor}%)`
+      : 'Descuento';
+    if (packDescuentoMonto > 0) {
+      items.push({ label: descLabel, value: '-$' + packDescuentoMonto.toFixed(2) });
+    }
+    items.push({ label: 'Total USD', value: '$' + packPrecioFinal.toFixed(2), bold: true });
+    return items;
+  }
   const items = [
     { label: 'Precio', value: '$' + (precioBaseMostrar || 0) }
   ];
@@ -1159,7 +1492,8 @@ if (necesitaMoto) {
   if (descuentoPromo > 0) items.push({ label: 'Descuento Promo', value: '-$' + descuentoPromo });
   items.push({ label: 'Total USD', value: '$' + baseUSD, bold: true });
   return items;
-}} lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
+}}
+ lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
       </div>
       {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={disponibilidad?.diasDisponibles || []} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}

@@ -1,3 +1,4 @@
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-MODAL-CURSO | desc: Terminología legal - sesión, tutor, vehículo de práctica.
 import { X, Clock, Users, Shirt, Droplet, HardHat, Bike, CheckCircle2, AlertCircle } from 'lucide-react';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 const formatearDuracion = (minutos) => {
@@ -60,7 +61,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
                 <div>
                   <h4 className="font-bold text-yellow-900 mb-1">Requisitos previos</h4>
                   <p className="text-sm text-yellow-800">
-                    Para inscribirte en este curso debes haber completado:{' '}
+                    Para inscribirte en esta sesión debes haber completado:{' '}
                     <strong>{prerequisitoLabel}</strong>
                   </p>
                 </div>
@@ -72,7 +73,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
             <div>
               <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
                 <CheckCircle2 className="text-green-600" size={20} />
-                Qué aprenderás
+                Lo que practicarás
               </h3>
               <ul className="space-y-2">
                 {(typeof curso.queAprenderas === 'string'
@@ -101,7 +102,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
             <div>
               <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
                 <Clock className="text-purple-600" size={20} />
-                Formato de clases
+                Formato de las sesiones
               </h3>
               <TextoEnriquecido texto={curso.formato} className="text-sm text-gray-700" />            </div>
           )}
@@ -144,13 +145,13 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
               <div className="flex items-start gap-2">
                 <Bike className={`${tieneMotoIncluida ? 'text-green-600' : 'text-orange-600'} flex-shrink-0 mt-0.5`} size={18} />
                 <div>
-                  <h4 className="font-bold text-gray-900 text-sm mb-1">Moto de práctica</h4>
+                  <h4 className="font-bold text-gray-900 text-sm mb-1">Vehículo de práctica</h4>
                   <p className="text-xs text-gray-700">
                     {tieneMotoIncluida
                       ? (tiposMotoEscuela.length > 0
-                          ? `La escuela proporciona moto: ${tiposMotoEscuela.join(' o ')}`
-                          : 'La escuela proporciona la moto')
-                      : 'El alumno debe traer su propia moto'}
+                          ? `Incluye vehículo de práctica: ${tiposMotoEscuela.join(' o ')}`
+                          : 'Incluye vehículo de práctica')
+                      : 'Debes traer tu propio vehículo'}
                   </p>
                   {tieneMotoIncluida && precioAlquilerMoto > 0 && (
                     <p className="text-xs text-gray-600 mt-1">
@@ -164,7 +165,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
 
           {curso.modulos && curso.modulos.length > 0 && (
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">Contenido del curso</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-3">Contenido de la sesión</h3>
               <div className="space-y-2">
                 {curso.modulos.map((modulo, i) => (
                   <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
@@ -188,7 +189,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
             const bloqueado = tienePrereq && !esBasico;
             return bloqueado ? (
               <div className="flex-1 bg-gray-100 text-gray-500 px-6 py-3 rounded-lg text-center font-medium text-sm">
-                Requiere curso previo
+                Requiere sesión previa
               </div>
             ) : (
               <button

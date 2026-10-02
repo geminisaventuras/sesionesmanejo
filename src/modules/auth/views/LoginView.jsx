@@ -1,9 +1,10 @@
-// @build: 2026-08-28.18-05-00 | id: LOGIN-RECUPERAR-PIN | backup: LoginView.jsx.backup-20260828-180500 | desc: Añade opción de olvidé mi PIN para estudiantes
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-LOGIN | desc: Terminología legal - sesiones, usuario. Se agrega LegalFooter.
 import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
+import LegalFooter from '../../shared/components/LegalFooter';
 import { Button, Input } from '../../../components/UI';
 import { ChevronLeft, Lock, Mail} from 'lucide-react';
 import { loginEmailSchema, loginEstudianteSchema } from '../../shared/schemas/validations';
@@ -98,14 +99,14 @@ export const LoginView = () => {
     <AppShell header={header} bgColor="bg-white">
       <div className="p-6 flex flex-col items-center justify-center min-h-full">
         <div className="flex gap-2 mb-6 w-full max-w-xs">
-          <button type="button" onClick={() => setModo('staff')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'staff' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>🛡️ Staff</button>
-          <button type="button" onClick={() => setModo('estudiante')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'estudiante' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>🎓 Estudiante</button>
+          <button type="button" onClick={() => setModo('staff')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'staff' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Staff</button>
+          <button type="button" onClick={() => setModo('estudiante')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${modo === 'estudiante' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Usuario</button>
         </div>
 
         {modo === 'staff' ? (
           <div className="w-full max-w-xs space-y-4">
             <form onSubmit={handleStaffLogin} className="space-y-4">
-              <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@motoescuela.com" />
+              <Input label="Correo electrónico" type="email" icon={Mail} value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@motoapp.com" />
               <Input label="Contraseña" type="password" icon={Lock} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
               <Button type="submit" disabled={loading} className="!w-full !py-3">
                 {loading ? 'Verificando...' : 'Ingresar'}
@@ -139,9 +140,11 @@ export const LoginView = () => {
           </div>
         )}
 
-        <button type="button" onClick={() => navigate('/cursos')} className="mt-6 text-sm font-bold text-blue-600 hover:underline">
-          Ver cursos disponibles
+        <button type="button" onClick={() => navigate('/sesiones')} className="mt-6 text-sm font-bold text-blue-600 hover:underline">
+          Ver sesiones disponibles
         </button>
+
+        <LegalFooter />
       </div>
 
      

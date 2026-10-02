@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-AVATAR-INICIALES | backup: AvatarIniciales.backup-20260903-000000 | desc: Avatar con iniciales para el perfil del instructor
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-AVATAR | backup: AvatarIniciales.backup-20260903-000000 | desc: Avatar con iniciales para el perfil del instructor
 import React from 'react';
 
 const sizeClasses = {

@@ -1,4 +1,4 @@
-// src/modules/inscripcion/components/Paso4Pago.jsx
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PASO4 | desc: Terminología legal - Moto App. Se agrega disclaimer legal cerca del checkbox de términos.
 import React, { useState, useEffect } from 'react';
 import { CreditCard, Phone, Contact, Hash, Lock, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { Select, Input } from '../../../components/UI';
@@ -24,8 +24,17 @@ export function Paso4Pago({
   showToast,
   terminosAceptados, onToggleTerminos, onVerTerminos, mostrarTerminos, onCerrarTerminos
 }) {
-  const [errores, setErrores] = useState({});
+    const [errores, setErrores] = useState({});
   const [tocados, setTocados] = useState({});
+
+  // Formato Venezuela (bancos): 33.860,40
+  const formatearMontoVES = (valor) => {
+    const num = Number(valor);
+    if (!isFinite(num) || num <= 0) return '0,00';
+    const [entero, decimal] = num.toFixed(2).split('.');
+    const enteroConPuntos = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return `${enteroConPuntos},${decimal}`;
+  };
 
   useEffect(() => {
     if (Object.keys(tocados).length > 0) {
@@ -61,8 +70,7 @@ export function Paso4Pago({
             <p className="text-[10px] text-blue-100 uppercase tracking-wider mb-1">Total a Cancelar</p>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-bold">Bs.</span>
-              <span className="text-3xl font-bold">{precioFinalVES}</span>
-            </div>
+              <span className="text-3xl font-bold">{formatearMontoVES(precioFinalVES)}</span>            </div>
             <div className="flex items-center justify-between text-[10px] text-blue-100 mt-2">
               <div>
                 <p>Base: USD {precioCurso ?? baseUSD}</p>
@@ -89,12 +97,11 @@ export function Paso4Pago({
         </button>
         {mostrarDetallesPago && (
           <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2">
-            <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL ESCUELA</p>
+            <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL MOTO APP</p>
             <div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div>
             <div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div>
             <div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span></div>
-            <BotonCopiarDatos config={config} showToast={showToast} />
-          </div>
+<BotonCopiarDatos config={config} showToast={showToast} montoVES={precioFinalVES} />          </div>
         )}
       </div>
       <div className="w-full mt-2">
@@ -140,6 +147,13 @@ export function Paso4Pago({
             </button>
           </span>
         </label>
+      </div>
+
+      {/* Disclaimer legal obligatorio */}
+      <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
+        <p className="text-[10px] leading-relaxed text-gray-500">
+          <strong className="font-bold">Aviso Legal:</strong> Esta plataforma ofrece servicios privados de educación no formal, consultoría deportiva y tutorías de acompañamiento para el desarrollo de habilidades motoras. No somos una 'Escuela del Transporte' ni prestamos servicios conexos regulados por el Instituto Nacional de Transporte Terrestre (INTT). Las constancias emitidas por esta plataforma son de carácter privado, recreativo, y no poseen validez legal para la obtención de licencias de conducir, certificados de saberes o cualquier otro trámite ante las autoridades de tránsito del Estado venezolano.
+        </p>
       </div>
 
       {mostrarTerminos && <ModalTerminos onClose={onCerrarTerminos} />}

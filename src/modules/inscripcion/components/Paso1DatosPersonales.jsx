@@ -1,5 +1,5 @@
 // src/modules/inscripcion/components/Paso1DatosPersonales.jsx
-// @build: 2026-06-24 | desc: Espaciado reducido para eliminar scroll vertical
+//@build: 2026-06-24 | desc: Espaciado reducido para eliminar scroll vertical
 import React, { useState, useEffect } from 'react';
 import { User, Contact, Calendar, Phone, Mail, Users, MapPin, Heart } from 'lucide-react';
 import { validarPaso1 } from '../../shared/schemas/validations';

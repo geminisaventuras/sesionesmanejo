@@ -1,12 +1,14 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-MODAL-DETALLE | backup: ModalDetalleReserva.backup-20260903-000000 | desc: Modal de detalle de reserva sin teléfono, con avance académico
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-MODAL-DETALLE | backup: ModalDetalleReserva.backup-20260903-000000 | desc: Modal de detalle de reserva sin teléfono, con avance académico
 import React, { useEffect, useRef } from 'react';
 import { X, User, Calendar, Clock, MapPin, Bike, CreditCard, CheckCircle, Circle } from 'lucide-react';
 import { Button } from '../../../components/UI';
 
+import BadgeReposicion from '../../shared/components/BadgeReposicion';
 export default function ModalDetalleReserva({
   reserva,
   curso,
   horario,
+  horarios,
   sede,
   onClose,
   onIniciarClase,
@@ -64,7 +66,7 @@ export default function ModalDetalleReserva({
               <p className="font-black text-gray-900">
                 {reserva.nombre} {reserva.apellido}
               </p>
-              <p className="text-xs text-gray-500">Estudiante</p>
+              <p className="text-xs text-gray-500">Usuario</p>
             </div>
           </div>
 
@@ -92,15 +94,17 @@ export default function ModalDetalleReserva({
             <div className="flex items-center gap-2">
               <Bike size={14} className="text-gray-400" />
               <span className="text-gray-700">
-                {reserva.traeMoto === 'Sí' ? 'Moto propia' : 'Moto escuela'} · {reserva.tipoMoto}
+                {reserva.traeMoto === 'Sí' ? 'Moto propia' : 'Moto App'} · {reserva.tipoMoto}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
               <CreditCard size={14} className="text-gray-400" />
               <span className="text-gray-700">Estado de pago: {reserva.estadoPago}</span>
             </div>
           </div>
 
+          {/* Reposición D2 */}
+          <BadgeReposicion reserva={reserva} horarios={horarios || []} variant="full" />
           {/* Avance académico */}
           {modulos.length > 0 && (
             <div>
@@ -137,7 +141,7 @@ export default function ModalDetalleReserva({
               variant="primary"
               className="flex-1"
             >
-              Iniciar Clase
+              Iniciar Sesión
             </Button>
           )}
           <Button

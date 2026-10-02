@@ -1,13 +1,16 @@
-// @build: 2026-09-04 | id: HOOK-ADMIN-RESERVAS | backup: useAdminReservas.backup-20260904-000000 | desc: Hook local para suscripción de reservas del admin con limit 100
+// @build: 2026-09-25.A2.14 | id: HOOK-ADMIN-RESERVAS-V2 | desc: Agrega listener a reservasPack para packs comerciales
 import { useState, useEffect } from 'react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';
 
 export function useAdminReservas() {
   const [reservas, setReservas] = useState([]);
-  const [cargando, setCargando] = useState(true);
+  const [packs, setPacks] = useState([]);
+  const [cargandoReservas, setCargandoReservas] = useState(true);
+  const [cargandoPacks, setCargandoPacks] = useState(true);
   const [error, setError] = useState(null);
 
+  // Listener 1: reservas (individuales + children de pack)
   useEffect(() => {
     const q = query(
       collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas'),
@@ -19,21 +22,53 @@ export function useAdminReservas() {
       q,
       (snapshot) => {
         setReservas(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        setCargando(false);
+        setCargandoReservas(false);
         setError(null);
       },
       (err) => {
-        console.error('[useAdminReservas] Error en suscripción:', err);
+        console.error('[useAdminReservas] Error reservas:', err);
         setError(err);
-        setCargando(false);
+        setCargandoReservas(false);
       }
     );
 
     return () => {
-      console.log('[useAdminReservas] Cleanup: desuscribiendo listener');
+      console.log('[useAdminReservas] Cleanup reservas');
       unsubscribe();
     };
   }, []);
 
-  return { reservas, cargando, error };
+  // Listener 2: reservasPack (maestras de pack)
+  useEffect(() => {
+    const q = query(
+      collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservasPack'),
+      orderBy('fechaCompra', 'desc'),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+          (snapshot) => {
+        console.log('[useAdminReservas] packs recibidos:', snapshot.docs.length, snapshot.docs.map(d => ({ id: d.id, estadoPago: d.data().estadoPago, userId: d.data().userId, packNombre: d.data().packNombre })));
+        setPacks(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        setCargandoPacks(false);
+      },
+      (err) => {
+        console.error('[useAdminReservas] Error packs:', err);
+        setCargandoPacks(false);
+      }
+    );
+
+    return () => {
+      console.log('[useAdminReservas] Cleanup packs');
+      unsubscribe();
+    };
+  }, []);
+
+  return {
+    reservas,
+    packs,
+    cargando: cargandoReservas || cargandoPacks,
+    error
+  };
 }

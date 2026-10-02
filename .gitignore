@@ -23,3 +23,8 @@ yarn-error.log*
 .env.backup
 .env.production
 *.mjs
+
+# Archivos de diagnóstico temporales (no subir a git)
+dump-*.txt
+dump-*.json
+fix-*.txt

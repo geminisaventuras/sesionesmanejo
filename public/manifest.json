@@ -1,7 +1,7 @@
 {
-  "name": "MotoEscuela App",
-  "short_name": "MotoEscuela",
-  "description": "Plataforma Integral de Gestión y Aprendizaje para Escuelas de Manejo de Moto",
+  "name": "Moto App",
+  "short_name": "Moto App",
+  "description": "Plataforma Integral de Gestión y Desarrollo para el desarrollo de habilidades motoras.",
   "theme_color": "#0f172a",
   "background_color": "#0f172a",
   "display": "standalone",

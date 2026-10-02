@@ -1,6 +1,6 @@
 // @build: 2026-09-03 | id: INSTRUCTOR-RESERVAS-HELPERS-D2-ORDEN | backup: reservasHelpers.backup-20260903-000000 | desc: Agrega etiqueta D2 y orden por hora para grupo Hoy
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
-
+import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 function parseHora(str) {
   const match = str.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!match) return null;
@@ -56,8 +56,9 @@ export function agruparReservasPorPeriodo(reservas, hoyStr = obtenerFechaVenezue
 
 export function ordenarPorHora(reservas, horarios) {
   return [...reservas].sort((a, b) => {
-    const horaA = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(a.horaId)));
-    const horaB = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(b.horaId)));
+        const horaA = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(a))));
+    const horaB = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(b))));
+    
     if (horaA === null && horaB === null) return 0;
     if (horaA === null) return 1;
     if (horaB === null) return -1;
@@ -68,8 +69,8 @@ export function ordenarPorHora(reservas, horarios) {
 export function ordenarReservasPorFechaHora(reservas, horarios) {
   return [...reservas].sort((a, b) => {
     if (a.fecha !== b.fecha) return a.fecha.localeCompare(b.fecha);
-    const horaA = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(a.horaId)));
-    const horaB = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(b.horaId)));
+       const horaA = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(a))));
+    const horaB = obtenerMinutosHorario(horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(b))));
     if (horaA === null && horaB === null) return 0;
     if (horaA === null) return 1;
     if (horaB === null) return -1;
@@ -106,7 +107,7 @@ export function calcularBadges(reserva, horario) {
   if (dia === 2) badges.push('D2');
 
   if (esReservaEnCurso(reserva, horario)) {
-    badges.push('EN CURSO');
+    badges.push('EN PROGRESO');
   } else if (reserva.fecha > hoy) {
     badges.push('PRÓXIMA');
   }

@@ -1,7 +1,8 @@
-// @build: 2026-09-08 | id: FIX-020-HISTORIAL-CANCELADAS | backup: HistorialTab.backup-20260908-000000 | desc: Historial incluye canceladas y rechazadas con badges
+// @build: 2026-09-08 | id: LEGAL-TERMINOLOGIA-HISTORIAL-TUTOR | backup: HistorialTab.backup-20260908-000000 | desc: Historial incluye canceladas y rechazadas con badges
 import React, { useMemo } from 'react';
 import { History, ArrowLeft } from 'lucide-react';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
+import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 import ReservaCard from './ReservaCard';
 import EmptyState from '../../shared/components/EmptyState';
 
@@ -45,7 +46,7 @@ export default function HistorialTab({
           <ArrowLeft size={18} className="text-gray-700" />
         </button>
         <div className="flex-1">
-          <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Historial de Clases</h2>
+          <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Historial de Sesiones</h2>
           <p className="text-xs text-gray-500">Vista de solo lectura · {reservasVisibles.length} reservas</p>
         </div>
       </div>
@@ -54,8 +55,8 @@ export default function HistorialTab({
         <div className="flex items-start gap-2">
           <History size={16} className="text-blue-600 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-blue-900">Historial completo de clases</p>
-            <p className="text-xs text-blue-700">Incluye clases completadas, canceladas, rechazadas y vencidas sin completar.</p>
+            <p className="text-sm font-medium text-blue-900">Historial completo de sesiones</p>
+            <p className="text-xs text-blue-700">Incluye sesiones completadas, canceladas, rechazadas y vencidas sin completar.</p>
           </div>
         </div>
       </div>
@@ -73,13 +74,13 @@ export default function HistorialTab({
         <EmptyState
           icon={History}
           title="No hay historial todavía"
-          description="Cuando completes, canceles o venzan clases, aparecerán aquí"
+          description="Cuando completes, canceles o venzan sesiones, aparecerán aquí"
         />
       ) : (
         <div className="space-y-2">
           {reservasVisibles.map(r => {
             const curso = cursos?.find(c => String(c.id) === String(r.cursoId));
-            const horario = horarios?.find(h => String(h.id) === String(r.horaId));
+const horario = horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(r)));            
             const sede = sedes?.find(s => String(s.id) === String(r.sedeId));
             const badges = [];
 

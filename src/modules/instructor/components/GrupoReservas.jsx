@@ -1,8 +1,8 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-GRUPO-RESERVAS-DIA | backup: GrupoReservas.backup-20260903-000000 | desc: Botón iniciar clase disponible todo el día de la reserva
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-GRUPO-RESERVAS | backup: GrupoReservas.backup-20260903-000000 | desc:Botón iniciar sesión disponible todo el día de la reserva
 import React from 'react';
 import ReservaCard from './ReservaCard';
 import { obtenerDiaReserva } from '../utils/reservasHelpers';
-
+import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 export default function GrupoReservas({
   titulo,
   reservas,
@@ -23,7 +23,7 @@ export default function GrupoReservas({
       <div className="space-y-2">
         {reservas.map(r => {
           const curso = cursos?.find(c => String(c.id) === String(r.cursoId));
-          const horario = horarios?.find(h => String(h.id) === String(r.horaId));
+const horario = horarios?.find(h => String(h.id) === String(getHoraIdEfectivoHoy(r)));          
           const sede = sedes?.find(s => String(s.id) === String(r.sedeId));
           const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
           const badges = [];
@@ -33,7 +33,7 @@ export default function GrupoReservas({
           if (r.estadoPago === 'Pendiente') badges.push('PAGO PENDIENTE');
           if (r.estadoCurso === 'Aprobado') badges.push('COMPLETADA');
 
-          // Disponible todo el día de la clase (fecha o fecha2 igual a hoy)
+          // Disponible todo el día de la sesión (fecha o fecha2 igual a hoy)
           const puedeIniciarClase =
             r.estadoPago === 'Aprobado' &&
             r.estadoCurso !== 'Aprobado' &&

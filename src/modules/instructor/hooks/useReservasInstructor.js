@@ -1,4 +1,4 @@
-// @build: 2026-09-08 | id: FIX-020-ESTADOS-CANCELADOS | backup: useReservasInstructor.backup-20260908-000000 | desc: Hook con separación de activas y todas para historial
+// @build: 2026-09-08 | id: FIX-020-LEGAL-TERMINOLOGIA-USE-RESERVAS | backup: useReservasInstructor.backup-20260908-000000 | desc: Hook con separación de activas y todas para historial
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';

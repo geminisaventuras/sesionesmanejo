@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-RESERVA-CARD | backup: ReservaCard.backup-20260903-000000 | desc: Tarjeta de reserva para panel del instructor con acciones separadas
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-RESERVA-CARD | backup: ReservaCard.backup-20260903-000000 | desc: Tarjeta de reserva para panel del instructor con acciones separadas
 import React from 'react';
 import { Calendar, Clock, MapPin, Play, Eye } from 'lucide-react';
 
@@ -29,7 +29,7 @@ const ReservaCard = React.memo(function ReservaCard({
               <span
                 key={badge}
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  badge === 'EN CURSO'
+                  badge === 'EN PROGRESO'
                     ? 'bg-green-100 text-green-700'
                     : badge === 'PAGO PENDIENTE'
                     ? 'bg-yellow-100 text-yellow-700'
@@ -75,7 +75,7 @@ const ReservaCard = React.memo(function ReservaCard({
             className="flex-1 inline-flex items-center justify-center gap-1 bg-blue-600 text-white text-xs font-bold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Play size={14} />
-            Iniciar Clase
+            Iniciar
           </button>
         )}
 

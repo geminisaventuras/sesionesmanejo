@@ -4,8 +4,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import { ChevronLeft, Plus, Edit, Power, Key } from 'lucide-react';
 
-const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol, onResetPassword }) => {
-  const { showToast } = useToast();
+const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol, onResetPassword, renderItem }) => {  const { showToast } = useToast();
   const { user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
   const isAdmin = user?.role === 'admin';
@@ -30,9 +29,11 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, on
       </div>
       {(items || []).map(item => {
         const itemTitle = item.nombre || item.label || (item.marca || item.modelo ? `${item.marca || ''} ${item.modelo || ''}`.trim() : 'Elemento');
-        return (
+                return (
           <div key={item.id} className={`bg-white p-4 rounded-2xl shadow-sm border mb-3 flex items-center justify-between ${item.activo ? 'border-gray-100' : 'border-red-100 opacity-60'}`}>
-            <div className="flex-1 pr-2"><h4 className="font-bold text-gray-900 text-sm">{itemTitle} {item.apellido || ''}</h4>{item.direccion && <p className="text-xs text-gray-500 mt-1">{item.direccion}</p>}<div className="flex gap-1 flex-wrap mt-1">{!item.activo && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">Inactivo</span>}{item.esPrincipal && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black uppercase">Principal</span>}</div></div>
+            {renderItem ? renderItem(item) : (
+              <div className="flex-1 pr-2"><h4 className="font-bold text-gray-900 text-sm">{itemTitle} {item.apellido || ''}</h4>{item.direccion && <p className="text-xs text-gray-500 mt-1">{item.direccion}</p>}<div className="flex gap-1 flex-wrap mt-1">{!item.activo && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">Inactivo</span>}{item.esPrincipal && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black uppercase">Principal</span>}</div></div>
+            )}
             {isAdmin && (
               <div className="flex gap-2">
                 {onResetPassword && item.email && (

@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-PERFIL-TAB | backup: PerfilTab.backup-20260903-000000 | desc: Pestaña de perfil ampliado con validación Zod y avatar de iniciales
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PERFIL-TUTOR | desc: Terminología legal - Tutor en lugar de Instructor.
 import React, { useState } from 'react';
 import { Save, X } from 'lucide-react';
 import { perfilInstructorSchema } from '../schemas/perfilSchema';
@@ -62,7 +62,7 @@ export default function PerfilTab({ user, saveInstructor }) {
               {perfil.nombre} {perfil.apellido}
             </h3>
             <p className="text-sm text-gray-500">
-              {perfil.especialidad || 'Instructor'}
+                            {perfil.especialidad || 'Tutor'}
             </p>
           </div>
           {!editando && (

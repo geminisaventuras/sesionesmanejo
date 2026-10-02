@@ -5,7 +5,7 @@ import { db } from '../../shared/firebase/firebase';
 import { SGTA_DEFAULTS } from '../constants';
 import { alertas } from '../../shared/utils/alertas';
 import { reproducirBeepModuloCompletado } from '../../shared/utils/audio';
-
+import { ReservaService } from '../../inscripcion/services/ReservaService';
 const APP_ID = 'motoescuela-pro-v1';
 
 function parseHora(str) {
@@ -39,6 +39,7 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
   const [reserva, setReserva] = useState(null);
   const [tick, setTick] = useState(0);
   const [modalConfirmacion, setModalConfirmacion] = useState(null);
+  const [error, setError] = useState(null);
 
   const [localPausaActiva, setLocalPausaActiva] = useState(false);
   const [localPausaInicio, setLocalPausaInicio] = useState(null);
@@ -52,7 +53,7 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
   useEffect(() => {
     if (!reservaId) return;
     const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaId);
-    const unsub = onSnapshot(ref, (snap) => {
+       const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setReserva({ id: snap.id, ...data });
@@ -61,8 +62,13 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
         setLocalPausaMotivo(data.pausaActiva?.motivo || '');
         if (data.reservaActiva !== undefined) setLocalReservaActiva(data.reservaActiva);
         if (data.reservaRestante !== undefined) setLocalReservaRestante(data.reservaRestante);
+        setError(null);
       }
-    }, () => {});
+    }, (err) => {
+      console.error('[useSessionTimer] Error en listener:', err.code, err.message);
+      setError(err);
+      setReserva(null);
+    });
     return () => unsub();
   }, [reservaId]);
 
@@ -363,8 +369,11 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     const dur = Math.ceil((sgtaRef.current?.moduloSegundos || 0) / 60);
     const modulosEstado = { ...(reserva.modulosEstado || {}) };
 
+      // A2.8: registrar timestamps reales de inicio y fin del módulo
     modulosEstado[nombre] = {
       fecha: new Date().toISOString().split('T')[0],
+      horaInicio: reserva.moduloEnProgreso?.inicio || null,
+      horaFin: Date.now(),
       duracion: Math.min(dur, 60),
       duracionExtra: Math.max(0, dur - 60)
     };
@@ -378,11 +387,23 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     const campos = { modulosEstado, moduloEnProgreso: null };
     if (todosCompletados) campos.estadoCurso = 'Aprobado';
 
-    alertas.moduloCompletado();
+       alertas.moduloCompletado();
     reproducirBeepModuloCompletado();
     await actualizar(campos);
 
     showToast(todosCompletados ? 'Curso completado exitosamente' : `"${nombre}" completado (${dur} min)`, 'success');
+
+    // Fase 5.2c: si el curso es parte de un pack y se completó, avanzar la maestra
+    // en fire-and-forget. La idempotencia está garantizada dentro del método.
+    if (todosCompletados && reserva.packReservaId && reserva.packCursoIndex !== undefined) {
+      ReservaService.avanzarPackTrasCompletarCurso(
+        reserva.packReservaId,
+        reserva.id,
+        reserva.packCursoIndex
+      ).catch(err => {
+        console.warn('[finalizarModulo] Error avanzando pack:', err);
+      });
+    }
   }, [reserva, opcionesRef, showToast, actualizar]);
 
   const pausarSesion = useCallback(async (motivo) => {
@@ -531,7 +552,20 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
         return { success: true, modulosCompletados: 0 };
       }
 
-      await actualizar({ modulosEstado: nuevoModulosEstado, moduloEnProgreso: null, estadoCurso: 'Aprobado' });
+        await actualizar({ modulosEstado: nuevoModulosEstado, moduloEnProgreso: null, estadoCurso: 'Aprobado' });
+
+      // Fase 5.2c-bis: si el curso es parte de un pack, avanzar la maestra
+      // en fire-and-forget. Idempotencia interna.
+      if (reserva.packReservaId && reserva.packCursoIndex !== undefined) {
+        ReservaService.avanzarPackTrasCompletarCurso(
+          reserva.packReservaId,
+          reserva.id,
+          reserva.packCursoIndex
+        ).catch(err => {
+          console.warn('[completarCursoManualmente] Error avanzando pack:', err);
+        });
+      }
+
       return { success: true, modulosCompletados };
     } catch (error) {
       console.error('[completarCursoManualmente] Error:', error);
@@ -567,7 +601,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
   }, [derivados.moduloSegundos, localRecesoAlerta, showToast]);
 
   return {
-    reserva, sgta, modalConfirmacion,
+    reserva, sgta, modalConfirmacion, error,
     conexionPerdida,
     toggleModulo: esInstructor ? toggleModulo : () => {},
     pausarSesion: esInstructor ? pausarSesion : () => {},

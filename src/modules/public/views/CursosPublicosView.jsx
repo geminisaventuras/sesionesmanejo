@@ -1,3 +1,4 @@
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-CURSOS | desc: Terminología legal - sesiones, tutores. Se agrega LegalFooter.
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, onSnapshot, getDoc, query, where } from 'firebase/firestore';import { db } from '../../../firebase';
@@ -5,6 +6,7 @@ import { CURSO_SECUENCIA } from '../../../constants/cursoSecuencia';
 import { AlertCircle, Clock, MapPin, Phone, CheckCircle, GraduationCap, ChevronLeft } from 'lucide-react';
 import ModalCursoDetalle from '../components/ModalCursoDetalle';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
+import LegalFooter from '../../shared/components/LegalFooter';
 const APP_ID = 'motoescuela-pro-v1';
 
 
@@ -25,8 +27,8 @@ const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
   if (!Array.isArray(prereqs) || prereqs.length === 0) return null;
 
   const labels = {
-    basico_auto: 'Curso Básico Automática',
-    basico_sincro: 'Curso Básico Sincrónica',
+    basico_auto: 'Sesión Básica Automática',
+    basico_sincro: 'Sesión Básica Sincrónica',
     general: 'Práctica en la Vía'
   };
 
@@ -56,7 +58,7 @@ function AvisoMoto({ curso }) {
     return (
       <div className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
         <CheckCircle className="w-4 h-4" />
-        <span>La escuela pone moto{tiposLabel}</span>
+        <span>Incluye vehículo de práctica{tiposLabel}</span>
         {precioAlquiler > 0 && <span className="ml-1 font-bold">+${precioAlquiler}</span>}
       </div>
     );
@@ -182,7 +184,7 @@ const unsub = onSnapshot(q, (snap) => {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando cursos...</p>
+          <p className="mt-4 text-gray-600">Cargando sesiones...</p>
         </div>
       </div>
     );
@@ -201,9 +203,9 @@ const unsub = onSnapshot(q, (snap) => {
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-16">
         <div className="max-w-6xl mx-auto px-4 text-center">
           <GraduationCap className="w-16 h-16 mx-auto mb-4" />
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Nuestros Cursos de Manejo</h1>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">Nuestras Sesiones de Manejo</h1>
           <p className="text-xl text-blue-100 max-w-3xl mx-auto">
-            Formación profesional con instructores certificados. Elige el curso que mejor se adapte a tu nivel y objetivos.
+            Acompañamiento privado con tutores de amplia experiencia. Elige la sesión que mejor se adapte a tu nivel y objetivos.
           </p>
         </div>
       </div>
@@ -232,7 +234,7 @@ const unsub = onSnapshot(q, (snap) => {
 
                 {curso.modulos && curso.modulos.length > 0 && (
                   <div>
-                    <h3 className="font-semibold text-sm text-gray-900 mb-2">Contenido del curso:</h3>
+                    <h3 className="font-semibold text-sm text-gray-900 mb-2">Contenido de la sesión:</h3>
                     <ul className="space-y-1">
                       {curso.modulos.slice(0, 4).map((modulo, i) => (
                         <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
@@ -271,7 +273,7 @@ const unsub = onSnapshot(q, (snap) => {
                     const bloqueado = tienePrereq && !esBasico;
                     return bloqueado ? (
                       <div className="w-full bg-gray-100 text-gray-500 px-4 py-3 rounded-lg text-center font-medium text-sm">
-                        Requiere curso previo
+                        Requiere sesión previa
                       </div>
                     ) : (
                       <button
@@ -402,13 +404,13 @@ const unsub = onSnapshot(q, (snap) => {
               <div>
                 <h2 className="text-lg font-bold text-gray-900 mb-2">Aviso importante</h2>
                 <p className="text-sm text-gray-700 mb-3">
-                  Este curso (<strong>{avisoBasico.nombre}</strong>) recomienda haber completado el curso de <strong>Equilibrio</strong> primero.
+                  Esta sesión (<strong>{avisoBasico.nombre}</strong>) recomienda haber completado la sesión de <strong>Equilibrio</strong> primero.
                 </p>
                 <p className="text-sm text-gray-700 mb-2">
                   Si ya sabes andar en bicicleta o has manejado moto y tienes equilibrio, puedes continuar.
                 </p>
                 <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-2">
-                  ⚠️ Si te estás saltando el curso de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance del curso será muy lento.
+                  ⚠️ Si te estás saltando la sesión de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance de la sesión será muy lento.
                 </p>
               </div>
             </div>
@@ -430,6 +432,8 @@ const unsub = onSnapshot(q, (snap) => {
           </div>
         </div>
       )}
+
+      <LegalFooter />
     </div>
   );
 }

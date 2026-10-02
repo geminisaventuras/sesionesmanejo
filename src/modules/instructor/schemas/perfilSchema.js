@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-PERFIL-SCHEMA-V2 | backup: perfilSchema.backup-20260903-000000 | desc: Esquema ampliado de perfil del instructor con validación isomórfica
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-PERFIL-SCHEMA | backup: perfilSchema.backup-20260903-000000 | desc: Esquema ampliado de perfil del instructor con validación isomórfica
 import { z } from 'zod';
 
 export const perfilInstructorSchema = z.object({

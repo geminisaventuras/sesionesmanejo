@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-FILTROS-RESERVAS | backup: FiltrosReservas.backup-20260903-000000 | desc: Filtros avanzados para reservas del instructor (selects nativos)
+// @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-FILTROS-RESERVAS | backup: FiltrosReservas.backup-20260903-000000 | desc: Filtros avanzados para reservas del instructor (selects nativos)
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import { Button } from '../../../components/UI';
@@ -56,13 +56,13 @@ export default function FiltrosReservas({
         </div>
 
         <div>
-          <label className="text-xs font-bold text-gray-600 block mb-1">Curso</label>
+          <label className="text-xs font-bold text-gray-600 block mb-1">Sesión</label>
           <select
             value={filtros.cursoId || ''}
             onChange={e => handleChange('cursoId', e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
           >
-            <option value="">Todos</option>
+            <option value="">Todas</option>
             {cursos?.map(c => (
               <option key={c.id} value={c.id}>{c.nombre}</option>
             ))}
