@@ -291,9 +291,9 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     }
 
     const hoy = obtenerFechaVenezuela();
-    if (hoy < reserva.fecha) { showToast(`Curso programado para ${reserva.fecha}.`, 'error'); return; }
+    if (hoy < reserva.fecha) { showToast(`Sesión programada para ${reserva.fecha}.`, 'error'); return; }
     if ((reserva.fecha2 && hoy > reserva.fecha2) || (!reserva.fecha2 && hoy > reserva.fecha)) {
-      showToast('Curso vencido.', 'error'); return;
+      showToast('Sesión vencida.', 'error'); return;
     }
 
     const horaInicioLabel = horario?.label?.split('-')[0]?.trim();
@@ -391,7 +391,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     reproducirBeepModuloCompletado();
     await actualizar(campos);
 
-    showToast(todosCompletados ? 'Curso completado exitosamente' : `"${nombre}" completado (${dur} min)`, 'success');
+    showToast(todosCompletados ? 'Sesión completada exitosamente' : `"${nombre}" completado (${dur} min)`, 'success');
 
     // Fase 5.2c: si el curso es parte de un pack y se completó, avanzar la maestra
     // en fire-and-forget. La idempotencia está garantizada dentro del método.

@@ -189,11 +189,26 @@ export function AgendarPackView() {
   const sede = useMemo(() => (sedes || []).find(s => String(s.id) === String(pack?.sedeId)), [sedes, pack]);
     const cursoUnDia = (cursoData?.duracionTotal || 240) <= 120;
 
+  // FIX-PACK-TIPOMOTO: derivar tipoMoto del curso específico (SSOT).
+  // - length === 1 → forzar ese (único permitido)
+  // - length > 1 → usar pack.tipoMoto si está permitido, sino el primero
+  // - length === 0 → null (no requiere moto)
+  const tipoMotoEfectivo = useMemo(() => {
+    const tipos = cursoData?.tiposMotoEscuela;
+    if (!Array.isArray(tipos) || tipos.length === 0) return null;
+    if (tipos.length === 1) return tipos[0];
+    if (pack?.tipoMoto && tipos.includes(pack.tipoMoto)) return pack.tipoMoto;
+    return tipos[0];
+  }, [cursoData, pack]);
+
+ 
+
+
   // ─── Form mínimo para el hook de disponibilidad ─────────────────
   const form = useMemo(() => ({
     cursoId: cursoData?.id || '',
     sedeId: pack?.sedeId || '',
-    tipoMoto: pack?.tipoMoto || '',
+    tipoMoto: tipoMotoEfectivo || '',
     traeMoto: (pack?.traeMotoPorCurso || {})[String(cursoData?.id)] || 'No',
     fecha1,
     horaId
@@ -336,6 +351,8 @@ export function AgendarPackView() {
       proveedorId = moto?.proveedorId || null;
     }
 
+  
+
     const result = await ReservaService.agendarSiguienteCursoPack({
       packReservaId: packReservaId,
       cedula: childAnterior.cedula || null,
@@ -351,7 +368,7 @@ export function AgendarPackView() {
       condicionMedica: childAnterior.condicionMedica || null,
       detalleCondicion: childAnterior.detalleCondicion || null,
       sedeId: pack.sedeId || null,
-      tipoMoto: pack.tipoMoto || null,
+      tipoMoto: tipoMotoEfectivo || null,
       cursoSnapshot: cursoData,
             fecha: fecha1,
       fecha2: disponibilidad?.fecha2Calc || null,

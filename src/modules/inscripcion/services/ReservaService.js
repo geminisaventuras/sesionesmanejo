@@ -401,7 +401,20 @@ export const ReservaService = {
           cursoId: String(cursoEq.id),
           tipoCurso: typeof cursoEq.tipoCurso === 'string' ? cursoEq.tipoCurso.trim() : null,
           sedeId: packData.sedeId || null,
-          tipoMoto: packData.tipoMoto || null,
+          tipoMoto: (() => {
+            // FIX-PACK-TIPOMOTO: SSOT es cursoEq.tiposMotoEscuela.
+            // Backend tiene la última palabra, independiente de lo que envíe el frontend.
+            const tipos = cursoEq.tiposMotoEscuela;
+            if (!Array.isArray(tipos) || tipos.length === 0) return null;
+            if (tipos.length === 1) return tipos[0];
+            if (packData.tipoMoto && tipos.includes(packData.tipoMoto)) return packData.tipoMoto;
+            console.warn('[crearReservaPack] tipoMoto corregido por SSOT:', {
+              curso: cursoEq.nombre,
+              tipoRecibido: packData.tipoMoto,
+              tipoFinal: tipos[0]
+            });
+            return tipos[0];
+          })(),
           fecha: packData.fecha || null,
           fecha2: packData.fecha2 || null,
           horaId: packData.horaId || null,
@@ -601,7 +614,20 @@ export const ReservaService = {
           cursoId: String(cursoData.id),
           tipoCurso: typeof cursoData.tipoCurso === 'string' ? cursoData.tipoCurso.trim() : null,
           sedeId: packData.sedeId || maestra.sedeId || null,
-          tipoMoto: packData.tipoMoto || maestra.tipoMoto || null,
+          tipoMoto: (() => {
+            // FIX-PACK-TIPOMOTO: SSOT es cursoData.tiposMotoEscuela.
+            // Backend tiene la última palabra, independiente de lo que envíe el frontend.
+            const tipos = cursoData.tiposMotoEscuela;
+            if (!Array.isArray(tipos) || tipos.length === 0) return null;
+            if (tipos.length === 1) return tipos[0];
+            if (packData.tipoMoto && tipos.includes(packData.tipoMoto)) return packData.tipoMoto;
+            console.warn('[agendarSiguienteCursoPack] tipoMoto corregido por SSOT:', {
+              curso: cursoData.nombre,
+              tipoRecibido: packData.tipoMoto,
+              tipoFinal: tipos[0]
+            });
+            return tipos[0];
+          })(),
           fecha: packData.fecha || null,
           fecha2: packData.fecha2 || null,
           horaId: packData.horaId || null,

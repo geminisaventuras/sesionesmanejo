@@ -43,20 +43,20 @@ export default function ResumenFinal({ modulos, modulosEstado }) {
       <div className="flex items-center gap-3 mb-4 pb-3 border-b border-green-200">
         <Award className="w-7 h-7 text-green-600" />
         <div>
-          <h3 className="text-lg font-bold text-green-900">Curso Completado</h3>
+          <h3 className="text-lg font-bold text-green-900">Sesión Completada</h3>
           <p className="text-sm text-green-700">Resumen del tiempo invertido</p>
         </div>
       </div>
 
       <div className="space-y-2 mb-4">
         {modulosCompletados.map((modulo) => (
-          <div key={modulo.nombre} className="flex items-center justify-between bg-white rounded-lg p-3 border border-green-100">
-            <div className="flex items-center gap-3 flex-1">
+          <div key={modulo.nombre} className="flex items-center justify-between bg-white rounded-lg p-3 border border-green-100 gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="w-7 h-7 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <CheckCircle className="w-4 h-4 text-green-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{modulo.nombre}</p>
+                <p className="font-medium text-gray-900 truncate text-sm">{modulo.nombre}</p>
                 <p className="text-xs text-gray-500">
                   {modulo.duracion} min planificados
                   {modulo.duracionExtra > 0 && (
@@ -65,8 +65,8 @@ export default function ResumenFinal({ modulos, modulosEstado }) {
                 </p>
               </div>
             </div>
-                        <div className="flex items-center gap-1 text-sm font-bold text-green-700 ml-3 flex-shrink-0 whitespace-nowrap">
-              <Clock className="w-4 h-4" />
+            <div className="flex items-center gap-1 text-xs font-bold text-green-700 flex-shrink-0 whitespace-nowrap">
+              <Clock className="w-3.5 h-3.5" />
               {formatearMinutos(modulo.duracionTotal)}
             </div>
           </div>
@@ -74,8 +74,8 @@ export default function ResumenFinal({ modulos, modulosEstado }) {
       </div>
 
       <div className="bg-white rounded-lg p-4 border-2 border-green-300">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
             <p className="text-sm text-gray-600 font-medium">Tiempo Total Invertido</p>
             {tiempoExtraTotal > 0 && (
               <p className="text-xs text-blue-600 mt-1">
@@ -83,8 +83,8 @@ export default function ResumenFinal({ modulos, modulosEstado }) {
               </p>
             )}
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-black text-green-700">{formatearMinutos(tiempoTotal)}</p>
+          <div className="text-right flex-shrink-0">
+            <p className="text-xl sm:text-2xl font-black text-green-700 whitespace-nowrap">{formatearMinutos(tiempoTotal)}</p>
             <p className="text-xs text-gray-500">{modulosCompletados.length} módulos</p>
           </div>
         </div>

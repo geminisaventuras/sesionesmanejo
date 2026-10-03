@@ -34,6 +34,7 @@ const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAj
 const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
 const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
 const PacksPublicosView = React.lazy(() => import('./modules/public/views/PacksPublicosView'));
+const TeoricoPublicoView = React.lazy(() => import('./modules/public/views/TeoricoPublicoView'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -75,6 +76,7 @@ function App() {
                     <Route path="/sesiones" element={<CursosPublicosView />} />
           <Route path="/cursos" element={<Navigate to="/sesiones" replace />} />          
           <Route path="/packs" element={<PacksPublicosView />} />
+          <Route path="/teorico" element={<TeoricoPublicoView />} />
 
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />

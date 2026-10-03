@@ -673,7 +673,11 @@ const {
 
     packInicializadoRef.current = true;
 
-    const tipoMotoDerivado = (cursoBasico.tiposMotoEscuela || [])[0] || 'Automática';
+    // FIX-PACK-TIPOMOTO: SSOT es el curso a agendar (Equilibrio), no el básico.
+    // Sin hardcode: si el curso acepta un solo tipo, se fuerza ese.
+    // Si acepta varios o ninguno, se deja al flujo posterior decidir.
+    const tiposEq = cursoEquilibrio.tiposMotoEscuela;
+    const tipoMotoDerivado = Array.isArray(tiposEq) && tiposEq.length > 0 ? tiposEq[0] : null;
 
     updateForm({
       cursoId: cursoEquilibrio.id,
