@@ -9,7 +9,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronLeft, CheckCircle, X, Package, User, Phone, Mail, MapPin,
+  ChevronLeft, CheckCircle, X, Package, User, Users, Phone, Mail, MapPin,
   CreditCard, Calendar, Clock, Bike, BookOpen, Activity, Wallet, Settings
 } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
@@ -26,7 +26,7 @@ const AdminPackDetalle = () => {
   const { packReservaId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { cursos, sedes, horarios, instructores, logoutUser, user, saveMovimiento } = useContext(AppContext);  
+  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, saveMovimiento } = useContext(AppContext);  
   const { reservas, packs } = useAdminReservas();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,6 +61,16 @@ const AdminPackDetalle = () => {
   const instructorActual = useMemo(
     () => (instructores || []).find(i => String(i.id) === String(child?.instructorId)),
     [instructores, child]
+  );
+
+  const motoActual = useMemo(
+    () => (motos || []).find(m => String(m.id) === String(child?.motoAsignadaId)),
+    [motos, child]
+  );
+
+  const proveedorActual = useMemo(
+    () => (proveedores || []).find(p => String(p.id) === String(child?.proveedorId)),
+    [proveedores, child]
   );
 
   const handleLogout = async () => {
@@ -216,6 +226,7 @@ const AdminPackDetalle = () => {
             <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400" /><span>{horario?.label || child.horaId || '—'}</span></div>
             <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" /><span>Sede: {sede?.nombre || '—'}</span></div>
             <div className="flex items-center gap-1"><User size={12} className="text-gray-400" /><span className="truncate">Inst: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : '—'}</span></div>
+            <div className="flex items-center gap-1 col-span-2"><Users size={12} className="text-gray-400" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
             <div className="flex items-center gap-1 col-span-2"><Bike size={12} className="text-gray-400" /><span>{child.tipoMoto || '—'} · {child.traeMoto === 'Sí' ? 'Propia' : 'Escuela'}</span></div>
           </div>
         </div>
