@@ -8,8 +8,13 @@ export default function DashboardFooter({ tabs = [], activeTab, onTabChange }) {
           onClick={() => onTabChange(t.id)}
           className={`flex flex-col items-center w-20 transition-all ${activeTab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}
         >
-          <div className={`p-1.5 rounded-xl ${activeTab === t.id ? 'bg-gray-100' : ''}`}>
+          <div className={`relative p-1.5 rounded-xl ${activeTab === t.id ? 'bg-gray-100' : ''}`}>
             <t.icon size={22} className={activeTab === t.id ? 'stroke-[2.5px]' : ''} />
+            {t.badge > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">
+                {t.badge > 99 ? '99+' : t.badge}
+              </span>
+            )}
           </div>
           <span className="text-[10px] font-bold">{t.label}</span>
         </button>

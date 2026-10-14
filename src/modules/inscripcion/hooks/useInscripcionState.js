@@ -69,6 +69,8 @@ export function useInscripcionState() {
     sessionStorage.removeItem('inscripcion_lockId');
     sessionStorage.removeItem('inscripcion_lockExpiresAt');
     sessionStorage.removeItem('inscripcion_generatedPin');
+    // LOCK-INVALIDATION-SSOT-V1: limpiar snapshot del contexto del lock.
+    sessionStorage.removeItem('inscripcion_lock_context');
   }, []);
 
     return {

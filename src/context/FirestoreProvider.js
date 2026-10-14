@@ -21,6 +21,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [packs, setPacks] = useState([]);  
    const [cursos, setCursos] = useState([]);
   const [cursosTeoricos, setCursosTeoricos] = useState([]);
+  const [recursos, setRecursos] = useState([]);
   const [instructores, setInstructores] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [motos, setMotos] = useState([]);
@@ -32,12 +33,13 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const cargarCatalogos = useCallback(async () => {
     if (!fbUser || !authReady) return;
     try {
-                 const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, cursosTeoricosSnap, packsSnap, instructoresSnap, proveedoresSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
+                 const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, cursosTeoricosSnap, recursosSnap, packsSnap, instructoresSnap, proveedoresSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
         getDocs(collection(db, buildPath('sedes'))),
         getDocs(collection(db, buildPath('horarios'))),
         getDocs(collection(db, buildPath('metodosPago'))),
         getDocs(collection(db, buildPath('cursos'))),
         getDocs(collection(db, buildPath('cursosTeoricos'))),
+        getDocs(collection(db, buildPath('recursos'))),
         getDocs(collection(db, buildPath('packs'))),
         getDocs(collection(db, buildPath('instructores'))),
         getDocs(collection(db, buildPath('proveedores'))),
@@ -51,6 +53,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
       setMetodosPago(metodosPagoSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setPacks(packsSnap.docs.map(d => ({ id: d.id, ...d.data() })));      setCursos(cursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setCursosTeoricos(cursosTeoricosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setRecursos(recursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setInstructores(instructoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setProveedores(proveedoresSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setMotos(motosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -66,7 +69,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const saveCatalogo = (setter) => async (item) => {
     const id = item.id ? String(item.id) : Date.now().toString();
     const newItem = { ...item, id };
-       const colName = setter === setSedes ? 'sedes' : setter === setHorarios ? 'horarios' : setter === setMetodosPago ? 'metodosPago' : setter === setCursos ? 'cursos' : setter === setCursosTeoricos ? 'cursosTeoricos' : setter === setPacks ? 'packs' : setter === setInstructores ? 'instructores' : setter === setProveedores ? 'proveedores' : setter === setMotos ? 'motos' : setter === setAdmins ? 'admins' : 'movimientos';
+       const colName = setter === setSedes ? 'sedes' : setter === setHorarios ? 'horarios' : setter === setMetodosPago ? 'metodosPago' : setter === setCursos ? 'cursos' : setter === setCursosTeoricos ? 'cursosTeoricos' : setter === setRecursos ? 'recursos' : setter === setPacks ? 'packs' : setter === setInstructores ? 'instructores' : setter === setProveedores ? 'proveedores' : setter === setMotos ? 'motos' : setter === setAdmins ? 'admins' : 'movimientos';
     try {
       await setDoc(doc(db, buildPath(colName), id), newItem);
       setter(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
@@ -82,6 +85,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const saveMetodoPago = saveCatalogo(setMetodosPago);
   const savePack = saveCatalogo(setPacks);  const saveCurso = saveCatalogo(setCursos);
   const saveCursoTeorico = saveCatalogo(setCursosTeoricos);
+  const saveRecurso = saveCatalogo(setRecursos);
   const saveInstructor = saveCatalogo(setInstructores);
   const saveProveedorRaw = saveCatalogo(setProveedores);
   const saveMoto = saveCatalogo(setMotos);
@@ -97,13 +101,20 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
 
     const refreshNotificaciones = useCallback(async () => {
     if (!fbUser || !authReady) { setNotifications([]); return; }
+    const uidNotif = fbUser?.uid || user?.uid;
+    if (!isAdmin && !uidNotif) { setNotifications([]); return; }
     const ref = collection(db, buildPath('notificaciones'));
     try {
       const q = isAdmin
         ? query(ref, orderBy('createdAt', 'desc'), limit(30))
-        : query(ref, where('userId', '==', user?.uid || ''), orderBy('createdAt', 'desc'), limit(30));
+        : query(ref, where('userId', '==', String(uidNotif)), limit(50));
       const snapshot = await getDocs(q);
-      setNotifications(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      let docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!isAdmin) {
+        docs.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        docs = docs.slice(0, 30);
+      }
+      setNotifications(docs);
     } catch (err) {
       console.warn('[FirestoreProvider] Error en notificaciones:', err.code || err.message);
       setNotifications([]);
@@ -248,7 +259,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const refreshCatalogos = useCallback(() => cargarCatalogos(), [cargarCatalogos]);
 
     return {
-    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso,cursosTeoricos, saveCursoTeorico, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
+    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso, cursosTeoricos, saveCursoTeorico, recursos, saveRecurso, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,
     reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
     notifications, saveNotificacion, markNotificationRead, refreshNotificaciones,    

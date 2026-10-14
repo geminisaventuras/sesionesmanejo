@@ -1,4 +1,4 @@
-// @build: 2026-09-03 | id: INSTRUCTOR-PENDIENTES-TAB-SKELETON | backup: PendientesTab.backup-20260903-000000 | desc: Pendientes con skeleton loaders y orden por hora
+// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PENDIENTES-TUTOR | desc: Terminología legal - sesiones en lugar de clases.
 import React, { useState, useMemo, useCallback } from 'react';
 import { Calendar } from 'lucide-react';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
@@ -83,11 +83,11 @@ export default function PendientesTab({
       <FiltrosReservas filtros={filtros} setFiltros={setFiltros} cursos={cursos} sedes={sedes} onLimpiar={handleLimpiar} />
 
       <div aria-live="polite" aria-atomic="true">
-        <p className="text-xs font-bold text-gray-500">{filtradas.length} clases encontradas</p>
+        <p className="text-xs font-bold text-gray-500">{filtradas.length} sesiones encontradas</p>
       </div>
 
       {filtradas.length === 0 ? (
-        <EmptyState icon={Calendar} title="Sin resultados" description="No se encontraron clases con los filtros seleccionados." />
+        <EmptyState icon={Calendar} title="Sin resultados" description="No se encontraron sesiones con los filtros seleccionados." />
       ) : (
         <div className="space-y-4">
           <GrupoReservas titulo="Hoy" reservas={ordenarPorHora(grupos.hoy, horarios)} cursos={cursos} horarios={horarios} sedes={sedes} onIniciarClase={onIniciarClase} onVerDetalle={onVerDetalle} />

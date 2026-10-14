@@ -7,6 +7,7 @@ import { AlertCircle, Clock, MapPin, Phone, CheckCircle, GraduationCap, ChevronL
 import ModalCursoDetalle from '../components/ModalCursoDetalle';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 import LegalFooter from '../../shared/components/LegalFooter';
+import { calcularDias, formatearDias } from '../../shared/utils/duraciones';
 const APP_ID = 'motoescuela-pro-v1';
 
 
@@ -224,7 +225,7 @@ const unsub = onSnapshot(q, (snap) => {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2 text-gray-600">
                     <Clock className="w-4 h-4" />
-                    <span><strong>Duración:</strong> {formatearDuracion(curso.duracionTotal)}</span>
+                    <span><strong>Duración:</strong> {formatearDuracion(curso.duracionTotal)} · {formatearDias(calcularDias(curso.duracionTotal))}</span>
                   </div>
                   <div className="flex items-center gap-2 text-gray-600">
                     <span className="text-2xl font-bold text-blue-600">${curso.precioBase || 0}</span>

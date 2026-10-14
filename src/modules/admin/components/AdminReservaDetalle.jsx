@@ -16,7 +16,10 @@ import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { db } from '../../../firebase';
 import CambiarHorarioModal from './CambiarHorarioModal';
 import ModalReasignarInstructor from './ModalReasignarInstructor';
+import ModalCambiarMoto from './ModalCambiarMoto';
 import BadgeReposicion from '../../shared/components/BadgeReposicion';
+import ModalMotivoRechazo from '../../shared/components/ModalMotivoRechazo';
+
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
   const [y, m, d] = fechaStr.split('-');
@@ -29,11 +32,14 @@ const AdminReservaDetalle = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const volverA = location.state?.from || '/admin/reservas';  
-  const { reservas, instructores, cursos, horarios, sedes, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, cursos, horarios, sedes, motos, proveedores, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
   
   const [mostrarCambiarHorario, setMostrarCambiarHorario] = useState(false);
   const [mostrarReasignar, setMostrarReasignar] = useState(false);
+  const [mostrarCambiarMoto, setMostrarCambiarMoto] = useState(false);
+  // Estado para el modal de motivo de rechazo: null | 'rechazar'
+  const [modalMotivo, setModalMotivo] = useState(null);
 
   const isAdmin = user?.role === 'admin';
   const res = (reservas || []).find(r => String(r.id) === String(reservaId));
@@ -65,6 +71,25 @@ const AdminReservaDetalle = () => {
     );
   }, [instructores, res?.sedeId, res?.instructorId]);
 
+  // FEATURE-CAMBIAR-PROVEEDOR-MOTO: motos candidatas para el cambio.
+  // Filtros: activa + sede de la reserva + tipo compatible + no es la actual.
+  // La ocupación se valida en el handler cambiarMoto (defensa en profundidad).
+  const motosDisponibles = useMemo(() => {
+    if (!res) return [];
+    return (motos || [])
+      .filter(m => m.activo)
+      .filter(m => (m.sedes || []).includes(res.sedeId))
+      .filter(m => !res.tipoMoto || m.tipo === res.tipoMoto)
+      .filter(m => String(m.id) !== String(res.motoAsignadaId))
+      .map(m => {
+        const prov = (proveedores || []).find(p => String(p.id) === String(m.proveedorId));
+        return {
+          ...m,
+          proveedorNombre: prov ? prov.nombre : 'Sin proveedor'
+        };
+      });
+  }, [motos, proveedores, res?.sedeId, res?.tipoMoto, res?.motoAsignadaId]);
+
   const header = <DashboardHeader title={`Reserva: ${res?.nombre || ''} ${res?.apellido || ''}`} onBack={() => navigate(volverA)} onLogout={handleLogout} notifications={notifications} />;  const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="reservas"
@@ -87,6 +112,8 @@ const AdminReservaDetalle = () => {
   }
 
   const instructorActual = (instructores || []).find(i => String(i.id) === String(res.instructorId));
+  const motoActual = (motos || []).find(m => String(m.id) === String(res.motoAsignadaId));
+  const proveedorActual = (proveedores || []).find(p => String(p.id) === String(res.proveedorId));
   
   
 
@@ -108,7 +135,12 @@ const AdminReservaDetalle = () => {
       motoAsignadaId: res.motoAsignadaId || null,
       traeMoto: res.traeMoto || 'No',
       estadoPago: 'Aprobado'
-    }, { merge: true });    
+    }, { merge: true });
+    
+    // FIX-METRICAS-TRIGGER: invalidar caché del hook useMetricasUsuario
+    batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
+      updatedAt: serverTimestamp()
+    });
     
     try {
       await batch.commit();
@@ -120,7 +152,7 @@ const AdminReservaDetalle = () => {
     }
   };
 
-  const rechazarPago = async (tipo = 'rechazar') => {
+  const rechazarPago = async (tipo = 'rechazar', motivo = '') => {
     if (!isAdmin) return;
     const batch = writeBatch(db);
     const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
@@ -129,6 +161,10 @@ const AdminReservaDetalle = () => {
       if (tipo === 'cancelar') {
       batch.update(reservaRef, { estadoPago: 'Cancelado', estadoCurso: 'Cancelado' });
       batch.delete(espejoRef);
+      // FIX-METRICAS-TRIGGER: invalidar caché del hook
+      batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
+        updatedAt: serverTimestamp()
+      });
 
      
             // ✅ CORRECCIÓN: purgar locks por instructor y filtrar en memoria (evita índice compuesto)
@@ -161,7 +197,12 @@ const AdminReservaDetalle = () => {
       batch.update(reservaRef, { 
         estadoPago: 'Rechazado', 
         rechazadoEn: Date.now(), 
-        intentosCorreccion: intentosActuales + 1 
+        intentosCorreccion: intentosActuales + 1,
+        motivoRechazo: motivo || 'La referencia del pago no coincide' 
+      });
+      // FIX-METRICAS-TRIGGER: invalidar caché del hook
+      batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
+        updatedAt: serverTimestamp()
       });
       batch.set(espejoRef, {
         userId: res.userId,
@@ -329,6 +370,89 @@ const AdminReservaDetalle = () => {
             navigate(volverA);
     } catch (error) {
       showToast('Error al reasignar: ' + error.message, 'error');
+    }
+  };
+
+  // Cambio de moto asignada. Deriva proveedorId del motoDestino (SSOT).
+  const cambiarMoto = async ({ motoDestinoId, motoDestinoNombre, proveedorDestinoId, proveedorDestinoNombre, motivo }) => {
+    if (!isAdmin) return showToast('Sin permisos', 'error');
+    if (!motoDestinoId) return showToast('Selecciona una moto', 'error');
+    if (String(motoDestinoId) === String(res.motoAsignadaId)) {
+      return showToast('Selecciona una moto diferente', 'error');
+    }
+    if (res.estadoPago === 'Cancelado') {
+      return showToast('No se puede cambiar una reserva cancelada', 'error');
+    }
+    if (res.pagadoProveedor === true) {
+      return showToast('No se puede reasignar: la comisión al proveedor ya fue pagada', 'error');
+    }
+
+    const motoDestino = (motos || []).find(m => String(m.id) === String(motoDestinoId));
+    if (!motoDestino) return showToast('Moto destino no encontrada', 'error');
+
+    // Verificar que la moto no esté ocupada por OTRA reserva en las fechas de esta reserva.
+    const fechasRes = [res.fecha, res.fecha2].filter(Boolean);
+    const conflicto = (reservas || []).some(r => {
+      if (String(r.id) === String(res.id)) return false;
+      if (String(r.motoAsignadaId) !== String(motoDestinoId)) return false;
+      if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
+      for (const f of fechasRes) {
+        const bloqueRes = getHoraIdOcupacion(res, f);
+        const bloqueR = getHoraIdOcupacion(r, f);
+        if (bloqueRes && bloqueR && bloqueRes === bloqueR) return true;
+      }
+      return false;
+    });
+    if (conflicto) {
+      const confirmado = window.confirm(
+        '⚠️ Esta moto ya tiene otra reserva en esa fecha y bloque. Puede haber doble asignación.\n\n¿Deseas continuar?'
+      );
+      if (!confirmado) return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+      const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
+
+      const evento = {
+        id: `cambio_moto_${Date.now()}`,
+        timestamp: Timestamp.now(),
+        autor: user?.uid || 'admin',
+        autorRol: 'admin',
+        tipo: 'cambio_moto',
+        motivo: motivo || '',
+        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null },
+        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null }
+      };
+
+      const datosActualizacion = {
+        motoAsignadaId: motoDestinoId,
+        proveedorId: proveedorDestinoId || null,
+        motoAnteriorId: res.motoAsignadaId || null,
+        proveedorAnteriorId: res.proveedorId || null,
+        reprogramaciones: arrayUnion(evento),
+        reprogramacionesCount: (res.reprogramacionesCount || 0) + 1,
+        ultimaReprogramacion: serverTimestamp(),
+        cambiadoPor: user?.uid || 'admin',
+        cambiadoEn: serverTimestamp()
+      };
+
+      batch.update(reservaRef, datosActualizacion);
+      batch.set(espejoRef, {
+        motoAsignadaId: motoDestinoId,
+        proveedorId: proveedorDestinoId || null
+      }, { merge: true });
+
+      await batch.commit();
+
+      showToast(`Moto cambiada. Proveedor: ${proveedorDestinoNombre || 'Sin asignar'}`, 'success');
+      setMostrarCambiarMoto(false);
+      navigate(volverA, { replace: true });
+
+    } catch (error) {
+      console.error('[AdminReservaDetalle] Error cambiando moto:', error);
+      showToast('Error al cambiar moto: ' + error.message, 'error');
     }
   };
 
@@ -629,6 +753,7 @@ const AdminReservaDetalle = () => {
               <div className="col-span-2 border-t border-gray-100 my-1"></div>
               <div className="flex items-center gap-1"><BookOpen size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">{curso?.nombre || res.cursoId || '—'}</span></div>
               <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Tutor: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : 'Sin asignar'}</span></div>
+              <div className="flex items-center gap-1"><Users size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
               <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>{formatearFecha(res.fecha)} – {formatearFecha(res.fecha2)}</span></div>
               <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || res.horaId || '—'}</span></div>
               <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {sede?.nombre || res.sedeId || '—'}</span></div>
@@ -708,13 +833,42 @@ Sede: ${sede?.nombre || ''}
                   </a>
                 );
               })()}
-              {(res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
-                <div className="flex gap-2 flex-wrap mb-2">
-                  <Button type="button" onClick={aprobarPago} variant="success" className="!py-1.5 !text-[10px] flex-1" icon={CheckCircle}>Aprobar Pago</Button>
-                  <Button type="button" onClick={() => rechazarPago('rechazar')} variant="danger" className="!py-1.5 !text-[10px] flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
-                  <Button type="button" onClick={() => rechazarPago('cancelar')} variant="outline" className="!py-1.5 !text-[10px] w-full" icon={X}>Cancelar definitivamente</Button>
-                </div>
-              )}
+              {(res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (() => {
+                const intentos = res.intentosCorreccion || 0;
+                const agotados = intentos >= 3;
+                return (
+                  <>
+                    {/* FIX-ADMIN-INTENTOS: aviso cuando el usuario agotó los 3 intentos */}
+                    {agotados ? (
+                      <div className="bg-red-100 border-2 border-red-400 rounded-lg p-3 mb-2">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle size={16} className="text-red-700 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-black text-red-800">
+                              ⚠️ El usuario agotó los 3 intentos de corrección
+                            </p>
+                            <p className="text-[10px] text-red-700 mt-0.5">
+                              Ya no puede corregir la referencia. Decide: <strong>Aprobar</strong> el pago o <strong>Cancelar definitivamente</strong>.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : intentos > 0 ? (
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 mb-2 text-[10px] font-bold text-orange-800">
+                        ⚠️ Rechazos acumulados: {intentos} de 3
+                      </div>
+                    ) : null}
+
+                    <div className="flex gap-2 flex-wrap mb-2">
+                      <Button type="button" onClick={aprobarPago} variant="success" className="!py-1.5 !text-[10px] flex-1" icon={CheckCircle}>Aprobar Pago</Button>
+                      {!agotados && (
+                        <Button type="button" onClick={() => setModalMotivo('rechazar')} variant="danger" className="!py-1.5 !text-[10px] flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
+                      )}
+                      <Button type="button" onClick={() => rechazarPago('cancelar')} variant="outline" className={`!py-1.5 !text-[10px] ${agotados ? 'flex-1' : 'w-full'}`} icon={X}>Cancelar definitivamente</Button>
+                    </div>
+                  </>
+                );
+              })()}
 
                            {/* Reasignación de instructor con split */}
               <Button 
@@ -743,6 +897,30 @@ Sede: ${sede?.nombre || ''}
 
               {res.pagadoInstructor === true && (
                 <p className="text-[10px] text-gray-500 mb-2">La comisión ya fue pagada. No se puede reasignar.</p>
+              )}
+
+              {/* Cambio de proveedor / moto (deriva proveedor automáticamente) */}
+              <Button 
+                type="button" 
+                onClick={() => setMostrarCambiarMoto(true)} 
+                variant="secondary" 
+                className="!py-1.5 !text-[10px] w-full mb-2"
+                icon={Bike}
+                disabled={
+                  res.estadoPago === 'Cancelado' ||
+                  res.pagadoProveedor === true ||
+                  !res.motoAsignadaId
+                }
+              >
+                Cambiar proveedor / moto
+              </Button>
+
+              {res.pagadoProveedor === true && (
+                <p className="text-[10px] text-gray-500 mb-2">La comisión al proveedor ya fue pagada. No se puede reasignar.</p>
+              )}
+
+              {!res.motoAsignadaId && res.traeMoto !== 'Sí' && (
+                <p className="text-[10px] text-gray-500 mb-2">Esta reserva no tiene moto asignada.</p>
               )}
 
               {/* Botón cambiar horario */}
@@ -831,6 +1009,29 @@ Sede: ${sede?.nombre || ''}
           )}
           onConfirmar={reasignarInstructor}
           onCancelar={() => setMostrarReasignar(false)}
+        />
+      )}
+
+      {/* Modal de motivo de rechazo */}
+      {modalMotivo === 'rechazar' && (
+        <ModalMotivoRechazo
+          onConfirm={(motivo) => {
+            rechazarPago('rechazar', motivo);
+            setModalMotivo(null);
+          }}
+          onCancel={() => setModalMotivo(null)}
+        />
+      )}
+
+      {/* Modal de cambio de proveedor / moto */}
+      {mostrarCambiarMoto && (
+        <ModalCambiarMoto
+          reserva={res}
+          motosDisponibles={motosDisponibles}
+          motoActual={motoActual}
+          proveedorActual={proveedorActual}
+          onConfirmar={cambiarMoto}
+          onCancelar={() => setMostrarCambiarMoto(false)}
         />
       )}
     </AppShell>

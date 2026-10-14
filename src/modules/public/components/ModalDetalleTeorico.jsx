@@ -1,4 +1,5 @@
 // @build: 2026-10-02 | id: TEORICO-MODAL-DETALLE | desc: Modal de detalle de Módulo Formativo con disclaimers y CTA
+import { useNavigate } from 'react-router-dom';
 import { X, Clock, BookMarked, HelpCircle, Video, BookOpen, Sparkles, AlertCircle } from 'lucide-react';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 
@@ -8,14 +9,21 @@ const formatearDuracionAcceso = (duracion) => {
 };
 
 export default function ModalDetalleTeorico({ modulo, onClose }) {
+  const navigate = useNavigate();
   if (!modulo) return null;
 
   const precio = Number(modulo.precio) || 0;
   const esGratis = precio === 0;
 
-  const handleInscribirme = () => {
-    // Bloque 5 conectará el flujo de compra real
-    alert('Este módulo formativo estará disponible próximamente. Contáctanos para más información.');
+    const handleInscribirme = () => {
+    onClose?.();
+    if (esGratis) {
+      navigate('/teorico/' + modulo.id);
+    } else {
+      navigate('/teorico/' + modulo.id + '/comprar', {
+        state: { esTeorico: true, cursoTeoricoId: modulo.id }
+      });
+    }
   };
 
   return (

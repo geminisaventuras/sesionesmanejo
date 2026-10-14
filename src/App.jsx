@@ -24,6 +24,7 @@ const AdminReservasHome = React.lazy(() => import('./modules/admin/components/Ad
 const AdminReservasList = React.lazy(() => import('./modules/admin/components/AdminReservasList'));
 const AdminReservaDetalle = React.lazy(() => import('./modules/admin/components/AdminReservaDetalle'));
 const AdminPackDetalle = React.lazy(() => import('./modules/admin/components/AdminPackDetalle'));
+const AdminAccesoTeoricoDetalle = React.lazy(() => import('./modules/admin/components/AdminAccesoTeoricoDetalle'));
 const ProgresoAcademicoView = React.lazy(() => import('./modules/shared/views/ProgresoAcademicoView'));
 
 const AdminOcupacion = React.lazy(() => import('./modules/admin/components/AdminOcupacion'));
@@ -35,6 +36,10 @@ const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/Provee
 const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
 const PacksPublicosView = React.lazy(() => import('./modules/public/views/PacksPublicosView'));
 const TeoricoPublicoView = React.lazy(() => import('./modules/public/views/TeoricoPublicoView'));
+const TeoricoCursoView = React.lazy(() => import('./modules/public/views/TeoricoCursoView'));
+const TeoricoModuloView = React.lazy(() => import('./modules/public/views/TeoricoModuloView'));
+const InscripcionTeoricoView = React.lazy(() => import('./modules/inscripcion/views/InscripcionTeoricoView').then(m => ({ default: m.InscripcionTeoricoView })));
+const CorregirPagoView = React.lazy(() => import('./modules/shared/views/CorregirPagoView'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -77,6 +82,9 @@ function App() {
           <Route path="/cursos" element={<Navigate to="/sesiones" replace />} />          
           <Route path="/packs" element={<PacksPublicosView />} />
           <Route path="/teorico" element={<TeoricoPublicoView />} />
+          <Route path="/teorico/:cursoId" element={<TeoricoCursoView />} />
+          <Route path="/teorico/:cursoId/modulo/:moduloId" element={<TeoricoModuloView />} />
+          <Route path="/teorico/:cursoId/comprar" element={<InscripcionTeoricoView />} />
 
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />
@@ -99,6 +107,11 @@ function App() {
           <Route path="/mi-pack/:packReservaId/agendar" element={
             <ProtectedRoute allowedRoles={['estudiante']}>
               <AgendarPackView />
+            </ProtectedRoute>
+          } />
+          <Route path="/corregir-pago/:tipo/:id" element={
+            <ProtectedRoute allowedRoles={['estudiante']}>
+              <CorregirPagoView />
             </ProtectedRoute>
           } />
 
@@ -132,6 +145,11 @@ function App() {
           <Route path="/admin/pack/:packReservaId" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminPackDetalle />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/acceso-teorico/:accesoId" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminAccesoTeoricoDetalle />
             </ProtectedRoute>
           } />
 

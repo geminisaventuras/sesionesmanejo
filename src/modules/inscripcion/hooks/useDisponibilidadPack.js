@@ -3,6 +3,8 @@ import { useMemo } from 'react';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
+import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/utils/motoHelpers';
 const MAX_DIAS_RESERVA = 30;
 
 const getCaracasTime = () => {
@@ -34,7 +36,9 @@ const evaluarDisponibilidad = ({
   selectingBlockId, currentUserId, todayStr, lockId,
   bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
 }) => {
-  const necesitaMoto = form.traeMoto !== 'Sí';
+  // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
+  // Si el curso tiene motoIncluida: false, NUNCA se busca moto de escuela.
+  const { necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
 
   // Filtro crítico: solo instructores en curso.instructoresPermitidos.
   // Array vacío o ausente = todos permitidos (compatibilidad con cursos legacy).
@@ -100,18 +104,13 @@ const evaluarDisponibilidad = ({
   const calcularBloque = (bloque, fecha1, fecha2) => {
     if (bloque.isLunch) return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
 
-    const afectaFecha = (b, f) => {
-      if (!f) return false;
-      if (f < b.fechaInicio) return false;
-      const fin = b.fechaFin || b.fechaInicio;
-      if (f > fin) return false;
-      if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
-      if (b.todoElDia) return true;
-      return (b.horarios || []).includes(bloque.id);
-    };
-    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b =>
-      afectaFecha(b, fecha1) || afectaFecha(b, fecha2)
-    );
+    // SSOT-BLOQUEOS: validar bloqueosAdmin contra fecha1 Y fecha2.
+    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, bloque.id)) return false;
+      if (afectaFechaAdmin(b, fecha1, form.sedeId)) return true;
+      if (fecha2 && afectaFechaAdmin(b, fecha2, form.sedeId)) return true;
+      return false;
+    });
     if (hayBloqueoAdmin) {
       return { ...bloque, disponible: false, reason: 'BLOQUEO_ADMIN', instructorId: null, motoAsignadaId: null };
     }
@@ -144,27 +143,11 @@ const evaluarDisponibilidad = ({
     const motosDisponiblesBase = motosDisponibles;
 
     if (necesitaMoto && motosDisponibles.length > 0) {
-      const afectaProveedor = (b, motoId, f) => {
-        if (!f) return false;
-        if (b.motoId !== motoId && b.motoId !== 'ALL') return false;
-        if (b.fecha !== f) return false;
-        const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
-        const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
-        const bloqueInicio = hIni * 60 + mIni;
-        const bloqueFin = hFin * 60 + mFin;
-        const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
-        if (!labelParts) return false;
-        let hBloque = parseInt(labelParts[1], 10);
-        const mBloque = parseInt(labelParts[2], 10);
-        const mod = labelParts[3].toUpperCase();
-        if (mod === 'PM' && hBloque < 12) hBloque += 12;
-        if (mod === 'AM' && hBloque === 12) hBloque = 0;
-        const bloqueMinutos = hBloque * 60 + mBloque;
-        return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
-      };
+      // SSOT-BLOQUEOS: bloqueo de proveedor contra fecha1 Y fecha2.
       motosDisponibles = motosDisponibles.filter(m => {
         const bloqueado = (bloqueosProveedor || []).some(b =>
-          afectaProveedor(b, m.id, fecha1) || afectaProveedor(b, m.id, fecha2)
+          afectaProveedor(b, m.id, fecha1, bloque.label) ||
+          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label))
         );
         return !bloqueado;
       });
@@ -222,7 +205,8 @@ const evaluarDisponibilidad = ({
   })();
 
   const diasDisponibles = [];
-  if (form.sedeId && form.tipoMoto) {
+  // SSOT-MOTO-HELPERS: calcular días cuando sede + (tipoMoto O curso sin moto).
+  if (puedeCalcularDisponibilidad(form.sedeId, form.tipoMoto, cursoSeleccionado)) {
     const cursor = new Date(today + 'T12:00:00');
     const fin = new Date(maxDate + 'T12:00:00');
     while (cursor <= fin) {

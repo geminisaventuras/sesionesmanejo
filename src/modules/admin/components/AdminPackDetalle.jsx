@@ -13,6 +13,7 @@ import {
   CreditCard, Calendar, Clock, Bike, BookOpen, Activity, Wallet, Settings
 } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
+import ModalMotivoRechazo from '../../shared/components/ModalMotivoRechazo';
 
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
@@ -29,6 +30,8 @@ const AdminPackDetalle = () => {
   const { reservas, packs } = useAdminReservas();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Estado para el modal de motivo de rechazo: null | 'rechazar'
+  const [modalMotivo, setModalMotivo] = useState(null);
 
   const pack = useMemo(
     () => (packs || []).find(p => String(p.id) === String(packReservaId)),
@@ -94,51 +97,63 @@ const AdminPackDetalle = () => {
    const handleAprobar = async () => {
     if (!confirm('¿Aprobar este pack? Se activará el primer curso (Equilibrio).')) return;
     setIsSubmitting(true);
-    const res = await ReservaService.aprobarReservaPack(pack.id, child.id);
-    if (res.success) {
-      // Movimiento contable (fire-and-forget): 1 ingreso por el total del pack
-      await saveMovimiento({
-        id: Date.now().toString(),
-        tipo: 'ingreso',
-        monto: Number(pack.precioTotalCongelado) || 0,
-        desc: `Pack ${pack.packNombre || ''} - C-${String(pack.id).slice(-4)}`,
-        fecha: new Date().toISOString().split('T')[0],
-        userId: pack.userId
-      }).catch((err) => {
-        console.warn('[AdminPackDetalle] Error guardando movimiento:', err);
-      });
+    try {
+      const res = await ReservaService.aprobarReservaPack(pack.id, child.id);
+      if (res.success) {
+        // Movimiento contable (fire-and-forget): 1 ingreso por el total del pack
+        await saveMovimiento({
+          id: Date.now().toString(),
+          tipo: 'ingreso',
+          monto: Number(pack.precioTotalCongelado) || 0,
+          desc: `Pack ${pack.packNombre || ''} - C-${String(pack.id).slice(-4)}`,
+          fecha: new Date().toISOString().split('T')[0],
+          userId: pack.userId
+        }).catch((err) => {
+          console.warn('[AdminPackDetalle] Error guardando movimiento:', err);
+        });
+
+        if (res.batchWarning === 'accesos_teoricos_pendientes') {
+          showToast('Pack aprobado. Los accesos teóricos se sincronizarán en segundo plano.', 'info');
+        } else {
+          showToast('Pack aprobado correctamente', 'success');
+        }
+        navigate('/admin/reservas');
+      } else {
+        showToast('Error al aprobar: ' + res.error.message, 'error');
+      }
+    } finally {
       setIsSubmitting(false);
-      showToast('Pack aprobado correctamente', 'success');
-      navigate('/admin/reservas');
-    } else {
-      setIsSubmitting(false);
-      showToast('Error al aprobar: ' + res.error.message, 'error');
     }
   };
 
-  const handleRechazar = async () => {
-    if (!confirm('¿Rechazar este pack? El estudiante podrá corregir el pago.')) return;
+  const handleRechazar = async (motivo = '') => {
     setIsSubmitting(true);
-    const res = await ReservaService.rechazarReservaPack(pack.id, child.id);
-    setIsSubmitting(false);
-    if (res.success) {
-      showToast('Pack rechazado', 'info');
-      navigate('/admin/reservas');
-    } else {
-      showToast('Error al rechazar: ' + res.error.message, 'error');
+    try {
+      const res = await ReservaService.rechazarReservaPack(pack.id, child.id, motivo);
+      if (res.success) {
+        showToast('Pack rechazado', 'info');
+        navigate('/admin/reservas');
+      } else {
+        showToast('Error al rechazar: ' + res.error.message, 'error');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleCancelar = async () => {
     if (!confirm('¿Cancelar definitivamente? Se liberará el horario.')) return;
     setIsSubmitting(true);
-    const res = await ReservaService.cancelarReservaPack(pack.id, child.id);
-    setIsSubmitting(false);
-    if (res.success) {
-      showToast('Pack cancelado. Horario liberado.', 'info');
-      navigate('/admin/reservas');
-    } else {
-      showToast('Error al cancelar: ' + res.error.message, 'error');
+    try {
+      const res = await ReservaService.cancelarReservaPack(pack.id, child.id);
+      if (res.success) {
+        showToast('Pack cancelado. Horario liberado.', 'info');
+        navigate('/admin/reservas');
+      } else {
+        showToast('Error al cancelar: ' + res.error.message, 'error');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -231,7 +246,7 @@ const AdminPackDetalle = () => {
               <Button type="button" onClick={handleAprobar} variant="success" className="!py-2 !text-xs flex-1" icon={CheckCircle} disabled={isSubmitting}>
                 Aprobar Pack
               </Button>
-              <Button type="button" onClick={handleRechazar} variant="danger" className="!py-2 !text-xs flex-1" icon={X} disabled={isSubmitting}>
+              <Button type="button" onClick={() => setModalMotivo('rechazar')} variant="danger" className="!py-2 !text-xs flex-1" icon={X} disabled={isSubmitting}>
                 Rechazar (corregir)
               </Button>
             </div>
@@ -256,8 +271,13 @@ const AdminPackDetalle = () => {
         )}
 
         {pack.estadoPago === 'Aprobado' && (          
-          <div className="bg-green-50 p-3 rounded-xl border border-green-200 text-center text-xs font-bold text-green-700">
-            ✅ Este pack ya fue aprobado.
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 space-y-2">
+            <div className="bg-green-50 p-3 rounded-xl border border-green-200 text-center text-xs font-bold text-green-700">
+              ✅ Este pack ya fue aprobado.
+            </div>
+            <Button type="button" onClick={handleCancelar} variant="outline" className="!py-2 !text-xs w-full" icon={X} disabled={isSubmitting}>
+              Cancelar definitivamente
+            </Button>
           </div>
         )}
         {pack.estadoPago === 'Cancelado' && (
@@ -266,6 +286,17 @@ const AdminPackDetalle = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de motivo de rechazo */}
+      {modalMotivo === 'rechazar' && (
+        <ModalMotivoRechazo
+          onConfirm={(motivo) => {
+            handleRechazar(motivo);
+            setModalMotivo(null);
+          }}
+          onCancel={() => setModalMotivo(null)}
+        />
+      )}
     </AppShell>
   );
 };

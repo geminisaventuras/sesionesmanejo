@@ -173,7 +173,7 @@ const tiempoAgotado = sgta.totalCompletado;
         <div className="flex flex-col items-center justify-center min-h-full p-6 text-center">
           <Lock size={48} className="text-red-500 mb-4" />
           <h2 className="text-xl font-black text-gray-900 mb-2">Acceso Restringido</h2>
-          <p className="text-sm text-gray-500 mb-6">No tenés permiso para acceder a este panel. Si creés que es un error, contactá al administrador.</p>
+          <p className="text-sm text-gray-500 mb-6">No tienes permiso para acceder a este panel. Si crees que es un error, contacta al administrador.</p>
           <Button onClick={() => navigate(esInstructor ? '/instructor' : '/portal-reservas')} variant="primary">Volver al Panel</Button>
         </div>
       </AppShell>

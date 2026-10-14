@@ -7,6 +7,7 @@ import { auth } from '../../../firebase';
 import { ReservaService } from '../../../services/ReservaService';
 import { LockService } from '../../../services/LockService';
 import { AuthService } from '../../../services/AuthService';
+import UsuarioService from '../../shared/services/UsuarioService';
 import ModalConfirmacion from '../../shared/components/ModalConfirmacion';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
@@ -26,10 +27,13 @@ import { LockTimerFlotante } from '../components/LockTimerFlotante';
 import { ModalExpiracion } from '../components/ModalExpiracion';
 import { ArrowRight, Check, Award, Bike } from 'lucide-react';
 import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
-import { getDoc, doc, getDocs, collection } from 'firebase/firestore';
 
-import { db } from '../../../firebase';
+
+
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
+import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
+import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
+import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/utils/motoHelpers';
 import { EmailService } from '../../shared/services/EmailService';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros, eliminarLockLocal } from '../utils/locksHelpers';
@@ -64,12 +68,34 @@ const isPastBlock = (fecha, label, todayStr) => {
   } catch (e) { return false; }
 };
 
+// ─── SSOT-BLOQUEOS: helpers de invalidación de lock ─────
+// LOCK-INVALIDATION-SSOT-V1: contexto que invalida el lock si cambia.
+const LOCK_CONTEXT_KEY = 'inscripcion_lock_context';
+
+const serializeTraeMotoPorCurso = (obj) => {
+  if (!obj || typeof obj !== 'object') return '{}';
+  const sortedKeys = Object.keys(obj).sort();
+  const sorted = {};
+  sortedKeys.forEach(k => { sorted[k] = obj[k]; });
+  return JSON.stringify(sorted);
+};
+
+const capturarContextoLock = (form, esPack, packId) => ({
+  fecha1: form.fecha1 || '',
+  sedeId: form.sedeId || '',
+  cursoId: form.cursoId || '',
+  tipoMoto: form.tipoMoto || '',
+  traeMoto: form.traeMoto || '',
+  packId: esPack ? (packId || null) : null,
+  traeMotoPorCursoSerializado: serializeTraeMotoPorCurso(form.traeMotoPorCurso),
+});
+
 // ─── Función pura de disponibilidad ─────────────────────
 const evaluarDisponibilidad = ({
   form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
 }) => {
-    const cursoIncluyeMoto = cursoSeleccionado?.motoIncluida !== false;
-  const necesitaMoto = cursoIncluyeMoto && form.traeMoto !== 'Sí';
+    // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
+  const { cursoIncluyeMoto, necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
     const locksDeOtros = (activeLocks || []).filter(l => {
   if (l.userId === currentUserId) return false;
   // Validar estructura mínima del lock (evita locks corruptos)
@@ -126,19 +152,13 @@ const evaluarDisponibilidad = ({
       })() : null);
   const calcularBloque = (bloque, fecha1, fecha2) => {
       if (bloque.isLunch) return { ...bloque, disponible: false, reason: 'ALMUERZO', instructorId: null, motoAsignadaId: null };
-    // A2.3: el bloqueo debe aplicar a fecha1 Y fecha2 (cursos de 2 días)
-    const afectaFecha = (b, f) => {
-      if (!f) return false;
-      if (f < b.fechaInicio) return false;
-      const fin = b.fechaFin || b.fechaInicio;
-      if (f > fin) return false;
-      if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
-      if (b.todoElDia) return true;
-      return (b.horarios || []).includes(bloque.id);
-    };
-    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b =>
-      afectaFecha(b, fecha1) || afectaFecha(b, fecha2)
-    );
+    // SSOT-BLOQUEOS: validar bloqueosAdmin contra fecha1 Y fecha2 (cursos de 2 días).
+    const hayBloqueoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, bloque.id)) return false;
+      if (afectaFechaAdmin(b, fecha1, form.sedeId)) return true;
+      if (fecha2 && afectaFechaAdmin(b, fecha2, form.sedeId)) return true;
+      return false;
+    });
     if (hayBloqueoAdmin) {
       return { ...bloque, disponible: false, reason: 'BLOQUEO_ADMIN', instructorId: null, motoAsignadaId: null };
     }
@@ -169,28 +189,11 @@ const evaluarDisponibilidad = ({
     const motosDisponiblesBase = motosDisponibles;
       // Filtrar motos bloqueadas por el proveedor (solo si el estudiante necesita moto)
     if (necesitaMoto && motosDisponibles.length > 0) {
-      // A2.3: bloqueo de proveedor debe aplicar a fecha1 Y fecha2 (cursos de 2 días)
-      const afectaProveedor = (b, motoId, f) => {
-        if (!f) return false;
-        if (b.motoId !== motoId && b.motoId !== 'ALL') return false;
-        if (b.fecha !== f) return false;
-        const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
-        const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
-        const bloqueInicio = hIni * 60 + mIni;
-        const bloqueFin = hFin * 60 + mFin;
-        const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
-        if (!labelParts) return false;
-        let hBloque = parseInt(labelParts[1], 10);
-        const mBloque = parseInt(labelParts[2], 10);
-        const mod = labelParts[3].toUpperCase();
-        if (mod === 'PM' && hBloque < 12) hBloque += 12;
-        if (mod === 'AM' && hBloque === 12) hBloque = 0;
-        const bloqueMinutos = hBloque * 60 + mBloque;
-        return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
-      };
+      // SSOT-BLOQUEOS: bloqueo de proveedor contra fecha1 Y fecha2 (cursos de 2 días).
       motosDisponibles = motosDisponibles.filter(m => {
         const bloqueado = (bloqueosProveedor || []).some(b =>
-          afectaProveedor(b, m.id, fecha1) || afectaProveedor(b, m.id, fecha2)
+          afectaProveedor(b, m.id, fecha1, bloque.label) ||
+          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label))
         );
         return !bloqueado;
       });
@@ -244,7 +247,8 @@ if (!necesitaMoto) {
   const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1); return d.toISOString().split('T')[0]; })();
 
   const diasDisponibles = [];
-  if (form.sedeId && form.tipoMoto) {
+  // SSOT-MOTO-HELPERS: calcular días cuando sede + (tipoMoto O curso sin moto).
+  if (puedeCalcularDisponibilidad(form.sedeId, form.tipoMoto, cursoSeleccionado)) {
     const cursor = new Date(today + 'T12:00:00');
     const fin = new Date(maxDate + 'T12:00:00');
     while (cursor <= fin) {
@@ -294,7 +298,7 @@ const {
   }, [form.fecha1, cursoUnDia]);
 
   // Hook con fecha2 correcta
-  const { ocupacion: ocupacionConfirmada } = useOcupacionConfirmada({ 
+  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmada({ 
     fecha: form.fecha1,
     fecha2: fecha2Calc,
     limitDocs: 100 
@@ -304,9 +308,39 @@ const {
     const location = useLocation();
        const esRecompra = location.state?.esRecompra && location.state?.modo === 'nueva';
       const esReintento = location.state?.esReintento && location.state?.modo === 'nueva' && !esRecompra;
-       // Fase 3 Pack: detección. Cambios de flujo vienen en sub-pasos posteriores.
-             const esPack = location.state?.esPack === true && !!location.state?.packId;
-       const packId = location.state?.packId || null;
+       // Fase 3 Pack: detección. Prioridad: location.state → sessionStorage (para sobrevivir F5).
+       // FIX-PACK-FLAG-RESIDUAL: limpiar flag residual si viene con intención nueva que NO es pack.
+       // Preserva F5 vía performance.navigation.type === 'reload'.
+       // FIX-PACK-FLAG-RESIDUAL-V2: ALT-E (contrato explícito) + TTL numérico 4h.
+       // Reemplaza performance.getEntriesByType (roto en SPA: refleja solo carga inicial).
+       const hasNewIntent = location.state !== null && location.state !== undefined;
+       const isExplicitlyNotPack = hasNewIntent && location.state?.esPack !== true;
+
+       // ALT-E: si hay intención explícita NO-pack, limpiar flags de pack.
+       if (isExplicitlyNotPack) {
+         sessionStorage.removeItem('inscripcion_esPack');
+         sessionStorage.removeItem('inscripcion_packId');
+         sessionStorage.removeItem('inscripcion_pack_ts');
+       }
+
+       // TTL 4h: si el flag de pack es viejo, limpiar (cubre URL directa/marcadores).
+       const TS_GUARDADO = parseInt(sessionStorage.getItem('inscripcion_pack_ts') || '0', 10);
+       const TTL_MS = 4 * 60 * 60 * 1000;
+       if (TS_GUARDADO > 0 && (Date.now() - TS_GUARDADO > TTL_MS)) {
+         sessionStorage.removeItem('inscripcion_esPack');
+         sessionStorage.removeItem('inscripcion_packId');
+         sessionStorage.removeItem('inscripcion_pack_ts');
+       }
+
+       const esPackFromState = location.state?.esPack === true && !!location.state?.packId;
+       const packIdFromState = location.state?.packId || null;
+       if (esPackFromState && packIdFromState) {
+         sessionStorage.setItem('inscripcion_esPack', 'true');
+         sessionStorage.setItem('inscripcion_packId', packIdFromState);
+         sessionStorage.setItem('inscripcion_pack_ts', Date.now().toString());
+       }
+       const esPack = esPackFromState || sessionStorage.getItem('inscripcion_esPack') === 'true';
+       const packId = packIdFromState || sessionStorage.getItem('inscripcion_packId') || null;
   const packActivo = useMemo(
     () => esPack ? (ctx.packs || []).find(p => String(p.id) === String(packId)) : null,
     [ctx.packs, esPack, packId]
@@ -325,7 +359,6 @@ const {
   // 6 fases secuenciales, sin race conditions.
   useEffect(() => {
     if (bootstrapEjecutado.current) return;
-    bootstrapEjecutado.current = true;
 
     let isMounted = true;
 
@@ -335,6 +368,8 @@ const {
 
         // FASE 1 — Origen público: limpiar + Paso 1 con curso preseleccionado
         if (state.origen === 'publico' && state.cursoSugerido && state.cursoId) {
+          // ALT-E: FASE 1 no requiere auth → sella y sale.
+          bootstrapEjecutado.current = true;
           limpiarSesion();
           resetForm();
           updateForm({
@@ -349,7 +384,14 @@ const {
         }
 
         // FASE 2 — Sin sesión: terminar bootstrap
-        if (!ctx.authReady || !ctx.fbUser) return;
+        // ALT-E: si authReady es false, sale SIN sellar → permite re-ejecución.
+        if (!ctx.authReady) return;
+
+        // Auth resuelto → sellar ejecución una sola vez.
+        bootstrapEjecutado.current = true;
+
+        // Sin usuario autenticado → terminar bootstrap.
+        if (!ctx.fbUser) return;
 
         // FASE 3 — Rol no-estudiante: redirigir a su panel
         const rol = ctx.user?.role;
@@ -420,7 +462,7 @@ const {
     bootstrap();
 
     return () => { isMounted = false; };
-  }, []); // Solo en mount
+  }, [ctx.authReady, ctx.fbUser?.uid]); // ALT-E: re-ejecutar cuando auth resuelva
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
@@ -442,8 +484,12 @@ const {
   const [mostrarModalExpiracion, setMostrarModalExpiracion] = useState(false);
 
   const [activeLocks, setActiveLocks] = useState([]);  
-    const [bloqueosAdmin, setBloqueosAdmin] = useState([]);
     const fechaAnteriorRef = useRef(form.fecha1);
+
+  // LOCK-INVALIDATION-SSOT-V1: contexto de invalidación (solo inputs).
+  // Si cambia cualquiera de estos campos, el lock se libera automáticamente.
+  const lockContext = useMemo(() => capturarContextoLock(form, esPack, packId),
+    [form.fecha1, form.sedeId, form.cursoId, form.tipoMoto, form.traeMoto, form.traeMotoPorCurso, esPack, packId]);
      const limpiarLockPropioOptimista = useCallback((lockId) => {
     if (!lockId) return;
     setActiveLocks(prev => eliminarLockLocal(prev, lockId));
@@ -647,7 +693,7 @@ const {
 
   useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
 
-  // Fase 3 Pack: cargar pack y prellenar form cuando llega desde /packs
+  // Fase 3 Pack: cargar pack y prellenar form cuando llega desde /packs o panel
   useEffect(() => {
     if (!esPack || !packId || !ctx.cursos?.length) return;
     if (packInicializadoRef.current) return;
@@ -673,27 +719,64 @@ const {
 
     packInicializadoRef.current = true;
 
+    // FIX-PACK-HEREDA-FECHA: resetear form antes de precargar el pack.
+    // Previene que fecha1/horaId/lockId del flujo individual se hereden
+    // (updateForm hace merge, no reemplazo). Mismo patrón que recompra/reintento.
+    resetForm();
+
     // FIX-PACK-TIPOMOTO: SSOT es el curso a agendar (Equilibrio), no el básico.
-    // Sin hardcode: si el curso acepta un solo tipo, se fuerza ese.
-    // Si acepta varios o ninguno, se deja al flujo posterior decidir.
     const tiposEq = cursoEquilibrio.tiposMotoEscuela;
     const tipoMotoDerivado = Array.isArray(tiposEq) && tiposEq.length > 0 ? tiposEq[0] : null;
 
+    // Precarga desde SSOT (usuarios/{uid}) si el usuario está logueado
+    const ssot = ctx.user?.data || {};
+    const fechaNac = ssot.fechaNacimiento || '';
+    const partesFecha = fechaNac ? fechaNac.split('-') : [];
+
     updateForm({
+      // Datos personales del SSOT
+      nombre: ssot.nombre || '',
+      apellido: ssot.apellido || '',
+      cedula: ssot.cedula || '',
+      correo: ssot.correo || ctx.fbUser?.email || '',
+      telefono: ssot.telefono || '',
+      contactoEmergencia: ssot.contactoEmergencia || '',
+      diaNac: partesFecha[2] ? String(Number(partesFecha[2])) : '',
+      mesNac: partesFecha[1] ? String(Number(partesFecha[1])) : '',
+      anoNac: partesFecha[0] ? String(Number(partesFecha[0])) : '',
+      sexo: ssot.sexo || '',
+      estado: ssot.estado || '',
+      zona: ssot.zona || '',
+      condicionMedica: ssot.condicionMedica || '',
+      detalleCondicion: ssot.detalleCondicion || '',
+      // Datos del pack
       cursoId: cursoEquilibrio.id,
       cursoSugeridoActivo: true,
       cursoSeleccionadoManual: false,
       tipoMoto: tipoMotoDerivado,
       sedeId: '',
-           traeMoto: 'No',
-      traeMotoPorCurso: {},
+      traeMoto: 'No',
+      // FIX-PACK-DEFAULT-MOTO: si el mapa está vacío, prellenar con 'No'
+      // (moto App por defecto) para cada curso preguntable del pack.
+      traeMotoPorCurso: (() => {
+        const actual = form.traeMotoPorCurso || {};
+        if (Object.keys(actual).length > 0) return actual;
+        const inicial = {};
+        cursosPack.forEach(c => {
+          const esPreguntable = c.tipoCurso !== 'equilibrio' && c.motoIncluida !== false;
+          if (esPreguntable) inicial[String(c.id)] = 'No';
+        });
+        return inicial;
+      })(),
       sabeBicicleta: 'No',
       esPack: true,
       packId
     });
 
-    setStep('1');
-   }, [esPack, packId, ctx.cursos, ctx.packs, updateForm, setStep, navigate, showToast]);
+    // Usuario logueado → Paso 2 (datos del SSOT ya precargados).
+    // Usuario nuevo → Paso 1 (necesita crear cuenta + generar PIN).
+    setStep(ctx.fbUser ? '2' : '1');
+   }, [esPack, packId, ctx.cursos, ctx.packs, ctx.fbUser, ctx.user, updateForm, setStep, navigate, showToast, resetForm]);
 
 
   
@@ -706,21 +789,7 @@ useEffect(() => {
   return () => cleanup();
 }, [form.fecha1, ctx.fbUser, ctx.getTodayStr]);
 
-useEffect(() => {
-  if (step !== '3' || !ctx.fbUser) return;
-  let activo = true;
-  const cargar = async () => {
-    try {
-      const snap = await getDocs(collection(db, 'bloqueosAdmin'));
-      if (activo) setBloqueosAdmin(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (error) {
-      console.error('[InscripcionView] Error cargando bloqueosAdmin:', error);
-      if (activo) setBloqueosAdmin([]);
-    }
-  };
-  cargar();
-  return () => { activo = false; };
-}, [step, ctx.fbUser, form.fecha1]);
+// SSOT-BLOQUEOS: reemplazado por useBloqueosAdmin hook (más abajo en el componente).
 
  
 
@@ -759,6 +828,42 @@ useEffect(() => {
     }
   }, [form.fecha1]);
 
+  // LOCK-INVALIDATION-SSOT-V1: invalidar lock cuando cambia cualquier
+  // input de disponibilidad (traeMoto, tipoMoto, sedeId, cursoId, packId, traeMotoPorCurso).
+  // El useEffect anterior cubre SOLO fecha1. Este cubre el resto.
+  // Guard: no tocar si está en Paso 4 (punto de no retorno del lock).
+  useEffect(() => {
+    if (step !== '3' || !lockId || !form.horaId) return;
+    const stored = sessionStorage.getItem(LOCK_CONTEXT_KEY);
+    if (!stored) return;
+
+    let prev;
+    try { prev = JSON.parse(stored); } catch { return; }
+    if (!prev) return;
+
+    // Comparar todos los campos EXCEPTO fecha1 (ya cubierto por el useEffect anterior).
+    const changedKeys = Object.keys(lockContext).filter(k =>
+      k !== 'fecha1' && String(prev[k]) !== String(lockContext[k])
+    );
+    if (changedKeys.length === 0) return;
+
+    console.info('[SRE-LOCK-INVALIDATION] Contexto mutado. Lock liberado limpiamente.', {
+      lockId,
+      changedKeys,
+      prev,
+      current: lockContext,
+    });
+
+    LockService.liberarLock(lockId).catch(() => {});
+    limpiarLockPropioOptimista(lockId);
+    updateLockId(null);
+    updateLockExpiresAt(null);
+    setTiempoRestante(null);
+    updateForm({ horaId: '' });
+    sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+    showToast('Actualizaste tu configuración. Elegí un nuevo horario.', 'info');
+  }, [step, lockId, form.horaId, lockContext, limpiarLockPropioOptimista, updateLockId, updateLockExpiresAt, updateForm, showToast]);
+
     useEffect(() => {
     if (step === '3' && !ctx.fbUser) {
       showToast('Tu sesión ha expirado. Inicia sesión nuevamente.', 'error');
@@ -772,6 +877,7 @@ useEffect(() => {
   // ─── Cálculo de disponibilidad ────────────────────────
       const todayStr = ctx.getTodayStr();
   const bloqueosProveedor = useBloqueosProveedor(form.fecha1, step === '3');
+  const { bloqueos: bloqueosAdmin, cargando: cargandoBloqueos } = useBloqueosAdmin(step === '3');
   const sedeSeleccionada = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
 
  
@@ -784,11 +890,29 @@ const disponibilidad = useMemo(() => {
   });
 }, [form, ctx.horarios, ctx.instructores, ctx.motos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin]);
   useEffect(() => {
-    if (step === '3' && !form.fecha1 && disponibilidad?.diasDisponibles?.length > 0) {
-      const primerDiaLibre = disponibilidad.diasDisponibles.find(dia => dia.disponible);
-      updateForm({ fecha1: primerDiaLibre ? primerDiaLibre.fecha : todayStr });
+    if (step !== '3') return;
+    if (cargandoBloqueos) return;
+    if (cargandoOcupacion) return;
+
+    // ALT-4 (FIX-HUEVO-GALLINA): esperar a que la ocupación esté sincronizada
+    // con la fecha actual. Si form.fecha1 está seteado pero fechaConsultada
+    // todavía no coincide, la disponibilidad fue calculada con datos stale.
+    if (form.fecha1 && fechaConsultada !== form.fecha1) return;
+
+    // ALT-5 acotada: si la fecha actual quedó inválida (todos los bloques
+    // sin disponibilidad), re-elegir. Agnóstico al origen: si el usuario
+    // eligió una fecha que se volvió inválida, el sistema la corrige.
+    if (form.fecha1) {
+      const infoFecha = disponibilidad?.diasDisponibles?.find(d => d.fecha === form.fecha1);
+      if (infoFecha?.disponible) return;
     }
-  }, [step, form.fecha1, disponibilidad, updateForm, todayStr]);
+
+    if (!disponibilidad?.diasDisponibles?.length) return;
+    const primerDiaLibre = disponibilidad.diasDisponibles.find(dia => dia.disponible);
+    if (!primerDiaLibre) return;
+    if (primerDiaLibre.fecha === form.fecha1) return;
+    updateForm({ fecha1: primerDiaLibre.fecha });
+  }, [step, form.fecha1, disponibilidad, updateForm, todayStr, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
 
     
     const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
@@ -796,11 +920,18 @@ const disponibilidad = useMemo(() => {
   // Fase 3 Pack: cuando es pack, el precio total se calcula desde packActivo
   const packPrecioBase = useMemo(() => {
     if (!esPack || !packActivo) return 0;
-    return (packActivo.cursoIds || []).reduce((acc, cid) => {
+    const baseCursos = (packActivo.cursoIds || []).reduce((acc, cid) => {
       const c = (ctx.cursos || []).find(x => String(x.id) === String(cid));
       return acc + (Number(c?.precioBase) || 0);
     }, 0);
-  }, [esPack, packActivo, ctx.cursos]);
+    const baseTeoricos = packActivo.sumarTeoricosAlPrecio
+      ? (packActivo.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
+          const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+          return acc + (Number(ct?.precio) || 0);
+        }, 0)
+      : 0;
+    return baseCursos + baseTeoricos;
+  }, [esPack, packActivo, ctx.cursos, ctx.cursosTeoricos]);
 
   const packDescuentoMonto = useMemo(() => {
     if (!esPack || !packActivo) return 0;
@@ -860,7 +991,9 @@ const disponibilidad = useMemo(() => {
     }
 
     // ✅ PASO 3: Validación crítica
-    if (!pinParaMostrar) {
+    // FIX-PACK-LOGUEADO-PIN: el toast solo aplica a usuarios NUEVOS
+    // (los logueados ya redirigieron al portal antes de esta validación)
+    if (!pinParaMostrar && !ctx.fbUser) {
       console.error('🚨 [PIN] CRÍTICO: No se pudo recuperar el PIN');
       showToast(
         'Tu registro se completará, pero contacta a soporte para recuperar tu PIN.',
@@ -951,6 +1084,26 @@ const disponibilidad = useMemo(() => {
         return;
       }
 
+      // FIX-PACK-LOGUEADO-PIN: usuario logueado SIN PIN → redirect directo
+      // Usuario nuevo (aunque esté logueado tras crear cuenta) → sí necesita ver PIN
+      if (ctx.fbUser && !pinParaMostrar) {
+        showToast(
+          esPack
+            ? 'Pack adquirido correctamente. Gestiónalo desde tu portal.'
+            : 'Reserva creada correctamente.',
+          'success'
+        );
+        limpiarSesion();
+        if (esPack) {
+          sessionStorage.removeItem('inscripcion_esPack');
+          sessionStorage.removeItem('inscripcion_packId');
+        }
+        navigate('/portal-reservas', { replace: true });
+        return;
+      }
+
+      // ===== A PARTIR DE AQUÍ: SOLO USUARIOS NUEVOS =====
+
       // ✅ PASO 5: Limpiar progreso (el PIN ya está capturado)
       await ReservaService.limpiarProgreso(form.correo).catch(() => {});
 
@@ -965,11 +1118,23 @@ const disponibilidad = useMemo(() => {
           console.warn('[InscripcionView] Error enviando correo de bienvenida:', error);
         });
       } else {
-        console.warn('[InscripcionView] No se envió correo de bienvenida: faltan datos del estudiante');
+        console.warn('[InscripcionView] No se envió correo de bienvenida. Valores:', {
+          correo: form.correo,
+          nombre: form.nombre,
+          apellido: form.apellido,
+          pin: pinParaMostrar,
+          esPack
+        });
       }
 
       // ✅ PASO 6: Limpiar sesión
       limpiarSesion();
+
+      // FIX-PACK-FLAG-RESIDUAL: limpiar flag al terminar el flujo (éxito)
+      if (esPack) {
+        sessionStorage.removeItem('inscripcion_esPack');
+        sessionStorage.removeItem('inscripcion_packId');
+      }
 
       // ✅ PASO 7: Mostrar pantalla de éxito con PIN capturado
       setPinFinal(pinParaMostrar);
@@ -985,10 +1150,22 @@ const disponibilidad = useMemo(() => {
       }
     }
     }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm]);
-  const handleIrAlPanel = useCallback(() => {
+  const handleIrAlPanel = useCallback(async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error de sesión. No se puede acceder al panel.', 'error'); return; }
-    ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid: uid });
+    // FIX-PACK-FLAG-RESIDUAL: limpiar flag al salir del flujo de inscripción
+    sessionStorage.removeItem('inscripcion_esPack');
+    sessionStorage.removeItem('inscripcion_packId');
+    // Leer SSOT completo (el form puede estar limpio por limpiarSesion)
+    try {
+      const res = await UsuarioService.obtenerPerfil(uid);
+      const perfil = res.success && res.data
+        ? res.data
+        : { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula };
+      ctx.setUser({ role: 'estudiante', data: perfil, uid });
+    } catch (e) {
+      ctx.setUser({ role: 'estudiante', data: { nombre: form.nombre, apellido: form.apellido, cedula: form.cedula }, uid });
+    }
     navigate('/portal-reservas');
   }, [ctx, form, navigate, showToast]);
 
@@ -997,43 +1174,17 @@ const disponibilidad = useMemo(() => {
     if (isSelectingHorario) return;
     if (!ctx.fbUser) { showToast('Espera un momento...', 'error'); return; }
 
-    // A2.4: revalidar bloqueos admin (fecha1 y fecha2)
-    const afectaFechaLocal = (b, f) => {
-      if (!f) return false;
-      if (f < b.fechaInicio) return false;
-      const fin = b.fechaFin || b.fechaInicio;
-      if (f > fin) return false;
-      if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
-      if (b.todoElDia) return true;
-      return (b.horarios || []).includes(bloque.id);
-    };
-    const bloqueadoAdmin = (bloqueosAdmin || []).some(b =>
-      afectaFechaLocal(b, form.fecha1) || afectaFechaLocal(b, disponibilidad?.fecha2Calc)
-    );
+    // SSOT-BLOQUEOS: revalidar bloqueos admin (fecha1 y fecha2) usando helper.
+    const bloqueadoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, bloque.id)) return false;
+      if (afectaFechaAdmin(b, form.fecha1, form.sedeId)) return true;
+      if (disponibilidad?.fecha2Calc && afectaFechaAdmin(b, disponibilidad.fecha2Calc, form.sedeId)) return true;
+      return false;
+    });
     if (bloqueadoAdmin) {
       showToast('Este horario acaba de ser bloqueado por la administración.', 'error');
       return;
     }
-
-    // A2.4: helper para bloqueos de proveedor (fecha1 y fecha2)
-    const afectaProveedorLocal = (b, motoId, f) => {
-      if (!f || !bloque.label) return false;
-      if (b.motoId !== motoId && b.motoId !== 'ALL') return false;
-      if (b.fecha !== f) return false;
-      const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
-      const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
-      const bloqueInicio = hIni * 60 + mIni;
-      const bloqueFin = hFin * 60 + mFin;
-      const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (!labelParts) return false;
-      let hBloque = parseInt(labelParts[1], 10);
-      const mBloque = parseInt(labelParts[2], 10);
-      const mod = labelParts[3].toUpperCase();
-      if (mod === 'PM' && hBloque < 12) hBloque += 12;
-      if (mod === 'AM' && hBloque === 12) hBloque = 0;
-      const bloqueMinutos = hBloque * 60 + mBloque;
-      return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
-    };
 
     const locksDeOtros = (activeLocks || []).filter(l => {
       if (l.userId === ctx.fbUser?.uid) return false;
@@ -1060,8 +1211,8 @@ const disponibilidad = useMemo(() => {
       fecha2Calc: disponibilidad?.fecha2Calc,
       ocupacionConfirmada: ocupacionConfirmada,
     });
-     const cursoIncluyeMoto = cursoSeleccionado?.motoIncluida !== false;
-  const necesitaMoto = cursoIncluyeMoto && form.traeMoto !== 'Sí';
+     // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
+  const { necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
    const instructoresLibres = (ctx.instructores || [])
   .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
   .filter(i => !locksDeOtros.some(lock => lock.instructorId === i.id && lock.horaId === bloque.id && (lock.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && lock.fecha === disponibilidad.fecha2Calc))))  .filter(i => !reservasDeOtros.some(r => {
@@ -1079,9 +1230,10 @@ if (necesitaMoto) {
       if (r.traeMoto === 'Sí') return false;
       if (String(r.horaId) !== String(bloque.id)) return false;
       return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);    }))
-    // A2.4: filtrar motos bloqueadas por proveedor (fecha1 y fecha2)
+    // SSOT-BLOQUEOS: filtrar motos bloqueadas por proveedor (fecha1 y fecha2).
     .filter(m => !(bloqueosProveedor || []).some(b =>
-      afectaProveedorLocal(b, m.id, form.fecha1) || afectaProveedorLocal(b, m.id, disponibilidad?.fecha2Calc)
+      afectaProveedor(b, m.id, form.fecha1, bloque.label) ||
+      (disponibilidad?.fecha2Calc && afectaProveedor(b, m.id, disponibilidad.fecha2Calc, bloque.label))
     ));
 }
 
@@ -1091,6 +1243,38 @@ if (necesitaMoto) {
     if (!instructorId || (necesitaMoto && !motoAsignadaId)) {
       showToast('Este bloque acaba de quedarse sin recursos. Por favor, selecciona otro.', 'error');
       return;
+    }
+
+    // LOCK-INVALIDATION-SSOT-V1 (ALT-D): freno defensivo antes de crear el lock.
+    // Si existe un snapshot previo y NO coincide con el contexto actual,
+    // el usuario llegó con estado inconsistente (race o manipulación).
+    // Bloqueamos para forzar re-selección limpia.
+    const storedSnapshot = sessionStorage.getItem(LOCK_CONTEXT_KEY);
+    if (storedSnapshot && lockId) {
+      let prevSnap = null;
+      try { prevSnap = JSON.parse(storedSnapshot); } catch { /* corrupto */ }
+      if (prevSnap) {
+        const snapshotCambio = Object.keys(lockContext).some(k =>
+          k !== 'fecha1' && String(prevSnap[k]) !== String(lockContext[k])
+        );
+        if (snapshotCambio) {
+          console.warn('[SRE-SECURITY] Freno Táctico: Intento de creación de lock con contexto obsoleto.', {
+            lockIdActual: lockId,
+            prevSnap,
+            currentContext: lockContext,
+          });
+          // Liberar lock viejo + limpiar snapshot + forzar re-selección
+          await LockService.liberarLock(lockId).catch(() => {});
+          limpiarLockPropioOptimista(lockId);
+          updateLockId(null);
+          updateLockExpiresAt(null);
+          setTiempoRestante(null);
+          updateForm({ horaId: '' });
+          sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+          showToast('Tu configuración cambió. Elegí un nuevo horario.', 'info');
+          return;
+        }
+      }
     }
 
     setIsSelectingHorario(true); setSelectingBlockId(bloque.id);
@@ -1104,6 +1288,9 @@ if (necesitaMoto) {
     });
     if (result.success) {
       updateLockId(nuevoLockId);
+      // LOCK-INVALIDATION-SSOT-V1: guardar snapshot del contexto al crear el lock.
+      // Se compara al volver al Paso 3 para detectar cambios en inputs.
+      sessionStorage.setItem(LOCK_CONTEXT_KEY, JSON.stringify(capturarContextoLock(form, esPack, packId)));
       const motoSeleccionada = (motosLibres || []).find(m => String(m.id) === String(motoAsignadaId)) || null;
       const proveedorId = motoSeleccionada?.proveedorId || null;
       updateForm({ horaId: bloque.id, instructorId, motoAsignadaId, proveedorId });      updateLockExpiresAt(Date.now() + LOCK_DURATION - 10000);
@@ -1208,6 +1395,10 @@ if (necesitaMoto) {
           sessionStorage.setItem('inscripcion_generatedPin', pin);
                     updateForm({ pin });
           const uid = result.data.user?.uid || auth.currentUser?.uid;
+          // SSOT: guardar perfil en usuarios/{uid} (fire-and-forget, no bloquea el flujo)
+          UsuarioService.guardarPerfil(uid, form.correo, form).catch((err) => {
+            console.warn('[InscripcionView] Error guardando perfil SSOT:', err);
+          });
           const guardadoPaso1 = await guardarProgresoConRetry(uid, 2, { ...form, pin }, form.correo);
           if (!guardadoPaso1.success) {
             console.error('[InscripcionView] Error guardando progreso paso 1:', guardadoPaso1.error);
@@ -1310,6 +1501,25 @@ if (necesitaMoto) {
         return;
       }
 
+      // FIX-PACK-VALIDATE-MOTO: freno táctico del pack.
+      // Aunque la UI prellene 'No' por defecto, revalidamos por si el estado
+      // fue manipulado o el mapa quedó incompleto.
+      if (esPack && packActivo) {
+        const cursosPackV = (packActivo.cursoIds || [])
+          .map(cid => (ctx.cursos || []).find(c => String(c.id) === String(cid)))
+          .filter(Boolean);
+        const preguntables = cursosPackV.filter(c =>
+          c.tipoCurso !== 'equilibrio' && c.motoIncluida !== false
+        );
+        const faltantes = preguntables.filter(c =>
+          !form.traeMotoPorCurso?.[String(c.id)]
+        );
+        if (faltantes.length > 0) {
+          showToast(`Falta elegir moto para: ${faltantes.map(c => c.nombre).join(', ')}`, 'error');
+          return;
+        }
+      }
+
       // ✅ NUEVO: Validar prerequisitos (excepto básicos que son soft)
       const cursoSel = (ctx.cursos || []).find(c => String(c.id) === String(form.cursoId));
       const esBasico = cursoSel?.tipoCurso === 'basico_auto' || cursoSel?.tipoCurso === 'basico_sincro';
@@ -1392,7 +1602,11 @@ if (necesitaMoto) {
     if (step === '2') setStep('1');
     else if (step === '3') setStep('2');
     else if (step === '4') setStep('3');
-    else navigate('/');
+    else {
+      // LOCK-INVALIDATION-SSOT-V1: limpiar snapshot al abandonar el flujo.
+      limpiarSesion();
+      navigate('/');
+    }
   };
 
   if (!ctx.authReady) return <Spinner message="Cargando..." />;
@@ -1484,7 +1698,7 @@ if (necesitaMoto) {
                     <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} reservas={ctx.reservas} fbUser={ctx.fbUser} />
         ))}        {step === '3' && !ctx.fbUser ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Verificando sesión..." /></div>
-) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length) ? (
+) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length || cargandoBloqueos) ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Sincronizando disponibilidad..." /></div>
 ) : (
   step === '3' && disponibilidad && (
@@ -1506,9 +1720,22 @@ if (necesitaMoto) {
         {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSDFinal} precioCurso={precioBaseMostrar} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} 
  desglosePrecio={() => {
   if (esPack && packActivo) {
+    const baseSesionesPack = (packActivo.cursoIds || []).reduce((acc, cid) => {
+      const c = (ctx.cursos || []).find(x => String(x.id) === String(cid));
+      return acc + (Number(c?.precioBase) || 0);
+    }, 0);
+    const baseTeoricosPack = packActivo.sumarTeoricosAlPrecio
+      ? (packActivo.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
+          const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+          return acc + (Number(ct?.precio) || 0);
+        }, 0)
+      : 0;
     const items = [
-      { label: 'Suma de cursos', value: '$' + packPrecioBase.toFixed(2) }
+      { label: 'Suma de sesiones', value: '$' + baseSesionesPack.toFixed(2) }
     ];
+    if (baseTeoricosPack > 0) {
+      items.push({ label: 'Módulos formativos', value: '$' + baseTeoricosPack.toFixed(2) });
+    }
     const descLabel = packActivo.descuentoTipo === 'porcentaje'
       ? `Descuento (${packActivo.descuentoValor}%)`
       : 'Descuento';

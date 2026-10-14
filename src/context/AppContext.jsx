@@ -53,6 +53,8 @@ export const AppProvider = ({ children }) => {
     saveCurso: firestore.saveCurso,
     cursosTeoricos: firestore.cursosTeoricos,
     saveCursoTeorico: firestore.saveCursoTeorico,
+    recursos: firestore.recursos,
+    saveRecurso: firestore.saveRecurso,
     instructores: firestore.instructores,
     saveInstructor: firestore.saveInstructor,
     handleSaveInstructorSeguro: firestore.handleSaveInstructorSeguro,

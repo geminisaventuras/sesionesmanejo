@@ -1,18 +1,22 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PACKS | desc: Terminología legal - sesiones, desarrollo. Se agrega LegalFooter.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { AppContext } from '../../../context/AppContextValue';
 import { Package, Clock, ChevronLeft, GraduationCap, Sparkles } from 'lucide-react';
 import LegalFooter from '../../shared/components/LegalFooter';
+import { calcularDiasPack, formatearDias } from '../../shared/utils/duraciones';
 
 const APP_ID = 'motoescuela-pro-v1';
 
 export default function PacksPublicosView() {
   const navigate = useNavigate();
+  const ctx = useContext(AppContext);
   const [packs, setPacks] = useState([]);
   const [cursos, setCursos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tienePackSesionesActivo, setTienePackSesionesActivo] = useState(false);
 
   useEffect(() => {
     const packsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'packs');
@@ -33,11 +37,41 @@ export default function PacksPublicosView() {
     return () => unsub();
   }, []);
 
+  // Bloqueo: usuario logueado con pack de sesiones activo no puede comprar otro
+  useEffect(() => {
+    const uid = ctx.fbUser?.uid;
+    if (!uid) { setTienePackSesionesActivo(false); return; }
+    let activo = true;
+    (async () => {
+      try {
+        const ref = collection(db, 'artifacts', APP_ID, 'public', 'data', 'reservasPack');
+        const q2 = query(ref, where('userId', '==', uid));
+        const snap = await getDocs(q2);
+        const tiene = snap.docs.some(d => {
+          const p = d.data();
+          const cursoIds = p.packSnapshot?.cursoIds || [];
+          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && cursoIds.length > 0;
+        });
+        if (activo) setTienePackSesionesActivo(tiene);
+      } catch (err) {
+        if (activo) setTienePackSesionesActivo(false);
+      }
+    })();
+    return () => { activo = false; };
+  }, [ctx.fbUser?.uid]);
+
   const calcularPrecio = (pack) => {
     const cursosPack = (pack.cursoIds || [])
       .map(id => cursos.find(c => String(c.id) === String(id)))
       .filter(Boolean);
-    const base = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
+    const baseCursos = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
+    const baseTeoricos = pack.sumarTeoricosAlPrecio
+      ? (pack.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
+          const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+          return acc + (Number(ct?.precio) || 0);
+        }, 0)
+      : 0;
+    const base = baseCursos + baseTeoricos;
     const desc = pack.descuentoTipo === 'porcentaje'
       ? (base * (Number(pack.descuentoValor) || 0)) / 100
       : (Number(pack.descuentoValor) || 0);
@@ -95,6 +129,10 @@ export default function PacksPublicosView() {
                         {pack.descripcion && (
                           <p className="text-sm text-gray-600">{pack.descripcion}</p>
                         )}
+                        <p className="text-xs font-bold text-indigo-600 mt-2 flex items-center gap-1.5">
+                          <Clock size={12} />
+                          Duración total: {formatearDias(calcularDiasPack(cursosPack))}
+                        </p>
                       </div>
                       <Package size={32} className="text-indigo-500 flex-shrink-0" />
                     </div>
@@ -122,6 +160,25 @@ export default function PacksPublicosView() {
                       </div>
                     </div>
 
+                    {(pack.cursosTeoricosIncluidos || []).length > 0 && (
+                      <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
+                        <h3 className="text-xs font-black text-teal-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                          <GraduationCap size={14} /> Módulos Formativos incluidos
+                        </h3>
+                        <div className="space-y-1">
+                          {(pack.cursosTeoricosIncluidos || []).map(ctId => {
+                            const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+                            return (
+                              <div key={ctId} className="flex items-center gap-2 text-xs text-teal-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+                                <span className="truncate">{ct?.nombre || ctId}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {pack.vencimientoDias > 0 && (
                       <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                         <Clock size={14} />
@@ -144,21 +201,34 @@ export default function PacksPublicosView() {
                       </div>
                     </div>
 
-                    <button
-                                          onClick={() => {
-                        navigate('/inscripcion', {
-                          state: {
-                            esPack: true,
-                            packId: pack.id,
-                            origen: 'pack-publico'
-                          }
-                        });
-                      }}
-                      className="w-full bg-indigo-600 text-white px-4 py-3 rounded-xl hover:bg-indigo-700 transition-colors font-bold text-base flex items-center justify-center gap-2"
-                    >
-                      <Sparkles size={18} />
-                      Quiero este Pack
-                    </button>
+                    {(() => {
+                      const tieneCursoIds = (pack.cursoIds || []).length > 0;
+                      const bloqueado = tieneCursoIds && tienePackSesionesActivo;
+                      if (bloqueado) {
+                        return (
+                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-800">
+                            Ya tienes un pack de sesiones activo. Termínalo antes de comprar otro.
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => {
+                            navigate('/inscripcion', {
+                              state: {
+                                esPack: true,
+                                packId: pack.id,
+                                origen: 'pack-publico'
+                              }
+                            });
+                          }}
+                          className="w-full bg-indigo-600 text-white px-4 py-3 rounded-xl hover:bg-indigo-700 transition-colors font-bold text-base flex items-center justify-center gap-2"
+                        >
+                          <Sparkles size={18} />
+                          Quiero este Pack
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               );

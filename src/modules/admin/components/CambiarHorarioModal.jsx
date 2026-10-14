@@ -3,6 +3,9 @@ import { useState, useMemo, useCallback } from 'react';
 import { Calendar, Clock, AlertTriangle, X, Repeat } from 'lucide-react';
 import { obtenerLocksActivos, verificarDisponibilidadInstructor, verificarDisponibilidadMoto } from '../utils/reservaHorarioHelpers';
 import { isPastBlock, getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
+import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
+import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
 export default function CambiarHorarioModal({
   reserva,
   ctx,
@@ -48,6 +51,16 @@ export default function CambiarHorarioModal({
     return fechaObj.toISOString().split('T')[0];
   }, [nuevaFecha, esCursoDosDias, modo]);
 
+  // SSOT-BLOQUEOS: carga bloqueos admin + proveedor para las 2 fechas del curso.
+  // Modo cambio_total: valida nuevaFecha + nuevaFecha2Calculada.
+  // Modo reponer_d2: valida solo nuevaFecha2.
+  const { bloqueos: bloqueosAdmin } = useBloqueosAdmin(true);
+  const bloqueosProvF1 = useBloqueosProveedor(nuevaFecha);
+  const bloqueosProvF2 = useBloqueosProveedor(nuevaFecha2Calculada || nuevaFecha2);
+
+  const fechaEfectiva1 = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha;
+  const fechaEfectiva2 = modo === 'reponer_d2' ? null : nuevaFecha2Calculada;
+
   // ── Horarios disponibles para la fecha según el modo ────────
   const horariosDisponibles = useMemo(() => {
     const fechaParaFiltrar = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha;
@@ -72,9 +85,32 @@ export default function CambiarHorarioModal({
       // Filtrar bloques cuyo horario de inicio ya pasó (solo aplica si la fecha es hoy)
       if (isPastBlock(fechaParaFiltrar, h.label, hoy)) return false;
 
+      // SSOT-BLOQUEOS: validar contra AMBAS fechas (cursos 2 dias).
+      const bloqueadoAdmin = (bloqueosAdmin || []).some(b => {
+        if (!afectaHorarioAdmin(b, h.id)) return false;
+        if (afectaFechaAdmin(b, fechaEfectiva1, reserva.sedeId)) return true;
+        if (fechaEfectiva2 && afectaFechaAdmin(b, fechaEfectiva2, reserva.sedeId)) return true;
+        return false;
+      });
+      if (bloqueadoAdmin) return false;
+
+      const motoValidar = modo === 'reponer_d2'
+        ? (motoReposicionId || reserva.motoAsignadaId)
+        : reserva.motoAsignadaId;
+      if (motoValidar) {
+        const bloqueadoProvF1 = (bloqueosProvF1 || []).some(b =>
+          afectaProveedor(b, motoValidar, fechaEfectiva1, h.label));
+        if (bloqueadoProvF1) return false;
+        if (fechaEfectiva2) {
+          const bloqueadoProvF2 = (bloqueosProvF2 || []).some(b =>
+            afectaProveedor(b, motoValidar, fechaEfectiva2, h.label));
+          if (bloqueadoProvF2) return false;
+        }
+      }
+
       return !(ocupacionConfirmada || []).some(r => otraOcupaSlot(r, h.id));
     });
-  }, [nuevaFecha, nuevaFecha2, modo, horarios, ocupacionConfirmada, reserva.id]);
+  }, [nuevaFecha, nuevaFecha2, modo, horarios, ocupacionConfirmada, reserva.id, reserva.sedeId, motoReposicionId, reserva.motoAsignadaId, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2]);
 
   // ── Validaciones al seleccionar ─────────────────────────────
   const validarSeleccion = useCallback(async () => {
@@ -91,6 +127,37 @@ export default function CambiarHorarioModal({
         tipo: 'lock',
         mensaje: `Hay ${locks.length} usuario(s) seleccionando este horario actualmente.`
       });
+    }
+
+    // SSOT-BLOQUEOS: validar bloqueosAdmin + bloqueosProveedor sobre ambas fechas.
+    const labelValidar = (horarios || []).find(h => String(h.id) === String(horaValidar))?.label;
+    const bloqueadoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, horaValidar)) return false;
+      if (afectaFechaAdmin(b, fechaEfectiva1, reserva.sedeId)) return true;
+      if (fechaEfectiva2 && afectaFechaAdmin(b, fechaEfectiva2, reserva.sedeId)) return true;
+      return false;
+    });
+    if (bloqueadoAdmin) {
+      advertenciasTemp.push({
+        tipo: 'bloqueo_admin',
+        mensaje: 'Este horario está bloqueado por la administración.'
+      });
+    }
+
+    const motoValidarB = modo === 'reponer_d2'
+      ? (motoReposicionId || reserva.motoAsignadaId)
+      : reserva.motoAsignadaId;
+    if (motoValidarB && labelValidar) {
+      const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
+        afectaProveedor(b, motoValidarB, fechaEfectiva1, labelValidar));
+      const bloqueadoProv2 = fechaEfectiva2 && (bloqueosProvF2 || []).some(b =>
+        afectaProveedor(b, motoValidarB, fechaEfectiva2, labelValidar));
+      if (bloqueadoProv || bloqueadoProv2) {
+        advertenciasTemp.push({
+          tipo: 'bloqueo_proveedor',
+          mensaje: 'La moto está bloqueada por el proveedor en este horario.'
+        });
+      }
     }
 
     const fechaOriginal = modo === 'reponer_d2' ? reserva.fecha : nuevaFecha;
@@ -135,10 +202,40 @@ export default function CambiarHorarioModal({
 
     setAdvertencias(advertenciasTemp);
     setValidando(false);
-  }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada]);
+  }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada, horarios, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2]);
 
   // ── Confirmar ────────────────────────────────────────────────
   const handleConfirmar = () => {
+    // SSOT-BLOQUEOS: freno táctico. Si el usuario seleccionó un horario bloqueado
+    // (por race condition o porque no revalidó), no dejamos confirmar.
+    const horaFinal = modo === 'reponer_d2' ? horaIdReposicion : nuevoHoraId;
+    const labelFinal = (horarios || []).find(h => String(h.id) === String(horaFinal))?.label;
+
+    const bloqueadoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, horaFinal)) return false;
+      if (afectaFechaAdmin(b, fechaEfectiva1, reserva.sedeId)) return true;
+      if (fechaEfectiva2 && afectaFechaAdmin(b, fechaEfectiva2, reserva.sedeId)) return true;
+      return false;
+    });
+    if (bloqueadoAdmin) {
+      setAdvertencias([{ tipo: 'bloqueo_admin', mensaje: 'Este horario está bloqueado por la administración. Elige otro.' }]);
+      return;
+    }
+
+    const motoFinal = modo === 'reponer_d2'
+      ? (motoReposicionId || reserva.motoAsignadaId)
+      : reserva.motoAsignadaId;
+    if (motoFinal && labelFinal) {
+      const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
+        afectaProveedor(b, motoFinal, fechaEfectiva1, labelFinal));
+      const bloqueadoProv2 = fechaEfectiva2 && (bloqueosProvF2 || []).some(b =>
+        afectaProveedor(b, motoFinal, fechaEfectiva2, labelFinal));
+      if (bloqueadoProv || bloqueadoProv2) {
+        setAdvertencias([{ tipo: 'bloqueo_proveedor', mensaje: 'La moto está bloqueada por el proveedor en este horario. Elige otro.' }]);
+        return;
+      }
+    }
+
     if (modo === 'reponer_d2') {
       onConfirmar({
         modo: 'reponer_d2',

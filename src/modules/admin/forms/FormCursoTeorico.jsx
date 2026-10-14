@@ -2,7 +2,7 @@
 import { useState, memo } from 'react';
 import { Button, Input } from '../../../components/UI';
 import { ChevronLeft } from 'lucide-react';
-
+import EditorModulos from '../components/EditorModulos';
 const TABS = [
   { id: 'basico', label: 'Básico' },
   { id: 'contenido', label: 'Contenido' },
@@ -150,26 +150,16 @@ const FormCursoTeorico = memo(({ item, onSave, onCancel }) => {
       )}
 
       {/* Tab: Contenido */}
-      {tab === 'contenido' && (
+            {tab === 'contenido' && (
         <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-xs text-blue-800">
-            Los módulos se cargarán en una próxima versión. Por ahora este curso puede guardarse con metadata básica.
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Total de módulos"
-              type="number"
-              value={form.totalModulos || 0}
-              onChange={e => setForm({ ...form, totalModulos: Number(e.target.value) || 0 })}
-            />
-            <Input
-              label="Total de quizzes"
-              type="number"
-              value={form.totalQuizzes || 0}
-              onChange={e => setForm({ ...form, totalQuizzes: Number(e.target.value) || 0 })}
-            />
-          </div>
+          <EditorModulos
+            cursoId={form.id}
+            onChangeContadores={(cnt) => setForm(prev => ({
+              ...prev,
+              totalModulos: cnt.totalModulos,
+              totalQuizzes: cnt.totalQuizzes
+            }))}
+          />
         </div>
       )}
 

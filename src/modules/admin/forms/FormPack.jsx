@@ -2,19 +2,21 @@
 import { useState, useContext, memo } from 'react';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Input } from '../../../components/UI';
-import { ChevronLeft, ArrowUp, ArrowDown, GripVertical, Plus, X, MapPin } from 'lucide-react';
+import { ChevronLeft, ArrowUp, ArrowDown, GripVertical, Plus, X, MapPin, GraduationCap } from 'lucide-react';
 
 const FormPack = memo(({ item, onSave, onCancel }) => {
-  const { cursos, sedes, refreshCatalogos } = useContext(AppContext);
+  const { cursos, cursosTeoricos, sedes, refreshCatalogos } = useContext(AppContext);
     const [form, setForm] = useState(
     item?.id
-      ? { ...item, cursoIds: item.cursoIds || [], sedesPermitidas: item.sedesPermitidas || [] }
+      ? { ...item, cursoIds: item.cursoIds || [], sedesPermitidas: item.sedesPermitidas || [], cursosTeoricosIncluidos: item.cursosTeoricosIncluidos || [], sumarTeoricosAlPrecio: item.sumarTeoricosAlPrecio === true }
       : {
           id: '',
           nombre: '',
           descripcion: '',
           cursoIds: [],
           sedesPermitidas: [],
+          cursosTeoricosIncluidos: [],
+          sumarTeoricosAlPrecio: false,
           descuentoTipo: 'porcentaje',
           descuentoValor: 10,
           vencimientoDias: 60,
@@ -22,6 +24,9 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
         }
   );
   const [draggedIndex, setDraggedIndex] = useState(null);
+  const [mostrarTeoricos, setMostrarTeoricos] = useState(
+    Array.isArray(item?.cursosTeoricosIncluidos) && item.cursosTeoricosIncluidos.length > 0
+  );
 
   const cursosActivos = (cursos || []).filter(c => c.activo !== false);
   const sedesActivas = (sedes || []).filter(s => s.activo !== false);
@@ -33,9 +38,16 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     c => !form.cursoIds.includes(String(c.id))
   );
 
-  const precioBase = cursosSeleccionados.reduce(
+  const precioBaseCursos = cursosSeleccionados.reduce(
     (acc, c) => acc + (Number(c.precioBase) || 0), 0
   );
+  const precioTeoricos = form.sumarTeoricosAlPrecio
+    ? (form.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
+        const ct = (cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+        return acc + (Number(ct?.precio) || 0);
+      }, 0)
+    : 0;
+  const precioBase = precioBaseCursos + precioTeoricos;
   const descuentoMonto = form.descuentoTipo === 'porcentaje'
     ? (precioBase * (Number(form.descuentoValor) || 0)) / 100
     : (Number(form.descuentoValor) || 0);
@@ -93,6 +105,19 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     });
   };
 
+  const toggleTeorico = (cursoTeoricoId) => {
+    setForm(f => {
+      const arr = f.cursosTeoricosIncluidos || [];
+      const id = String(cursoTeoricoId);
+      return {
+        ...f,
+        cursosTeoricosIncluidos: arr.includes(id)
+          ? arr.filter(s => s !== id)
+          : [...arr, id]
+      };
+    });
+  };
+
   const handleSave = () => {
     if (!form.nombre || !form.nombre.trim()) {
       alert('El nombre del pack es obligatorio');
@@ -104,6 +129,23 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     }
     if (!form.sedesPermitidas || form.sedesPermitidas.length === 0) {
       alert('Debes habilitar al menos una sede para el pack');
+      return;
+    }
+    // FIX-PACK-SEDE-POR-SESION: validar que cada curso comparta al menos 1 sede
+    // con el pack. Si no hay intersección, el estudiante quedaría bloqueado.
+    const cursosConConflicto = form.cursoIds.filter(cid => {
+      const curso = (cursos || []).find(c => String(c.id) === String(cid));
+      if (!curso) return false;
+      const sedesCurso = Array.isArray(curso.sedesPermitidas) && curso.sedesPermitidas.length > 0
+        ? curso.sedesPermitidas
+        : form.sedesPermitidas; // sin restricción = todas las del pack
+      return !sedesCurso.some(s => form.sedesPermitidas.includes(s));
+    });
+    if (cursosConConflicto.length > 0) {
+      const nombres = cursosConConflicto
+        .map(cid => (cursos || []).find(c => String(c.id) === String(cid))?.nombre || cid)
+        .join(', ');
+      alert(`Estos cursos no se ofrecen en ninguna sede del pack: ${nombres}. Ajusta las sedes del pack o las sedes de los cursos.`);
       return;
     }
     if (form.descuentoTipo === 'porcentaje' && Number(form.descuentoValor) >= 100) {
@@ -258,6 +300,67 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Módulos formativos incluidos (colapsable) */}
+      <div className="bg-teal-50 rounded-xl border border-teal-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setMostrarTeoricos(v => !v)}
+          className="w-full flex items-center justify-between p-3 hover:bg-teal-100 transition-colors"
+        >
+          <h4 className="text-xs font-black text-teal-800 uppercase tracking-wider flex items-center gap-1">
+            <GraduationCap size={14} className="text-teal-600" />
+            Módulos formativos incluidos ({(form.cursosTeoricosIncluidos || []).length})
+          </h4>
+          <span className="text-teal-700 text-lg leading-none">{mostrarTeoricos ? '−' : '+'}</span>
+        </button>
+
+        {mostrarTeoricos && (
+          <div className="px-3 pb-3">
+            {(cursosTeoricos || []).filter(c => c.activo !== false).length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-2">No hay módulos formativos activos.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {(cursosTeoricos || []).filter(c => c.activo !== false).map(ct => {
+                  const activo = (form.cursosTeoricosIncluidos || []).includes(String(ct.id));
+                  return (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      onClick={() => toggleTeorico(ct.id)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold border transition-colors ${
+                        activo
+                          ? 'bg-teal-600 text-white border-teal-600'
+                          : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+                      }`}
+                    >
+                      {ct.nombre}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[10px] text-teal-700 mt-2 italic">
+              Los módulos seleccionados se activan automáticamente al aprobar el pack.
+            </p>
+
+            {(form.cursosTeoricosIncluidos || []).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-teal-200 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="sumarTeoricosAlPrecio"
+                  checked={form.sumarTeoricosAlPrecio === true}
+                  onChange={e => setForm(f => ({ ...f, sumarTeoricosAlPrecio: e.target.checked }))}
+                  className="w-4 h-4 accent-teal-600"
+                />
+                <label htmlFor="sumarTeoricosAlPrecio" className="text-xs font-bold text-teal-800 cursor-pointer">
+                  Sumar precio de módulos formativos al pack
+                </label>
+              </div>
+            )}
           </div>
         )}
       </div>

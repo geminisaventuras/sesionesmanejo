@@ -2,9 +2,10 @@
 // @build: 2026-07-21 | id: SERV-PROGRESO-INSCRIPCION | desc: Nuevos métodos para progreso de inscripción
 
 import { db, auth } from '../../shared/firebase/firebase';
-import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
+
 const appId = 'motoescuela-pro-v1';
 
 const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId'];
@@ -264,6 +265,28 @@ export const ReservaService = {
       return { success: false, error: { code: 'identity-mismatch', message: 'El userId no coincide con tu sesión' } };
     }
 
+    // Freno: 1 pack de sesiones activo máximo (los de solo teóricos sí se permiten en N)
+    try {
+      const rpRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack');
+      const rpQ = query(rpRef, where('userId', '==', usuarioActual.uid));
+      const rpSnap = await getDocs(rpQ);
+      const packSnapPre = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId));
+      const cursoIdsNuevo = packSnapPre.exists() ? (packSnapPre.data().cursoIds || []) : [];
+      if (cursoIdsNuevo.length > 0) {
+        const yaTiene = rpSnap.docs.some(d => {
+          const p = d.data();
+          const cursoIds = p.packSnapshot?.cursoIds || [];
+          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && cursoIds.length > 0;
+        });
+        if (yaTiene) {
+          return { success: false, error: { code: 'pack-sesiones-activo', message: 'Ya tienes un pack de sesiones activo. Termínalo antes de comprar otro.' } };
+        }
+      }
+    } catch (err) {
+      console.warn('[crearReservaPack] Error validando pack activo:', err);
+      // fail-open: no bloquear si la validación falla por red
+    }
+
     const packRef = doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId);
     const maestraRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack'));
     const childRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservas'));
@@ -350,10 +373,21 @@ export const ReservaService = {
           packSnapshot: {
             cursoIds: pack.cursoIds || [],
             sedesPermitidas: pack.sedesPermitidas || [],
+            cursosTeoricosIncluidos: pack.cursosTeoricosIncluidos || [],
             descuentoTipo: pack.descuentoTipo || 'porcentaje',
             descuentoValor: Number(pack.descuentoValor) || 0,
             vencimientoDias
           },
+          // FIX-PACK-SEDE-POR-SESION: mapa de cursoId → sedesPermitidas del curso.
+          // Se congela al comprar el pack (maestra inmutable post-compra).
+          // Permite validar intersección curso ∩ pack en reglas Firestore sin joins.
+          sedesPermitidasPorCurso: (() => {
+            const mapa = {};
+            cursosPack.forEach(c => {
+              mapa[String(c.id)] = Array.isArray(c.sedesPermitidas) ? c.sedesPermitidas : [];
+            });
+            return mapa;
+          })(),
           precioBaseCongelado: sumaBase,
           descuentoCongelado: {
             tipo: pack.descuentoTipo || 'porcentaje',
@@ -596,6 +630,29 @@ export const ReservaService = {
         // 7. traeMoto desde el mapa
         const traeMoto = (maestra.traeMotoPorCurso || {})[String(cursoData.id)] || 'No';
 
+        // 7-bis. FIX-PACK-SEDE-POR-SESION: validar intersección curso ∩ pack.
+        // Sedes del pack (fallback legacy: solo sedeId).
+        const sedesPack = Array.isArray(maestra.packSnapshot?.sedesPermitidas) && maestra.packSnapshot.sedesPermitidas.length > 0
+          ? maestra.packSnapshot.sedesPermitidas
+          : (maestra.sedeId ? [maestra.sedeId] : []);
+        // Sedes del curso actual (del mapa denormalizado o del cursoData como fallback).
+        const cursoIdStr = String(cursoData.id);
+        const sedesCursoRaw = maestra.sedesPermitidasPorCurso?.[cursoIdStr];
+        const sedesCurso = Array.isArray(sedesCursoRaw) && sedesCursoRaw.length > 0
+          ? sedesCursoRaw
+          : (Array.isArray(cursoData.sedesPermitidas) ? cursoData.sedesPermitidas : []);
+        // Intersección: sedes válidas para esta sesión.
+        const sedesValidasSesion = sedesCurso.length > 0
+          ? sedesCurso.filter(s => sedesPack.includes(s))
+          : sedesPack;
+        if (sedesValidasSesion.length === 0) {
+          throw new Error('El pack y este curso no comparten sedes. Contacta al administrador.');
+        }
+        // Determinar sede a usar (packData o fallback al primero válido).
+        const sedeSesion = packData.sedeId && sedesValidasSesion.includes(packData.sedeId)
+          ? packData.sedeId
+          : sedesValidasSesion[0];
+
         // 8. Datos de la CHILD
         const datosChild = {
           userId: usuarioActual.uid,
@@ -613,7 +670,7 @@ export const ReservaService = {
           detalleCondicion: packData.detalleCondicion || null,
           cursoId: String(cursoData.id),
           tipoCurso: typeof cursoData.tipoCurso === 'string' ? cursoData.tipoCurso.trim() : null,
-          sedeId: packData.sedeId || maestra.sedeId || null,
+          sedeId: sedeSesion,
           tipoMoto: (() => {
             // FIX-PACK-TIPOMOTO: SSOT es cursoData.tiposMotoEscuela.
             // Backend tiene la última palabra, independiente de lo que envíe el frontend.
@@ -728,10 +785,13 @@ export const ReservaService = {
     const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', childReservaId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childReservaId);
 
+    let maestraData = null;
+
     try {
       await runTransaction(db, async (transaction) => {
         const maestraSnap = await transaction.get(maestraRef);
         if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
+        maestraData = maestraSnap.data();
 
         const childSnap = await transaction.get(childRef);
         if (!childSnap.exists()) throw new Error('Reserva del pack no encontrada');
@@ -763,7 +823,94 @@ export const ReservaService = {
           estadoPago: 'Aprobado',
           proveedorId: childSnap.data().proveedorId || null
         }, { merge: true });
+
+        // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
+        transaction.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', maestraData.userId), {
+          updatedAt: Timestamp.now()
+        });
       });
+
+      // ────────── Batch post-transacción: accesos teóricos del pack ──────────
+      try {
+        const cursosTeoricosUnicos = [...new Set(maestraData?.packSnapshot?.cursosTeoricosIncluidos || [])];
+        const yaCreados = Array.isArray(maestraData?.accesosTeoricosCreados) ? maestraData.accesosTeoricosCreados : [];
+        const faltantes = cursosTeoricosUnicos.filter(id => !yaCreados.includes(id));
+        const userIdPack = maestraData?.userId;
+
+        if (faltantes.length > 0 && userIdPack) {
+          const basePath = ['artifacts', appId, 'public', 'data'];
+          const batch = writeBatch(db);
+          const ahora = Timestamp.now();
+
+          // 1. Crear accesos nuevos (precio: 0 obligatorio por regla Rama 2)
+          for (const ctId of faltantes) {
+            const accesoId = `pack_${packReservaId}_${ctId}`;
+            const accesoRef = doc(db, ...basePath, 'accesosTeoricos', accesoId);
+            batch.set(accesoRef, {
+              id: accesoId,
+              userId: String(userIdPack),
+              cursoTeoricoId: String(ctId),
+              estadoPago: 'Aprobado',
+              precio: 0,
+              moneda: 'USD',
+              origen: 'pack',
+              packReservaId,
+              metodoPagoId: null,
+              pagoBanco: null,
+              pagoTelefono: null,
+              pagoCedula: null,
+              pagoRef: null,
+              comisionInstructor: 0,
+              comisionProveedor: 0,
+              esAccesoVitalicio: true,
+              fechaCompra: ahora,
+              aprobadoEn: ahora,
+              rechazadoEn: null,
+              motivoRechazo: null,
+              vencimiento: null,
+              createdAt: ahora,
+              updatedAt: ahora
+            }, { merge: true });
+          }
+
+          // 2. Marca de idempotencia en la maestra (ALT-ARQ)
+          batch.update(maestraRef, {
+            accesosTeoricosCreados: arrayUnion(...faltantes)
+          });
+
+          // 3. usuarios/{uid}: increment atómico (evita race en doble-clic).
+          // Si el doc no existe, se omite: la regla Firestore exige que
+          // request.auth.uid == uid en el create, por lo que el admin no puede
+          // crear el doc de otro usuario. El estudiante accede igual a sus
+          // cursos porque VistaFormacion consulta `accesosTeoricos`, no el perfil.
+          const userRef = doc(db, ...basePath, 'usuarios', String(userIdPack));
+          const uSnap = await getDoc(userRef);
+          if (uSnap.exists()) {
+            batch.update(userRef, {
+              'capacidades.modulosTeoricos': true,
+              updatedAt: ahora
+            });
+          }
+
+          // 4. Notificación agregada
+          const notifRef = doc(collection(db, ...basePath, 'notificaciones'));
+          batch.set(notifRef, {
+            userId: String(userIdPack),
+            tipo: 'pack_teoricos_desbloqueados',
+            mensaje: `Tu pack desbloqueó ${faltantes.length} módulo(s) formativo(s). ¡Ya puedes acceder!`,
+            packReservaId,
+            leida: false,
+            createdAt: ahora,
+            emisorId: 'sistema'
+          });
+
+          await batch.commit();
+        }
+      } catch (batchErr) {
+        console.warn('[aprobarReservaPack] batch accesos teóricos:', batchErr);
+        return { success: true, batchWarning: 'accesos_teoricos_pendientes' };
+      }
+      // ────────── FIN batch ──────────
 
       return { success: true };
     } catch (error) {
@@ -776,7 +923,7 @@ export const ReservaService = {
   // PACK COMERCIAL — 3.8b
   // Rechaza la maestra + child (permite corregir).
   // -------------------------------------------------
-  async rechazarReservaPack(packReservaId, childReservaId) {
+  async rechazarReservaPack(packReservaId, childReservaId, motivo = '') {
     if (!packReservaId || !childReservaId) {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan IDs' } };
     }
@@ -785,20 +932,33 @@ export const ReservaService = {
     const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', childReservaId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childReservaId);
 
+    let maestraData = null;
+
     try {
       await runTransaction(db, async (transaction) => {
+        const maestraSnap = await transaction.get(maestraRef);
+        if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
+        maestraData = maestraSnap.data();
+
         transaction.update(maestraRef, {
           estadoPago: 'Rechazado',
-          rechazadoEn: Timestamp.now()
+          rechazadoEn: Timestamp.now(),
+          motivoRechazo: motivo || 'La referencia del pago no coincide'
         });
 
         transaction.update(childRef, {
           estadoPago: 'Rechazado',
-          rechazadoEn: Timestamp.now()
+          rechazadoEn: Timestamp.now(),
+          motivoRechazo: motivo || 'La referencia del pago no coincide'
         });
 
         // Espejo queda con estado Pendiente (sigue bloqueando el horario)
         transaction.set(espejoRef, { estadoPago: 'Pendiente' }, { merge: true });
+
+        // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
+        transaction.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', maestraData.userId), {
+          updatedAt: Timestamp.now()
+        });
       });
 
       return { success: true };
@@ -821,8 +981,14 @@ export const ReservaService = {
     const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', childReservaId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childReservaId);
 
+    let maestraData = null;
+
     try {
       await runTransaction(db, async (transaction) => {
+        const maestraSnap = await transaction.get(maestraRef);
+        if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
+        maestraData = maestraSnap.data();
+
         transaction.update(maestraRef, {
           estadoPago: 'Cancelado',
           estado: 'cancelado',
@@ -837,7 +1003,62 @@ export const ReservaService = {
 
         // Espejo se elimina → libera el horario
         transaction.delete(espejoRef);
+
+        // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
+        transaction.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', maestraData.userId), {
+          updatedAt: Timestamp.now()
+        });
       });
+
+      // ────────── Batch post-transacción: soft-delete accesos teóricos ──────────
+      try {
+        const cursosTeoricos = Array.isArray(maestraData?.packSnapshot?.cursosTeoricosIncluidos)
+          ? maestraData.packSnapshot.cursosTeoricosIncluidos
+          : [];
+
+        if (cursosTeoricos.length > 0) {
+          const basePath = ['artifacts', appId, 'public', 'data'];
+          const batch = writeBatch(db);
+          const ahora = Timestamp.now();
+
+          for (const ctId of cursosTeoricos) {
+            const accesoId = `pack_${packReservaId}_${ctId}`;
+            const accesoRef = doc(db, ...basePath, 'accesosTeoricos', accesoId);
+            const snapAcceso = await getDoc(accesoRef);
+            if (snapAcceso.exists() && snapAcceso.data().estadoPago !== 'Cancelado') {
+              batch.update(accesoRef, {
+                estadoPago: 'Cancelado',
+                rechazadoEn: ahora,
+                motivoRechazo: 'Pack cancelado por el administrador',
+                updatedAt: ahora
+              });
+            }
+          }
+
+          await batch.commit();
+        }
+      } catch (batchErr) {
+        console.warn('[cancelarReservaPack] soft-delete accesos teóricos:', batchErr);
+      }
+      // ────────── FIN batch ──────────
+
+      // FASE-3.5: notificación al usuario sobre cancelación del pack
+      if (maestraData?.userId) {
+        try {
+          const notifRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'notificaciones'));
+          await setDoc(notifRef, {
+            userId: String(maestraData.userId),
+            tipo: 'pack_cancelado',
+            mensaje: 'Tu pack fue cancelado por el administrador. Si crees que es un error, contacta a soporte.',
+            packReservaId,
+            leida: false,
+            createdAt: Timestamp.now(),
+            emisorId: 'sistema'
+          });
+        } catch (notifErr) {
+          console.warn('[cancelarReservaPack] Error creando notificación:', notifErr);
+        }
+      }
 
       return { success: true };
     } catch (error) {
@@ -959,13 +1180,23 @@ export const ReservaService = {
           estadoPago: 'Pendiente',
           rechazadoEn: null
         });
+        // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
+        batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', data.userId), {
+          updatedAt: Timestamp.now()
+        });
         await batch.commit();
       } else {
         // Reserva individual normal
-        await updateDoc(ref, {
+        const batch = writeBatch(db);
+        batch.update(ref, {
           pagoRef: nuevaRef,
           estadoPago: 'Pendiente'
         });
+        // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
+        batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', data.userId), {
+          updatedAt: Timestamp.now()
+        });
+        await batch.commit();
       }
        return { success: true };
     } catch (error) {

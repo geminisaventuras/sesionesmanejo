@@ -1,8 +1,10 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PASO2-PACK | desc: Paso 2 pack: deriva cursos por tipoCurso (no por índice)
-import React from 'react';
-import { MapPin, Bike, Zap, BookOpen, Package } from 'lucide-react';
+import React, { useContext } from 'react';
+import { MapPin, Bike, Zap, BookOpen, Package, GraduationCap } from 'lucide-react';
+import { AppContext } from '../../../context/AppContextValue';
 
 export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
+  const ctx = useContext(AppContext);
   const cursosPack = (pack?.cursoIds || [])
     .map(id => (cursos || []).find(c => String(c.id) === String(id)))
     .filter(Boolean);
@@ -35,7 +37,14 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
     return { curso, modo: 'preguntar' };
   });
 
-  const precioBase = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
+  const precioBaseCursos = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
+  const precioBaseTeoricos = pack?.sumarTeoricosAlPrecio
+    ? (pack.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
+        const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+        return acc + (Number(ct?.precio) || 0);
+      }, 0)
+    : 0;
+  const precioBase = precioBaseCursos + precioBaseTeoricos;
   const descuentoMonto = pack?.descuentoTipo === 'porcentaje'
     ? (precioBase * (Number(pack.descuentoValor) || 0)) / 100
     : (Number(pack.descuentoValor) || 0);
@@ -66,6 +75,25 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
           </div>
         </div>
       </div>
+
+      {(pack?.cursosTeoricosIncluidos || []).length > 0 && (
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
+          <h4 className="text-[10px] font-black text-teal-900 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+            <GraduationCap size={12} /> Módulos formativos incluidos
+          </h4>
+          <div className="space-y-1">
+            {(pack.cursosTeoricosIncluidos || []).map(ctId => {
+              const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
+              return (
+                <div key={ctId} className="flex items-center gap-2 text-xs text-teal-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+                  <span className="truncate">{ct?.nombre || ctId}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Sede */}
       <div>

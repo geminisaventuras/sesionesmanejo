@@ -118,7 +118,17 @@ service cloud.firestore {
                           'tipoReserva' in request.resource.data &&
                           request.resource.data.tipoReserva == 'pack_sub' &&
                           request.resource.data.estadoPago in ['Pendiente', 'Aprobado'] &&
-                          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.userId == request.auth.uid
+                          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.userId == request.auth.uid &&
+                          // FIX-PACK-SEDE-POR-SESION: validar que sedeId esté en las sedes permitidas del pack.
+                          // Fallback legacy: si packSnapshot.sedesPermitidas está vacío o no existe,
+                          // se usa [maestra.sedeId].
+                          (
+                            !('packSnapshot' in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data) ||
+                            !('sedesPermitidas' in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot) ||
+                            getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot.sedesPermitidas.size() == 0 ||
+                            request.resource.data.sedeId in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot.sedesPermitidas ||
+                            request.resource.data.sedeId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.sedeId
+                          )
                         )
                       );
 
@@ -262,18 +272,37 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
+      match /recursos/{recursoId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
       match /accesosTeoricos/{accesoId} {
         allow read: if isAuth() && (
           isAdmin() || resource.data.userId == request.auth.uid
         );
-        allow create: if isAuth() &&
-          request.resource.data.userId == request.auth.uid &&
-          request.resource.data.estadoPago == 'Pendiente' &&
-          request.resource.data.precio > 0 &&
-          !('logrosCurso' in request.resource.data) &&
-          !('progreso' in request.resource.data);
+        allow create: if isAuth() && (
+          // Rama 1: usuario compra su propio acceso standalone
+          (
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.estadoPago == 'Pendiente' &&
+            request.resource.data.precio > 0 &&
+            !('logrosCurso' in request.resource.data) &&
+            !('progreso' in request.resource.data)
+          ) ||
+          // Rama 2: admin crea acceso por aprobación de pack
+          (
+            isAdmin() &&
+            request.resource.data.origen == 'pack' &&
+            request.resource.data.estadoPago == 'Aprobado' &&
+            request.resource.data.precio == 0 &&
+            request.resource.data.packReservaId != null &&
+            exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)) &&
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.userId == request.resource.data.userId
+          )
+        );
         allow update: if isAuth() && (
           isAdmin() ||
+          // T2.7 - Rama A: progreso del estudiante (sin tocar estadoPago)
           (
             resource.data.userId == request.auth.uid &&
             request.resource.data.userId == resource.data.userId &&
@@ -281,11 +310,75 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'progreso',
               'logrosCurso',
-              'streak',
-              'estadoPago'
+              'streak'
+            ])
+          ) ||
+          // T2.7 - Rama B: corrección de referencia (Rechazado -> Pendiente)
+          // El estudiante NO puede borrar motivoRechazo, ni cambiar intentosCorreccion.
+          // Freno táctico: solo si (intentosCorreccion actual) < 3.
+          (
+            resource.data.userId == request.auth.uid &&
+            resource.data.estadoPago == 'Rechazado' &&
+            (!('intentosCorreccion' in resource.data) || resource.data.intentosCorreccion < 3) &&
+            request.resource.data.estadoPago == 'Pendiente' &&
+            request.resource.data.userId == resource.data.userId &&
+            request.resource.data.precio == resource.data.precio &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'pagoRef',
+              'pagoBanco',
+              'pagoTelefono',
+              'pagoCedula',
+              'estadoPago',
+              'updatedAt'
             ])
           )
         );
+        allow delete: if false;
+      }
+      match /usuarios/{uid} {
+        allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+        allow create: if isAuth() && request.auth.uid == uid &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.correo == request.auth.token.email &&
+          request.resource.data.keys().hasOnly([
+            'uid', 'correo', 'cedula', 'nombre', 'apellido',
+            'telefono', 'contactoEmergencia', 'fechaNacimiento',
+            'sexo', 'estado', 'zona', 'condicionMedica', 'detalleCondicion',
+            'capacidades', 'contadores', 'metricas', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if isAuth() && (
+          isAdmin() ||
+          (
+            request.auth.uid == uid &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.cedula == resource.data.cedula &&
+            request.resource.data.correo == resource.data.correo &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'nombre', 'apellido', 'telefono', 'contactoEmergencia',
+              'fechaNacimiento', 'sexo', 'estado', 'zona',
+              'condicionMedica', 'detalleCondicion',
+              'capacidades', 'contadores', 'metricas', 'updatedAt'
+            ])
+          )
+        );
+        allow delete: if isAdmin();
+      }
+
+      
+      match /logrosUsuario/{uid} {
+        allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+        allow create: if isAuth() &&
+          request.auth.uid == uid &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.logros is list &&
+          request.resource.data.stats is map &&
+          request.resource.data.streak is map;
+        allow update: if isAuth() && request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'logros',
+            'streak',
+            'stats'
+          ]);
         allow delete: if false;
       }
     }
@@ -331,21 +424,5 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     
-    match /logrosUsuario/{uid} {
-      allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
-      allow create: if isAuth() &&
-        request.auth.uid == uid &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.logros is list &&
-        request.resource.data.stats is map &&
-        request.resource.data.streak is map;
-      allow update: if isAuth() && request.auth.uid == uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'logros',
-          'streak',
-          'stats'
-        ]);
-      allow delete: if false;
-    }
   }
 }

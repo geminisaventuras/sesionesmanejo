@@ -6,6 +6,7 @@ import { SGTA_DEFAULTS } from '../constants';
 import { alertas } from '../../shared/utils/alertas';
 import { reproducirBeepModuloCompletado } from '../../shared/utils/audio';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
+
 const APP_ID = 'motoescuela-pro-v1';
 
 function parseHora(str) {
@@ -201,8 +202,10 @@ export function useSessionTimer(reservaId, esInstructor, saveReserva, showToast,
       reservaRestante = reserva.reservaRestanteInicial || reserva.reservaRestante || 0;
     }
 
-    const tiempoRestanteCurso = Math.max(0, limiteTotal * 60 - generalSegundos);
-    const tiempoRestanteHoy = Math.max(0, duracionDiariaCurso * 60 - diarioSegundos);
+    // Fix: si el curso está aprobado, mostrar 00 en el reloj (no calcular restante)
+    const cursoAprobado = reserva.estadoCurso === 'Aprobado';
+    const tiempoRestanteCurso = cursoAprobado ? 0 : Math.max(0, limiteTotal * 60 - generalSegundos);
+    const tiempoRestanteHoy = cursoAprobado ? 0 : Math.max(0, duracionDiariaCurso * 60 - diarioSegundos);
 
     return {
       generalSegundos,

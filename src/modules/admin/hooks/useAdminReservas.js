@@ -6,8 +6,10 @@ import { db } from '../../../firebase';
 export function useAdminReservas() {
   const [reservas, setReservas] = useState([]);
   const [packs, setPacks] = useState([]);
+  const [accesosTeoricos, setAccesosTeoricos] = useState([]);
   const [cargandoReservas, setCargandoReservas] = useState(true);
   const [cargandoPacks, setCargandoPacks] = useState(true);
+  const [cargandoAccesos, setCargandoAccesos] = useState(true);
   const [error, setError] = useState(null);
 
   // Listener 1: reservas (individuales + children de pack)
@@ -65,10 +67,37 @@ export function useAdminReservas() {
     };
   }, []);
 
+  // Listener 3: accesosTeoricos (compras de módulos formativos)
+  useEffect(() => {
+    const q = query(
+      collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'accesosTeoricos'),
+      orderBy('fechaCompra', 'desc'),
+      limit(100)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setAccesosTeoricos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        setCargandoAccesos(false);
+      },
+      (err) => {
+        console.error('[useAdminReservas] Error accesosTeoricos:', err);
+        setCargandoAccesos(false);
+      }
+    );
+
+    return () => {
+      console.log('[useAdminReservas] Cleanup accesosTeoricos');
+      unsubscribe();
+    };
+  }, []);
+
   return {
     reservas,
     packs,
-    cargando: cargandoReservas || cargandoPacks,
+    accesosTeoricos,
+    cargando: cargandoReservas || cargandoPacks || cargandoAccesos,
     error
   };
 }

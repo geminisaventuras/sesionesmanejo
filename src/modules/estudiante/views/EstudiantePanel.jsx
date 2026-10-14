@@ -1,10 +1,10 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-ESTUDIANTE | desc: Terminología legal - sesiones, panel de sesiones, constancia. Se agrega LegalFooter.
-import { useContext, useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
-import { ReservaService } from '../../inscripcion/services/ReservaService';
+
 import { AuthService } from '../../../services/AuthService';
 import { CursoService } from '../../shared/services/CursoService';
 import { formatearRangoCorto } from '../../shared/utils/fechas';
@@ -15,10 +15,16 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import LegalFooter from '../../shared/components/LegalFooter';
+import { VistaFormacion } from '../components/VistaFormacion';
+import { VistaInicio } from '../components/VistaInicio';
+import { VistaServicios } from '../components/VistaServicios';
+import { VistaHistorial } from '../components/VistaHistorial';
+import { useMetricasUsuario } from '../../../hooks/useMetricasUsuario';
+import { VistaPacks } from '../components/VistaPacks';
 
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
-  User, AlertCircle, Info, ChevronLeft, Share2, Zap, Lock, Check, KeyRound, Package
+  User, AlertCircle, Info, ChevronLeft, Share2, Zap, Lock, Check, KeyRound, Package, GraduationCap
 } from 'lucide-react';
 
 const APP_ID = 'motoescuela-pro-v1';
@@ -35,68 +41,30 @@ const obtenerMesCortoYAnio = (fechaStr) => {
   return { mes: MESES_CORTOS[parseInt(partes[1])-1] || '', anio: partes[0] || '' };
 };
 
-const CorreccionReferencia = memo(({ onGuardar, enviando }) => {
-  const [valor, setValor] = useState('');
-  
-  const handleChange = (e) => {
-    setValor(e.target.value.replace(/\D/g, '').slice(0, 4));
-  };
-  
-  const handleGuardar = () => {
-    const refLimpia = valor.replace(/\D/g, '').slice(0, 4);
-    onGuardar(refLimpia);
-    setValor('');
-  };
-  
-  const valido = valor.replace(/\D/g, '').length === 4;
-  
-  return (
-    <div className="flex gap-2">
-      <input
-        type="tel"
-        value={valor}
-        onChange={handleChange}
-        placeholder="Ej: 8452"
-        inputMode="numeric"
-        pattern="\d{4}"
-        maxLength={4}
-        className="flex-1 bg-white border-2 border-red-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm outline-none"
-      />
-      <Button
-        type="button"
-        onClick={handleGuardar}
-        variant="primary"
-        className="!w-auto !py-2 !px-4 !text-xs"
-        icon={Check}
-        disabled={!valido || enviando}
-      >
-        {enviando ? 'Enviando...' : 'Enviar'}
-      </Button>
-    </div>
-  );
-});
-
 export function EstudiantePanel() {
   const ctx = useContext(AppContext);
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   useEffect(() => {
-  const tabFromUrl = searchParams.get('tab');
-  if (tabFromUrl === 'cursos') {
-    setTab('cursos');
-  }
-}, [searchParams]);
-  const [tab, setTab] = useState('miCurso');
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl === 'cursos') setTab('cursos');
+    else if (tabFromUrl === 'formacion') setTab('formacion');
+    else if (tabFromUrl === 'retos') setTab('retos');
+    else if (tabFromUrl === 'perfil') setTab('perfil');
+    else if (tabFromUrl === 'packs') setTab('packs');
+    else if (tabFromUrl === 'miCurso') setTab('miCurso');
+    else if (tabFromUrl === 'servicios') setTab('servicios');
+  }, [searchParams]);
+  const [tab, setTab] = useState('inicio');
   const [cursoDirecto, setCursoDirecto] = useState(null);
   const [busquedaCursoFallida, setBusquedaCursoFallida] = useState(false);
   const [cursoDetalle, setCursoDetalle] = useState(null);
-  const [enviandoCorreccion, setEnviandoCorreccion] = useState(false);
     const [reservasUsuario, setReservasUsuario] = useState([]);
   const [packsUsuario, setPacksUsuario] = useState([]);
   const [isSearching, setIsSearching] = useState(true);
   
-  const estadoPagoAnteriorRef = useRef(null);
+
 
   const {
     reservas = [], cursos = [], horarios = [], instructores = [], sedes = [],
@@ -146,6 +114,20 @@ export function EstudiantePanel() {
     cargarPacks();
   }, [cargarPacks]);
 
+  // FIX-PACK-REACTIVIDAD-BUG2: reaccionar al trigger SSOT (updatedAt) cuando
+  // el admin cambia el estado de la maestra (aprobar/rechazar/cancelar).
+  // Guard anti-doble-carga: compara con el valor inicial del ref.
+  const triggerActualRef = useRef(ctx.user?.data?.updatedAt);
+  useEffect(() => {
+    const DEBUG = localStorage.getItem('DEBUG_PACK_REACTIVIDAD') === '1';
+    const currentUpdate = ctx.user?.data?.updatedAt;
+    if (currentUpdate && currentUpdate !== triggerActualRef.current) {
+      triggerActualRef.current = currentUpdate;
+      if (DEBUG) console.log('[Pack Reactividad] Trigger SSOT mutado, recargando packs...');
+      cargarPacks();
+    }
+  }, [ctx.user?.data?.updatedAt, cargarPacks]);
+
         const reservaRealTime = useMemo(() => {
     if (!reservasUsuario.length) return null;
 
@@ -160,6 +142,15 @@ export function EstudiantePanel() {
       return tb - ta;
     };
 
+    // FIX-RESERVA-RECHAZADA-PRIORIDAD: la reserva Rechazada bloquea al usuario
+    // (requiere acción: corregir pago). Debe tener prioridad sobre Pendientes.
+    // Sin esto, si el usuario tiene un pack Pendiente más reciente que una
+    // sesión Rechazada, el panel no muestra el CTA de corrección.
+    const rechazadas = noCompletadas.filter(r => r.estadoPago === 'Rechazado');
+    if (rechazadas.length > 0) {
+      return [...rechazadas].sort(ordenarPorFecha)[0];
+    }
+
     if (noCompletadas.length > 0) {
       return [...noCompletadas].sort(ordenarPorFecha)[0];
     }
@@ -171,23 +162,7 @@ export function EstudiantePanel() {
     return null;
   }, [reservasUsuario]);
 
-  useEffect(() => {
-    if (!reservaRealTime) return;
-    const estadoActual = reservaRealTime.estadoPago;
-    const estadoAnterior = estadoPagoAnteriorRef.current;
-    
-    if (estadoAnterior && estadoAnterior !== estadoActual) {
-      if (estadoActual === 'Rechazado') {
-        showToast('Tu pago ha sido rechazado. Corrige la referencia.', 'error');
-      } else if (estadoActual === 'Aprobado') {
-        showToast('¡Pago aprobado! Ya puedes entrar al Panel de Sesiones.', 'success');
-      } else if (estadoActual === 'Pendiente') {
-        showToast('Referencia enviada. Espera la validación.', 'info');
-      }
-    }
-    
-    estadoPagoAnteriorRef.current = estadoActual;
-    }, [reservaRealTime?.estadoPago, showToast]);
+
 
   // 5.1-bis: cuando el admin aprueba el pack, reservaRealTime pasa a 'Aprobado'
   // → recargamos packsUsuario para que la card morada aparezca sin F5
@@ -196,6 +171,22 @@ export function EstudiantePanel() {
       cargarPacks();
     }
   }, [reservaRealTime?.estadoPago, cargarPacks]);
+
+  // Fase 3 Pack: si aparece una child nueva de pack (compra recién hecha),
+  // recargar packsUsuario para que la card morada aparezca sin F5
+  const childPackIdsRef = useRef(new Set());
+  useEffect(() => {
+    const childPackIds = new Set(
+      (reservasUsuario || [])
+        .filter(r => r.tipoReserva === 'pack_sub' && r.packReservaId)
+        .map(r => String(r.packReservaId))
+    );
+    const idsNuevos = [...childPackIds].filter(id => !childPackIdsRef.current.has(id));
+    if (idsNuevos.length > 0) {
+      childPackIdsRef.current = childPackIds;
+      cargarPacks();
+    }
+  }, [reservasUsuario, cargarPacks]);
 
   const reservaContext = useMemo(() => reservas.find(r => {
     if (String(r.userId) !== String(uid)) return false;
@@ -230,21 +221,6 @@ export function EstudiantePanel() {
   const reservaActual = reservaRealTime || reservaContext;
 
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
-
-  const handleGuardarReferencia = useCallback(async (refLimpia) => {
-    if (!reservaActual?.id) return;
-    setEnviandoCorreccion(true);
-    try {
-      const result = await ReservaService.corregirReferenciaPago(reservaActual.id, refLimpia);
-      if (!result.success) {
-        showToast('Error al enviar: ' + (result.error?.message || 'Intente de nuevo.'), 'error');
-      }
-    } catch (e) {
-      showToast('Error de conexión. Intente de nuevo.', 'error');
-    } finally {
-      setEnviandoCorreccion(false);
-    }
-  }, [reservaActual, showToast]);
 
   const compartirCurso = () => {
     const texto = `¡Completé la sesión "${cursoDetalle?.cursoNombre || 'Moto App'}" en Moto App! 🏍️`;
@@ -288,6 +264,15 @@ export function EstudiantePanel() {
     () => packExistente?.estadoPago === 'Aprobado' ? packExistente : null,
     [packExistente]
   );
+
+  // Fase 4: pack visible en VistaServicios. Solo si está vigente (Aprobado/Pendiente).
+  // Cancelados y rechazados no deben aparecer como servicio activo.
+  const packVigente = useMemo(
+    () => packExistente && (packExistente.estadoPago === 'Aprobado' || packExistente.estadoPago === 'Pendiente')
+      ? packExistente
+      : null,
+    [packExistente]
+  );
    const catalogoConEstado = useMemo(() => {
     return (cursos || [])
       .filter(c => c.activo !== false)
@@ -315,6 +300,19 @@ export function EstudiantePanel() {
       .sort((a, b) => a.ordenSecuencia - b.ordenSecuencia);
   }, [cursos, reservasAprobadas]);
 
+  const modoCorreccionEarly = reservaActual?.estadoPago === 'Rechazado' && misReservas.every(r => r.estadoPago !== 'Aprobado' && r.estadoCurso !== 'Aprobado');
+
+  useEffect(() => {
+    if (modoCorreccionEarly && tab !== 'miCurso' && tab !== 'perfil') {
+      setTab('miCurso');
+    }
+  }, [modoCorreccionEarly, tab]);
+
+  // FASE 2: hook ALT-B — DEBE estar antes de cualquier return condicional (Regla de Hooks)
+  // FIX-METRICAS-CACHE: pasar updatedAt del SSOT como trigger de invalidación
+  const userUpdatedAt = ctx.user?.data?.updatedAt;
+  const { metricas: metricasHook } = useMetricasUsuario(fbUser?.uid, userUpdatedAt);
+
   if (isSearching) return <AppShell bgColor="bg-gray-50"><div className="flex items-center justify-center min-h-full"><Spinner message="Cargando tus datos..." /></div></AppShell>;
 
   
@@ -324,13 +322,38 @@ export function EstudiantePanel() {
   const tieneReservaPendiente = misReservas.some(r => r.estadoPago === 'Pendiente');
   // A2.6: habilitar catálogo si el usuario tuvo cancelaciones previas
   const tieneReservaCancelada = misReservas.some(r => r.estadoPago === 'Cancelado');
-  const header = <DashboardHeader nombre={reservaActual?.nombre} role="estudiante" onLogout={handleLogout} notifications={notifications} />;
+  const header = <DashboardHeader nombre={reservaActual?.nombre || ctx.user?.data?.nombre} role="estudiante" onLogout={handleLogout} notifications={notifications} />;
+  const TABS_V2 = ['inicio', 'servicios', 'historial', 'perfil'];
+  const SUB_TABS = ['miCurso', 'cursos', 'formacion', 'retos', 'packs'];
+  const activeTabCalculada = modoCorreccion
+    ? tab
+    : TABS_V2.includes(tab)
+      ? tab
+      : SUB_TABS.includes(tab)
+        ? (tab === 'miCurso' ? 'inicio' : 'servicios')
+        : 'inicio';
+
+  const metricas = metricasHook?.totales || ctx.user?.data?.metricas?.totales || {};
+  const badges = {
+    inicio:    Number(metricas.activos) || 0,
+    // FIX-BADGE-RECHAZADOS: pendientes + rechazados (algo requiere atención del usuario)
+    servicios: (Number(metricas.pendientes) || 0) + (Number(metricas.rechazados) || 0),
+    historial: 0,
+    perfil:    0
+  };
+
   const footer = <DashboardFooter
     tabs={modoCorreccion
       ? [{ id: 'miCurso', icon: BookOpen, label: 'Mi Sesión' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]
-      : [{ id: 'miCurso', icon: BookOpen, label: 'Mi Sesión' }, { id: 'cursos', icon: Compass, label: 'Sesiones' }, { id: 'recursos', icon: Library, label: 'Recursos' }, { id: 'evaluaciones', icon: FileText, label: 'Eval.' }, { id: 'perfil', icon: Settings, label: 'Perfil' }]
+      : [
+          { id: 'inicio',    icon: Compass,       label: 'Inicio',    badge: badges.inicio },
+          { id: 'servicios', icon: GraduationCap, label: 'Servicios', badge: badges.servicios },
+          { id: 'historial', icon: Clock,         label: 'Historial', badge: badges.historial },
+          { id: 'perfil',    icon: Settings,      label: 'Perfil',    badge: badges.perfil }
+        ]
     }
-    activeTab={tab} onTabChange={(t) => { if (modoCorreccion && t !== 'miCurso' && t !== 'perfil') return; setTab(t); setCursoDetalle(null); }}
+    activeTab={activeTabCalculada}
+    onTabChange={(t) => { if (modoCorreccion && t !== 'miCurso' && t !== 'perfil') return; setTab(t); setCursoDetalle(null); }}
   />;
 
   const cursoAsignado = cursoDirecto || cursos.find(c => String(c.id) === String(reservaActual?.cursoId)) || { nombre: '', modulos: [], duracionTotal: 240 };
@@ -377,7 +400,7 @@ export function EstudiantePanel() {
                   </p>
                 )}
                 <p className="text-[10px] text-red-500 mt-2">
-                  Si creés que es un error, contactá al administrador.
+                  Si crees que es un error, contacta al administrador.
                 </p>
               </div>
             )}
@@ -391,6 +414,52 @@ export function EstudiantePanel() {
 
         return (
       <div className="space-y-4">
+        {/* FIX-CARD-RESERVA-TAPADA-POR-PACK: reserva rechazada va PRIMERO */}
+        {(reservaActual?.estadoPago === 'Rechazado' && !reservaActual?.packReservaId) && (
+          <div className="bg-white rounded-3xl shadow-xl border-2 border-red-200 overflow-hidden">
+            <div className="p-5 text-center">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <span className="w-2 h-2 rounded-full animate-pulse bg-red-500"></span>
+                <span className="text-xs font-bold uppercase tracking-widest text-red-600">
+                  Pago Rechazado
+                </span>
+              </div>
+              <div className="mt-3 space-y-1 text-xs text-gray-500">
+                <p className="flex items-center justify-center gap-1.5">
+                  <Calendar size={12} /><span className="font-bold">{formatearRangoCorto(reservaActual.fecha, reservaActual.fecha2)}</span>
+                  <span className="mx-1">·</span>
+                  <Clock size={12} /><span className="font-bold">{horaInicio} - {horaFin}</span>
+                </p>
+                <p className="flex items-center justify-center gap-1.5">
+                  <MapPin size={12} /><span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
+                  <span className="mx-1">·</span>
+                  <User size={12} /><span className="font-bold">Tutor: {inst ? inst.nombre : 'Asignando'}</span>
+                </p>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t bg-red-50">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={14} className="text-red-600 mt-0.5" />
+                <div className="flex-1">
+                  {intentosAgotados ? (
+                    <p className="text-[10px] text-gray-600">Has alcanzado el límite de intentos. Contacta al administrador.</p>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-gray-600 mb-2">La referencia no coincide. Corrige tu pago para continuar.</p>
+                      <button
+                        onClick={() => navigate(`/corregir-pago/reserva/${reservaActual.id}`)}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-xl font-bold text-xs"
+                      >
+                        Corregir pago
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
                 {packExistente && (() => {
           const subReservas = packExistente.subReservas || [];
           const totalCursos = subReservas.length;
@@ -411,7 +480,9 @@ export function EstudiantePanel() {
           }[estado] || 'bg-gray-400/90 text-gray-900';
 
           return (
-            <div className="bg-gradient-to-br from-purple-600 to-indigo-700 rounded-3xl shadow-xl overflow-hidden text-white">
+            <div
+              key={`pack-${packExistente.id}`}
+              className="bg-gradient-to-br from-purple-600 to-indigo-700 rounded-3xl shadow-xl overflow-hidden text-white">
               <div className="p-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-2 min-w-0">
@@ -455,8 +526,13 @@ export function EstudiantePanel() {
                 {estado === 'Rechazado' && (
                   <div className="text-[11px] mb-3 bg-red-900/30 border border-red-300/40 rounded-lg p-2">
                     <p className="font-bold mb-1">Pago Rechazado</p>
-                    <p className="opacity-90 mb-2">La referencia no coincide. Ingresá los 4 últimos dígitos del pago móvil.</p>
-                    <CorreccionReferencia onGuardar={handleGuardarReferencia} enviando={enviandoCorreccion} />
+                    <p className="opacity-90 mb-2">La referencia no coincide. Corrige tu pago para continuar.</p>
+                    <button
+                      onClick={() => navigate(`/corregir-pago/pack/${packExistente.id}`)}
+                      className="w-full bg-white text-red-700 py-2 rounded-lg font-bold text-xs"
+                    >
+                      Corregir pago
+                    </button>
                   </div>
                 )}
 
@@ -481,11 +557,11 @@ export function EstudiantePanel() {
                       disabled
                       className={`${estado === 'Aprobado' && childActiva ? '' : 'flex-1'} bg-white/10 text-white/60 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-50 cursor-not-allowed`}
                     >
-                      {estado === 'Rechazado' ? 'Corregí tu pago para ver el detalle' : 'Pack Cancelado'}
+                      {estado === 'Rechazado' ? 'Corrige tu pago para ver el detalle' : 'Pack Cancelado'}
                     </button>
                   ) : (
                     <button
-                      onClick={() => navigate(`/mi-pack/${packExistente.id}`)}
+                      onClick={() => navigate(`/mi-pack/${packExistente.id}`, { state: { from: 'miCurso' } })}
                       className={`${estado === 'Aprobado' && childActiva ? '' : 'flex-1'} bg-white/20 hover:bg-white/30 text-white py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all`}
                     >
                       Ver detalle →
@@ -496,7 +572,9 @@ export function EstudiantePanel() {
             </div>
           );
         })()}
-                      {!packExistente && (
+
+        {/* FIX-CARD-RESERVA-TAPADA-POR-PACK: reserva normal (no rechazada) - solo si NO hay pack */}
+        {(!packExistente && reservaActual?.estadoPago !== 'Rechazado') && (
         <div className="bg-white rounded-3xl shadow-xl border border-blue-100 overflow-hidden">
           <div className="p-6 text-center">
             <div className="flex items-center justify-center gap-2 mb-4">
@@ -542,8 +620,13 @@ export function EstudiantePanel() {
                     <p className="text-[10px] text-gray-600">Has alcanzado el límite de intentos. Contacta al administrador.</p>
                   ) : (
                     <>
-                      <p className="text-[10px] text-gray-600 mb-2">La referencia no coincide. Ingresa los 4 últimos dígitos de la referencia del pago móvil.</p>
-                      <CorreccionReferencia onGuardar={handleGuardarReferencia} enviando={enviandoCorreccion} />
+                      <p className="text-[10px] text-gray-600 mb-2">La referencia no coincide. Corrige tu pago para continuar.</p>
+                      <button
+                        onClick={() => navigate(`/corregir-pago/reserva/${reservaActual.id}`)}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-xl font-bold text-xs"
+                      >
+                        Corregir pago
+                      </button>
                     </>
                   )}
                 </div>
@@ -798,9 +881,9 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
       <div className="space-y-4">
         <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mi Perfil</h2>
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{reservaActual?.nombre} {reservaActual?.apellido}</p></div>
-          <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{reservaActual?.cedula}</p></div>
-          <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{reservaActual?.telefono || 'No registrado'}</p></div>
+          <div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{ctx.user?.data?.nombre || reservaActual?.nombre || 'No registrado'} {ctx.user?.data?.apellido || reservaActual?.apellido || ''}</p></div>
+          <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{ctx.user?.data?.cedula || reservaActual?.cedula || '—'}</p></div>
+          <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{ctx.user?.data?.telefono || reservaActual?.telefono || 'No registrado'}</p></div>
           <div><p className="text-xs text-gray-500">Sesión Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div>
           <div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{sedeActual?.nombre || 'No asignada'}</p></div>
           
@@ -829,11 +912,35 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
   return (
     <AppShell header={header} footer={footer}>
       <div className="p-4 space-y-4">
+        {tab === 'inicio' && (
+          <VistaInicio
+            onNavigate={setTab}
+            reservaActual={reservaActual}
+            packExistente={packExistente}
+            cursos={cursos}
+            metricas={metricasHook}
+          />
+        )}
+        {tab === 'servicios' && !modoCorreccion && (
+          <VistaServicios onNavigate={setTab} packActivo={packVigente} metricas={metricasHook} reservasUsuario={reservasUsuario} />
+        )}
+        {tab === 'historial' && !modoCorreccion && <VistaHistorial />}
+        {tab === 'perfil' && <VistaPerfil />}
+
+        {SUB_TABS.includes(tab) && (
+          <button
+            onClick={() => setTab(tab === 'miCurso' ? 'inicio' : 'servicios')}
+            className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-1"
+          >
+            <ChevronLeft size={14} /> Volver
+          </button>
+        )}
         {tab === 'miCurso' && <VistaMiCurso />}
         {tab === 'cursos' && !modoCorreccion && <VistaCursos />}
-        {tab === 'recursos' && !modoCorreccion && <Placeholder icon={Library} titulo="Recursos" descripcion="Leyes de tránsito, señales, documentales y más." />}
-        {tab === 'evaluaciones' && !modoCorreccion && <Placeholder icon={FileText} titulo="Evaluaciones" descripcion="Pruebas teóricas para medir tu conocimiento." />}
-        {tab === 'perfil' && <VistaPerfil />}
+        {tab === 'formacion' && !modoCorreccion && <VistaFormacion showToast={showToast} />}
+        {tab === 'retos' && !modoCorreccion && <VistaFormacion showToast={showToast} />}
+        {tab === 'packs' && !modoCorreccion && <VistaPacks />}
+
         <LegalFooter />
       </div>
     </AppShell>

@@ -9,6 +9,8 @@ import { LockService } from '../../../services/LockService';
 import { useDisponibilidadPack } from '../../inscripcion/hooks/useDisponibilidadPack';
 import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
+import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
+import { afectaFechaAdmin, afectaHorarioAdmin } from '../../shared/utils/bloqueosHelpers';
 import { Paso3Horario } from '../../inscripcion/components/Paso3Horario';
 import { CalendarioFlotante } from '../../inscripcion/components/CalendarioFlotante';
 import { Spinner, Button } from '../../../components/UI';
@@ -46,12 +48,12 @@ export function AgendarPackView() {
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeLocks, setActiveLocks] = useState([]);
-  const [bloqueosAdmin, setBloqueosAdmin] = useState([]);
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
   const [tiempoRestante, setTiempoRestante] = useState(null);
 
   const bloqueosProveedor = useBloqueosProveedor(fecha1, true);
+  const { bloqueos: bloqueosAdmin, cargando: cargandoBloqueos } = useBloqueosAdmin(true);
   const calendarioRef = useRef(null);
 
   // Deriva cursoUnDia prematuramente para el hook de ocupación
@@ -71,7 +73,7 @@ export function AgendarPackView() {
     return d.toISOString().split('T')[0];
   }, [fecha1]);
 
-  const { ocupacion: ocupacionConfirmada } = useOcupacionConfirmada({
+  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmada({
     fecha: fecha1,
     fecha2: fecha2CalcOcupacion,
     limitDocs: 100
@@ -95,8 +97,8 @@ export function AgendarPackView() {
                 // Validación de estadoPago (allowlist). Bloquea cualquier pack no aprobado.
         if (packData.estadoPago !== 'Aprobado') {
           const mensajes = {
-            Pendiente: 'Tu pack está pendiente de aprobación. Esperá a que el administrador verifique el pago.',
-            Rechazado: 'Tu pack fue rechazado. Corregí la referencia de pago para continuar.',
+            Pendiente: 'Tu pack está pendiente de aprobación. Espera a que el administrador verifique el pago.',
+            Rechazado: 'Tu pack fue rechazado. Corrige la referencia de pago para continuar.',
             Cancelado: 'Tu pack fue cancelado. Contactá al administrador.'
           };
           setError(mensajes[packData.estadoPago] || 'Tu pack no tiene el pago aprobado.');
@@ -142,20 +144,7 @@ export function AgendarPackView() {
   }, [packReservaId, uid]);
 
   // ─── Bloqueos admin ─────────────────────────────────────────────
-  useEffect(() => {
-    let activo = true;
-    const cargar = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'bloqueosAdmin'));
-        if (activo) setBloqueosAdmin(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        console.warn('[AgendarPackView] bloqueosAdmin:', err);
-        if (activo) setBloqueosAdmin([]);
-      }
-    };
-    cargar();
-    return () => { activo = false; };
-  }, []);
+  // SSOT-BLOQUEOS: reemplazado por useBloqueosAdmin hook (más abajo en el componente).
 
   // ─── Listener de locks ──────────────────────────────────────────
   useEffect(() => {
@@ -186,20 +175,82 @@ export function AgendarPackView() {
     return (cursos || []).find(c => String(c.id) === String(subActual.cursoId));
   }, [subActual, cursos]);
 
-  const sede = useMemo(() => (sedes || []).find(s => String(s.id) === String(pack?.sedeId)), [sedes, pack]);
+  // FIX-PACK-SEDE-POR-SESION: calcular sedes válidas para la sesión actual (intersección curso ∩ pack).
+  const sedesPack = useMemo(() => {
+    const fromPack = pack?.packSnapshot?.sedesPermitidas || pack?.sedesPermitidas || [];
+    if (Array.isArray(fromPack) && fromPack.length > 0) return fromPack;
+    return pack?.sedeId ? [pack.sedeId] : [];
+  }, [pack]);
+
+  const sedesCurso = useMemo(() => {
+    if (!cursoData) return [];
+    const fromMap = pack?.sedesPermitidasPorCurso?.[String(cursoData.id)];
+    if (Array.isArray(fromMap) && fromMap.length > 0) return fromMap;
+    if (Array.isArray(cursoData.sedesPermitidas) && cursoData.sedesPermitidas.length > 0) return cursoData.sedesPermitidas;
+    return [];
+  }, [cursoData, pack]);
+
+  const sedesValidasSesion = useMemo(() => {
+    if (sedesCurso.length === 0) return sedesPack;
+    return sedesCurso.filter(s => sedesPack.includes(s));
+  }, [sedesCurso, sedesPack]);
+
+  // Sede seleccionada por el usuario (default = pack.sedeId si está permitida).
+  const [sedeSeleccionadaId, setSedeSeleccionadaId] = useState('');
+
+  // Auto-fallback: si la sede por defecto del pack no es válida, usar la primera válida.
+  useEffect(() => {
+    if (sedesValidasSesion.length === 0) return;
+    if (sedeSeleccionadaId && sedesValidasSesion.includes(sedeSeleccionadaId)) return;
+    const sedeDefault = (pack?.sedeId && sedesValidasSesion.includes(pack.sedeId))
+      ? pack.sedeId
+      : sedesValidasSesion[0];
+    setSedeSeleccionadaId(sedeDefault);
+    if (pack?.sedeId && sedeDefault !== pack.sedeId) {
+      const sedeNombre = (sedes || []).find(s => String(s.id) === String(sedeDefault))?.nombre || sedeDefault;
+      showToast(`Este curso se ofrece en ${sedeNombre}. Se seleccionó automáticamente.`, 'info');
+    }
+  }, [sedesValidasSesion, sedeSeleccionadaId, pack?.sedeId, sedes]);
+
+  const sede = useMemo(() => (sedes || []).find(s => String(s.id) === String(sedeSeleccionadaId)), [sedes, sedeSeleccionadaId]);
     const cursoUnDia = (cursoData?.duracionTotal || 240) <= 120;
 
   // FIX-PACK-TIPOMOTO: derivar tipoMoto del curso específico (SSOT).
   // - length === 1 → forzar ese (único permitido)
   // - length > 1 → usar pack.tipoMoto si está permitido, sino el primero
-  // - length === 0 → null (no requiere moto)
+  // - length === 0 → heredar del pack (Fix-PACK-TIPOMOTO-HERENCIA-BASICO-V1)
   const tipoMotoEfectivo = useMemo(() => {
     const tipos = cursoData?.tiposMotoEscuela;
-    if (!Array.isArray(tipos) || tipos.length === 0) return null;
-    if (tipos.length === 1) return tipos[0];
-    if (pack?.tipoMoto && tipos.includes(pack.tipoMoto)) return pack.tipoMoto;
-    return tipos[0];
-  }, [cursoData, pack]);
+
+    // Curso con tipos definidos → lógica existente.
+    if (Array.isArray(tipos) && tipos.length > 0) {
+      if (tipos.length === 1) return tipos[0];
+      if (pack?.tipoMoto && tipos.includes(pack.tipoMoto)) return pack.tipoMoto;
+      return tipos[0];
+    }
+
+    // FIX-PACK-TIPOMOTO-HERENCIA-BASICO-V1: curso sin tiposMotoEscuela
+    // → heredar del pack (SSOT ya guardado al comprar).
+    if (pack?.tipoMoto) return pack.tipoMoto;
+
+    // Fallback legacy: SOLO si hay exactamente 1 básico en el pack
+    // (evita Resource Hijacking si hay 2+ básicos).
+    const basicos = (pack?.cursoIds || [])
+      .map(id => (ctx.cursos || []).find(c => String(c.id) === String(id)))
+      .filter(c => c?.tipoCurso === 'basico_auto' || c?.tipoCurso === 'basico_sincro');
+
+    if (basicos.length === 1 && basicos[0]?.tiposMotoEscuela?.length > 0) {
+      return basicos[0].tiposMotoEscuela[0];
+    }
+
+    // Fail-safe: pack sin tipoMoto y fallback ambiguo.
+    console.warn('[SRE-PACK-TIPOMOTO] Pack sin tipoMoto y fallback no aplicable.', {
+      packId: pack?.id,
+      cantidadBasicos: basicos.length,
+      cursoActual: cursoData?.id,
+    });
+    return null;
+  }, [cursoData, pack, ctx.cursos]);
 
  
 
@@ -207,16 +258,19 @@ export function AgendarPackView() {
   // ─── Form mínimo para el hook de disponibilidad ─────────────────
   const form = useMemo(() => ({
     cursoId: cursoData?.id || '',
-    sedeId: pack?.sedeId || '',
+    sedeId: sedeSeleccionadaId || pack?.sedeId || '',
     tipoMoto: tipoMotoEfectivo || '',
-    traeMoto: (pack?.traeMotoPorCurso || {})[String(cursoData?.id)] || 'No',
+    traeMoto: cursoData?.motoIncluida === false
+      ? 'Sí'
+      : ((pack?.traeMotoPorCurso || {})[String(cursoData?.id)] || 'No'),
     fecha1,
     horaId
-  }), [cursoData, pack, fecha1, horaId]);
+  }), [cursoData, pack, sedeSeleccionadaId, fecha1, horaId]);
 
   const updateForm = useCallback((patch) => {
     if ('fecha1' in patch) setFecha1(patch.fecha1);
     if ('horaId' in patch) setHoraId(patch.horaId);
+    if ('sedeId' in patch) setSedeSeleccionadaId(patch.sedeId);
   }, []);
 
   const disponibilidad = useDisponibilidadPack({
@@ -235,6 +289,32 @@ export function AgendarPackView() {
     sedeSeleccionada: sede
   });
 
+  // FIX-PACK-AUTOJUMP-FECHA: si fecha1 está vacía, saltar a la primera
+  // fecha con disponibilidad real. Mismo patrón que InscripcionView.
+  // Solo se ejecuta cuando fecha1 === '' (no sobreescribe elección del usuario).
+  useEffect(() => {
+    if (cargandoBloqueos) return;
+    if (cargandoOcupacion) return;
+
+    // ALT-4 (FIX-HUEVO-GALLINA): esperar a que la ocupación esté sincronizada
+    // con la fecha actual. Si fecha1 está seteada pero fechaConsultada
+    // todavía no coincide, la disponibilidad fue calculada con datos stale.
+    if (fecha1 && fechaConsultada !== fecha1) return;
+
+    // ALT-5 acotada: si la fecha actual quedó inválida (todos los bloques
+    // sin disponibilidad), re-elegir. Agnóstico al origen.
+    if (fecha1) {
+      const infoFecha = disponibilidad?.diasDisponibles?.find(d => d.fecha === fecha1);
+      if (infoFecha?.disponible) return;
+    }
+
+    if (!disponibilidad?.diasDisponibles?.length) return;
+    const primerDiaLibre = disponibilidad.diasDisponibles.find(d => d.disponible);
+    if (!primerDiaLibre) return;
+    if (primerDiaLibre.fecha === fecha1) return;
+    setFecha1(primerDiaLibre.fecha);
+  }, [fecha1, disponibilidad, ctx, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
+
   // ─── Reset lock si cambia la fecha ──────────────────────────────
   const fechaAnteriorRef = useRef(fecha1);
   useEffect(() => {
@@ -248,6 +328,22 @@ export function AgendarPackView() {
     fechaAnteriorRef.current = fecha1;
   }, [fecha1, lockId, horaId]);
 
+  // FIX-PACK-SEDE-POR-SESION: invalidar lock si cambia la sede seleccionada.
+  // Mismo patrón que fecha1. La sede cambia el pool de instructores/motos.
+  const sedeAnteriorRef = useRef(sedeSeleccionadaId);
+  useEffect(() => {
+    if (sedeAnteriorRef.current === sedeSeleccionadaId) return;
+    // Solo liberar si ya había una sede previa (evitar liberar en el mount inicial).
+    if (sedeAnteriorRef.current && lockId && horaId) {
+      LockService.liberarLock(lockId).catch(() => {});
+      setLockId('');
+      setLockExpiresAt(null);
+      setHoraId('');
+      showToast('Cambiaste de sede. Elegí un nuevo horario.', 'info');
+    }
+    sedeAnteriorRef.current = sedeSeleccionadaId;
+  }, [sedeSeleccionadaId, lockId, horaId, showToast]);
+
   // ─── Seleccionar horario → crear lock ───────────────────────────
   const handleSelectHorario = useCallback(async (bloque) => {
     if (!fbUser) return;
@@ -257,22 +353,17 @@ export function AgendarPackView() {
     if (lockId && horaId === bloque.id) {
       await LockService.liberarLock(lockId).catch(() => {});
       setLockId(''); setLockExpiresAt(null); setHoraId('');
+      showToast('Horario liberado. Puedes seleccionar otro.', 'success');
       return;
     }
 
-    // Validar revalidando bloqueos admin (por si cambiaron)
-    const afectaFechaLocal = (b, f) => {
-      if (!f) return false;
-      if (f < b.fechaInicio) return false;
-      const fin = b.fechaFin || b.fechaInicio;
-      if (f > fin) return false;
-      if (b.sedeId && String(b.sedeId) !== String(form.sedeId)) return false;
-      if (b.todoElDia) return true;
-      return (b.horarios || []).includes(bloque.id);
-    };
-    const bloqueadoAdmin = (bloqueosAdmin || []).some(b =>
-      afectaFechaLocal(b, fecha1) || afectaFechaLocal(b, disponibilidad?.fecha2Calc)
-    );
+    // SSOT-BLOQUEOS: revalidar bloqueos admin (por si cambiaron).
+    const bloqueadoAdmin = (bloqueosAdmin || []).some(b => {
+      if (!afectaHorarioAdmin(b, bloque.id)) return false;
+      if (afectaFechaAdmin(b, fecha1, form.sedeId)) return true;
+      if (disponibilidad?.fecha2Calc && afectaFechaAdmin(b, disponibilidad.fecha2Calc, form.sedeId)) return true;
+      return false;
+    });
     if (bloqueadoAdmin) {
       showToast('Este horario acaba de ser bloqueado por la administración.', 'error');
       return;
@@ -367,7 +458,7 @@ export function AgendarPackView() {
       zona: childAnterior.zona || null,
       condicionMedica: childAnterior.condicionMedica || null,
       detalleCondicion: childAnterior.detalleCondicion || null,
-      sedeId: pack.sedeId || null,
+      sedeId: sedeSeleccionadaId || pack.sedeId || null,
       tipoMoto: tipoMotoEfectivo || null,
       cursoSnapshot: cursoData,
             fecha: fecha1,
@@ -381,7 +472,7 @@ export function AgendarPackView() {
     setIsSubmitting(false);
 
     if (result.success) {
-      showToast('¡Sesión agendada! Ya podés ver la fecha en tu pack.', 'success');
+      showToast('¡Sesión agendada! Ya puedes ver la fecha en tu pack.', 'success');
       navigate(`/mi-pack/${packReservaId}`);
     } else {
       showToast('Error al agendar: ' + (result.error?.message || 'Intentá de nuevo'), 'error');
@@ -451,9 +542,32 @@ export function AgendarPackView() {
           <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Agendar sesión</p>
           <h2 className="text-lg font-black truncate">{cursoData.nombre}</h2>
           <p className="text-[11px] opacity-90 mt-1">
-            {sede?.nombre || 'Sede'} · {pack.tipoMoto || ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
+            {sede?.nombre || 'Sede'}{form.tipoMoto ? ` · ${form.tipoMoto}` : ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
           </p>
         </div>
+
+        {/* FIX-PACK-SEDE-POR-SESION: selector de sede (solo si hay más de 1 sede válida) */}
+        {sedesValidasSesion.length > 1 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-3 shadow-sm">
+            <label className="block text-[11px] font-black text-gray-700 uppercase tracking-wider mb-1.5">
+              Sede de esta sesión
+            </label>
+            <select
+              value={sedeSeleccionadaId}
+              onChange={(e) => setSedeSeleccionadaId(e.target.value)}
+              className="w-full bg-gray-50 border-2 border-gray-200 focus:border-purple-500 rounded-xl py-2.5 px-3 text-sm outline-none"
+            >
+              {sedesValidasSesion.map(sid => {
+                const s = (sedes || []).find(x => String(x.id) === String(sid));
+                return (
+                  <option key={sid} value={sid}>
+                    {s?.nombre || sid}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
 
         {/* Paso 3 reutilizado */}
         {disponibilidad && (
@@ -470,7 +584,7 @@ export function AgendarPackView() {
             lockId={lockId}
             recursosListos={instructores?.length > 0 && motos?.length > 0}
             showToast={showToast}
-            cargando={!instructores?.length || !motos?.length || !horarios?.length}
+            cargando={!instructores?.length || !motos?.length || !horarios?.length || cargandoBloqueos}
             cursoNombre={cursoData.nombre}
             sedeNombre={sede?.nombre || 'Sede'}
             tipoMoto={pack.tipoMoto}

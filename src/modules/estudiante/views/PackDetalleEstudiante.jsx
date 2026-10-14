@@ -1,7 +1,7 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PACK-DETALLE | desc: Página dedicada al detalle del pack del estudiante
 import { useContext, useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { Spinner } from '../../../components/UI';
@@ -25,6 +25,7 @@ const formatearFecha = (fechaStr) => {
 export function PackDetalleEstudiante() {
   const { packReservaId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const ctx = useContext(AppContext);
   const { cursos = [], horarios = [], instructores = [], sedes = [], user, fbUser, logoutUser, notifications = [] } = ctx;
 
@@ -35,60 +36,80 @@ export function PackDetalleEstudiante() {
 
   const uid = fbUser?.uid || user?.uid;
 
+  // FIX-PACK-REACTIVIDAD-BUG3: onSnapshot al doc del pack (maestra).
+  // Refleja cambios de estado del admin en vivo sin F5.
   useEffect(() => {
     if (!packReservaId || !uid) { setCargando(false); return; }
+    const DEBUG = localStorage.getItem('DEBUG_PACK_REACTIVIDAD') === '1';
     let activo = true;
-    const cargar = async () => {
-      try {
-        const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservasPack', packReservaId);
-        const snap = await getDoc(ref);
-        if (!activo) return;
-        if (!snap.exists()) {
-          setError('Pack no encontrado.');
-          setCargando(false);
-          return;
-        }
-        const data = { id: snap.id, ...snap.data() };
-        if (String(data.userId) !== String(uid)) {
-          setError('No tienes acceso a este pack.');
-          setCargando(false);
-          return;
-        }
-        setPack(data);
-
-             // Cargar la child del curso ACTUAL (por índice cursoActual)
-        const subActiva = (data.subReservas || [])[data.cursoActual];
-        if (subActiva?.reservaId) {
-          const childRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', subActiva.reservaId);
-          const childSnap = await getDoc(childRef);
-          if (activo && childSnap.exists()) {
-            setChildReserva({ id: childSnap.id, ...childSnap.data() });
-          }
-        }
+    const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservasPack', packReservaId);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (!activo) return;
+      if (DEBUG) console.log('[Pack Reactividad] Snapshot maestra:', snap.id, snap.data()?.estadoPago);
+      if (!snap.exists()) {
+        setError('Pack no encontrado.');
         setCargando(false);
-      } catch (err) {
-        console.error('[PackDetalleEstudiante] Error:', err);
-        if (activo) {
-          setError('No se pudo cargar el pack.');
-          setCargando(false);
-        }
+        return;
       }
-    };
-    cargar();
-    return () => { activo = false; };
+      const data = { id: snap.id, ...snap.data() };
+      if (String(data.userId) !== String(uid)) {
+        setError('No tienes acceso a este pack.');
+        setCargando(false);
+        return;
+      }
+      setPack(data);
+      setCargando(false);
+    }, (err) => {
+      console.error('[PackDetalleEstudiante] onSnapshot maestra:', err);
+      if (activo) { setError('No se pudo cargar el pack.'); setCargando(false); }
+    });
+    return () => { activo = false; unsub(); };
   }, [packReservaId, uid]);
+
+  // FIX-CORREGIR-PAGO-FASE8: redirect automático a /corregir-pago/pack/:id
+  // cuando el pack está Rechazado. Solo aplica en /mi-pack/:id (esta vista).
+  // No aplica en /portal-reservas (ahí hay CTA explícito para no secuestrar al usuario).
+  useEffect(() => {
+    if (pack?.estadoPago === 'Rechazado' && pack?.id) {
+      navigate(`/corregir-pago/pack/${pack.id}`, { replace: true });
+    }
+  }, [pack?.estadoPago, pack?.id, navigate]);
+
+  // FIX-PACK-REACTIVIDAD-BUG3-bis: onSnapshot a la child actual (reserva agendada).
+  // Se re-suscribe solo cuando el ID de la child cambia (cursoActual avanza).
+  const childReservaId = pack?.subReservas?.[pack?.cursoActual]?.reservaId;
+  useEffect(() => {
+    if (!childReservaId) { setChildReserva(null); return; }
+    const DEBUG = localStorage.getItem('DEBUG_PACK_REACTIVIDAD') === '1';
+    let activo = true;
+    const childRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', childReservaId);
+    const unsub = onSnapshot(childRef, (snap) => {
+      if (DEBUG) console.log('[Pack Reactividad] Snapshot child:', snap.id, snap.data()?.estadoPago);
+      if (activo && snap.exists()) {
+        setChildReserva({ id: snap.id, ...snap.data() });
+      }
+    }, (err) => {
+      console.error('[PackDetalleEstudiante] onSnapshot child:', err);
+    });
+    return () => { activo = false; unsub(); };
+  }, [childReservaId]);
 
   const handleLogout = async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
   };
 
-  const header = <DashboardHeader nombre={pack?.packNombre || 'Mi Pack'} role="estudiante" onBack={() => navigate('/portal-reservas')} onLogout={handleLogout} notifications={notifications} />;
+  // Volver al origen: Servicios o Mi Sesión (default)
+  const destinoVolver = location.state?.from === 'servicios'
+    ? '/portal-reservas?tab=servicios'
+    : '/portal-reservas?tab=miCurso';
+
+  const header = <DashboardHeader title={pack?.packNombre || 'Mi Pack'} role="estudiante" onBack={() => navigate(destinoVolver)} onLogout={handleLogout} notifications={notifications} />;
   const footerTabs = [
     { id: 'miCurso', icon: BookOpen, label: 'Mi Sesión', action: () => navigate('/portal-reservas') },
     { id: 'cursos', icon: Compass, label: 'Sesiones', action: () => navigate('/portal-reservas?tab=cursos') },
-    { id: 'recursos', icon: Library, label: 'Recursos', action: () => navigate('/portal-reservas') },
-    { id: 'perfil', icon: Settings, label: 'Perfil', action: () => navigate('/portal-reservas') }
+    { id: 'recursos', icon: Library, label: 'Recursos', action: () => navigate('/portal-reservas?tab=formacion') },
+    { id: 'perfil', icon: Settings, label: 'Perfil', action: () => navigate('/portal-reservas?tab=perfil') }
   ];
   const footer = <DashboardFooter tabs={footerTabs} activeTab="miCurso" onTabChange={(id) => {
     const t = footerTabs.find(x => x.id === id);
@@ -304,7 +325,7 @@ const estadoBadgeClass = {
                   <Clock size={16} className="text-purple-600 flex-shrink-0 mt-0.5" />
                   <div className="text-[12px] text-purple-900">
                     <p className="font-bold">Pendiente de agendar</p>
-                    <p className="opacity-90">Elegí fecha y hora para tu próxima sesión.</p>
+                    <p className="opacity-90">Elige fecha y hora para tu próxima sesión.</p>
                   </div>
                 </div>
                 <button

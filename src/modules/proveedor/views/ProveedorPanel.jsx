@@ -6,7 +6,7 @@ import { LogOut, Bike, DollarSign, Activity, Clock, Calendar, BookOpen } from 'l
 import ProveedorMotos from '../components/ProveedorMotos';
 import ProveedorCalendario from '../components/ProveedorCalendario';
 import ProveedorActividad from '../components/ProveedorActividad';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../firebase';
 const ProveedorPanel = () => {
   const { user, motos, config, isReservaActiva, logoutUser } = useContext(AppContext);
@@ -19,26 +19,40 @@ useEffect(() => {
     setCargandoOcupacion(false);
     return;
   }
-  let activo = true;
-  const cargarOcupacion = async () => {
-    try {
-      setCargandoOcupacion(true);
-      const q = query(
-        collection(db, 'ocupacionConfirmada'),
-        where('proveedorId', '==', user.uid)
-      );
-      const snapshot = await getDocs(q);
-      if (!activo) return;
+
+  // DECISIÓN ARQUITECTÓNICA (2026-10-14):
+  // Migración de getDocs a onSnapshot para tiempo real.
+  // Contexto: FIX-030 cambió a getDocs para resolver bug de datos (contadores en cero)
+  // causado por uso incorrecto de useOcupacionConfirmada sin fecha.
+  // Esta migración a onSnapshot NO revierte FIX-030, porque:
+  // 1. El bug de datos ya está resuelto
+  // 2. Este es un contexto diferente (panel agregado, no por fecha)
+  // 3. Impacto en Plan Spark: +0.5% del límite (medido 2026-10-14)
+  // Ver: BITACORA entrada "PROVEEDOR-ONSSNAPSHOT-V1"
+  setCargandoOcupacion(true);
+
+  const q = query(
+    collection(db, 'ocupacionConfirmada'),
+    where('proveedorId', '==', user.uid),
+    limit(500)
+  );
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
       setOcupacionConfirmada(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (error) {
-      console.error('[ProveedorPanel] Error cargando ocupación:', error);
-      if (activo) setOcupacionConfirmada([]);
-    } finally {
-      if (activo) setCargandoOcupacion(false);
+      setCargandoOcupacion(false);
+    },
+    (error) => {
+      console.error('[ProveedorPanel] Error en onSnapshot:', error);
+      setOcupacionConfirmada([]);
+      setCargandoOcupacion(false);
     }
+  );
+
+  return () => {
+    unsubscribe();
   };
-  cargarOcupacion();
-  return () => { activo = false; };
 }, [user?.uid]);  const navigate = useNavigate();
   const [tab, setTab] = useState('inicio');
 

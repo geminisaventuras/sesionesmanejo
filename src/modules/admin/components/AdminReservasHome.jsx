@@ -6,7 +6,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock, Package
+  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock, Package, GraduationCap
 } from 'lucide-react';
 import {
   obtenerHoyVenezuela,
@@ -42,7 +42,7 @@ const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
 
 const AdminReservasHome = () => {
   const { horarios, user, logoutUser } = useContext(AppContext);
-    const { reservas, packs, cargando, error } = useAdminReservas();
+    const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
   const navigate = useNavigate();
   const res = reservas || [];
 
@@ -86,13 +86,26 @@ const AdminReservasHome = () => {
       .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
   }, [packs]);
 
+  const packsAprobados = useMemo(() => {
+    return (packs || [])
+      .filter(p => p.estadoPago === 'Aprobado' && p.estado !== 'cancelado' && p.estado !== 'completado')
+      .sort((a, b) => (b.aprobadoEn?.toMillis?.() || 0) - (a.aprobadoEn?.toMillis?.() || 0));
+  }, [packs]);
+
   const reservasRechazadas = useMemo(() => {
     return res
       .filter(r => r.estadoPago === 'Rechazado' && r.tipoReserva !== 'pack_sub')
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
   }, [res]);
 
-  const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0 && packsPendientes.length === 0 && packsRechazados.length === 0 && reservasRechazadas.length === 0;
+  // FIX-ADMIN-ACCESOS-RECHAZADOS: incluye 'Rechazado' para que el admin pueda entrar a cancelar.
+  const accesosPendientes = useMemo(() => {
+    return (accesosTeoricos || [])
+      .filter(a => a.estadoPago === 'Pendiente' || a.estadoPago === 'Rechazado')
+      .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
+  }, [accesosTeoricos]);
+
+  const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0 && packsPendientes.length === 0 && packsRechazados.length === 0 && packsAprobados.length === 0 && reservasRechazadas.length === 0 && accesosPendientes.length === 0;
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
@@ -196,6 +209,56 @@ const AdminReservasHome = () => {
                       <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
                       <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
                       <p className="text-[9px] text-red-600 font-bold mt-0.5">Esperando corrección</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {packsAprobados.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-black text-purple-700 uppercase tracking-wider flex items-center gap-1">
+                    <Package size={14} className="text-purple-600" /> Packs Aprobados ({packsAprobados.length})
+                  </h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {packsAprobados.slice(0, 4).map(p => (
+                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-purple-200 p-2 text-left hover:border-purple-400 active:scale-[0.98] transition-colors">
+                      <div className="flex items-center gap-1 flex-wrap mb-1">
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-100 text-green-700">APRO</span>
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
+                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
+                      <p className="text-[9px] text-purple-600 font-bold mt-0.5">Ver detalle →</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {accesosPendientes.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${accesosPendientes.some(a => a.estadoPago === 'Rechazado') ? 'text-red-700' : 'text-teal-700'}`}>
+                    <GraduationCap size={14} className={accesosPendientes.some(a => a.estadoPago === 'Rechazado') ? 'text-red-600' : 'text-teal-600'} /> Accesos Teóricos ({accesosPendientes.length})
+                  </h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  {accesosPendientes.slice(0, 4).map(a => (
+                    <button key={a.id} onClick={() => navigate(`/admin/acceso-teorico/${a.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-teal-200 p-2 text-left hover:border-teal-400 active:scale-[0.98] transition-colors">
+                      <div className="flex items-center gap-1 flex-wrap mb-1">
+                        {a.estadoPago === 'Rechazado' ? (
+                          <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-red-100 text-red-700">RECH</span>
+                        ) : (
+                          <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-700">PEND</span>
+                        )}
+                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-teal-100 text-teal-700">TEOR</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{a.cursoTeoricoId || 'Módulo'}</p>
+                      <p className="text-[9px] text-gray-600 truncate">{a.precio ? `$${a.precio}` : ''}</p>
+                      <p className="text-[9px] text-teal-600 font-bold mt-0.5">Toca para ver →</p>
                     </button>
                   ))}
                 </div>

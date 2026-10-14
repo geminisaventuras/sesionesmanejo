@@ -1,10 +1,11 @@
 // @build: 2026-06-22 | id: AUTH-PROVIDER-BLINDADO | desc: Admin reconocido por email sin depender de documento en Firestore
 import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AuthService } from '../services/AuthService';
 
 const APP_ID = 'motoescuela-pro-v1';
+const BASE_PATH = ['artifacts', APP_ID, 'public', 'data'];
 
 export function useAuthProvider(showToast) {
   const [fbUser, setFbUser] = useState(null);
@@ -59,8 +60,17 @@ export function useAuthProvider(showToast) {
         return;
       }
 
-      const cedulaEstudiante = currentUser.email?.split('@')[0] || '';
-      setUser({ role: 'estudiante', data: { cedula: cedulaEstudiante }, uid: currentUser.uid });
+      // SSOT: leer perfil completo de usuarios/{uid}
+      let perfilData = {};
+      try {
+        const perfilSnap = await getDoc(doc(db, basePath, 'usuarios', currentUser.uid));
+        if (perfilSnap.exists()) {
+          perfilData = perfilSnap.data();
+        }
+      } catch (perfilErr) {
+        console.warn('[AuthProvider] No se pudo leer usuarios/{uid}:', perfilErr.code);
+      }
+      setUser({ role: 'estudiante', data: perfilData, uid: currentUser.uid });
 
     } catch (e) {
       // Error restaurando rol
@@ -79,6 +89,22 @@ export function useAuthProvider(showToast) {
     });
     return () => unsubscribe();
   }, [restoreUserRole]);
+
+  // FIX-REALTIME-SSOT: escuchar cambios del perfil en tiempo real.
+  // Cuando el admin aprueba un pack o cambia métricas, el estudiante se actualiza sin F5.
+  useEffect(() => {
+    if (!fbUser?.uid || user?.role !== 'estudiante') return;
+    const unsub = onSnapshot(
+      doc(db, ...BASE_PATH, 'usuarios', fbUser.uid),
+      (snap) => {
+        if (snap.exists()) {
+          setUser(prev => prev ? { ...prev, data: snap.data() } : prev);
+        }
+      },
+      (err) => console.warn('[AuthProvider] onSnapshot usuarios:', err.code)
+    );
+    return () => unsub();
+  }, [fbUser?.uid, user?.role]);
 
   const loginWithGoogle = useCallback(async () => {
     const res = await AuthService.loginConGoogle();

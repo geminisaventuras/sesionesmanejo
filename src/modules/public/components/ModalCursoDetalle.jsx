@@ -1,6 +1,7 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-MODAL-CURSO | desc: Terminología legal - sesión, tutor, vehículo de práctica.
 import { X, Clock, Users, Shirt, Droplet, HardHat, Bike, CheckCircle2, AlertCircle } from 'lucide-react';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
+import { calcularDias, formatearDias } from '../../shared/utils/duraciones';
 const formatearDuracion = (minutos) => {
   if (!minutos && minutos !== 0) return 'N/A';
   const horas = Math.floor(minutos / 60);
@@ -47,7 +48,7 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2 text-gray-600">
               <Clock size={18} />
-             <span>{formatearDuracion(curso.duracionTotal)}</span>
+             <span>{formatearDuracion(curso.duracionTotal)} · {formatearDias(calcularDias(curso.duracionTotal))}</span>
             </div>
             <div className="text-2xl font-bold text-blue-600">
               ${curso.precioBase || 0} USD
