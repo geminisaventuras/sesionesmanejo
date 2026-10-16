@@ -19,7 +19,7 @@ const BANCOS = [
 export function Paso4Pago({
   form, updateForm,
   precioFinalVES, baseUSD, precioCurso, tasaCobro, monedaCobroClientes, config,
-  desglosePrecio, lockId, step, lockTimer, mostrarDetallesPago, onToggleDetalles,
+  desglosePrecio, lockId, step, lockTimer,
   captchaA, captchaB, captchaValue, onCaptchaChange,
   showToast,
   terminosAceptados, onToggleTerminos, onVerTerminos, mostrarTerminos, onCerrarTerminos
@@ -88,21 +88,13 @@ export function Paso4Pago({
             ))}
           </div>
         </div>
-        <button onClick={onToggleDetalles} className="bg-blue-50/50 w-full px-4 py-2.5 flex items-center justify-between text-blue-700 text-xs font-medium border-t border-blue-100 transition-colors hover:bg-blue-50">
-          <div className="flex items-center gap-2">
-            {mostrarDetallesPago ? <EyeOff size={16} /> : <Eye size={16} />}
-            {mostrarDetallesPago ? 'Ocultar Datos de Pago Móvil' : 'Ver Datos de Pago Móvil'}
-          </div>
-          {mostrarDetallesPago ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-        </button>
-        {mostrarDetallesPago && (
-          <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2">
-            <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL MOTO APP</p>
-            <div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div>
-            <div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div>
-            <div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span></div>
-<BotonCopiarDatos config={config} showToast={showToast} montoVES={precioFinalVES} />          </div>
-        )}
+        <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2">
+          <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL MOTO APP</p>
+          <div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div>
+          <div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div>
+          <div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span></div>
+          <BotonCopiarDatos config={config} showToast={showToast} montoVES={precioFinalVES} />
+        </div>
       </div>
       <div className="w-full mt-2">
         <Select label="Banco Emisor" options={BANCOS.map(b => b.nombre)} value={form.pagoBanco} onChange={e => handleChange('pagoBanco', e.target.value)} icon={CreditCard} />
