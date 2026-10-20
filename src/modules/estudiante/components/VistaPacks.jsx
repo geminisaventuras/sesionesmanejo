@@ -27,7 +27,11 @@ export function VistaPacks() {
           const p = d.data();
           const estado = p.estadoPago;
           const cursoIds = p.packSnapshot?.cursoIds || [];
-          return (estado === 'Aprobado' || estado === 'Pendiente') && cursoIds.length > 0;
+          // FIX-VISTAPACKS-COMPLETADO: un pack completado/vencido/cancelado NO debe bloquear.
+          // Mismo criterio que PacksPublicosView y ReservaService.crearReservaPack.
+          return (estado === 'Aprobado' || estado === 'Pendiente')
+            && (p.estado === 'activo' || p.estado === undefined)
+            && cursoIds.length > 0;
         });
         if (activo) setTienePackSesionesActivo(tiene);
       } catch (err) {

@@ -265,10 +265,14 @@ export function EstudiantePanel() {
     [packExistente]
   );
 
-  // Fase 4: pack visible en VistaServicios. Solo si está vigente (Aprobado/Pendiente).
-  // Cancelados y rechazados no deben aparecer como servicio activo.
+  // Fase 4: pack visible en VistaServicios. Solo si está vigente (Aprobado/Pendiente)
+  // Y su estado no es terminal (completado/vencido/cancelado).
+  // FIX-PACK-COMPLETADO-VISIBLE: un pack completado NO debe aparecer como servicio
+  // activo ni debe bloquear la compra de uno nuevo desde VistaServicios.
   const packVigente = useMemo(
-    () => packExistente && (packExistente.estadoPago === 'Aprobado' || packExistente.estadoPago === 'Pendiente')
+    () => packExistente 
+      && (packExistente.estadoPago === 'Aprobado' || packExistente.estadoPago === 'Pendiente')
+      && (packExistente.estado === 'activo' || packExistente.estado === undefined)
       ? packExistente
       : null,
     [packExistente]

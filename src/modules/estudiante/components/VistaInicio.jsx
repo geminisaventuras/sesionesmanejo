@@ -19,6 +19,29 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
   const tieneSesionAprobada = reservaActual?.estadoPago === 'Aprobado';
   const tienePackActivo = packExistente?.estado === 'activo' && packExistente?.estadoPago === 'Aprobado';
 
+  // FEATURE-RESUMEN-SIEMPRE-VISIBLE: cinta de resumen reutilizable en ambos escenarios.
+  // Antes vivía duplicada dentro de ESCENARIO 2. Ahora se define una sola vez y se
+  // reutiliza en ESCENARIO 1 (vitrina) y ESCENARIO 2 (hub).
+  const resumenCinta = (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+      <p className="text-xs font-black text-gray-700 uppercase tracking-wider mb-2">Resumen</p>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-xl font-black text-green-600">{metricas?.totales?.activos || 0}</p>
+          <p className="text-[10px] text-gray-500">Activos</p>
+        </div>
+        <div>
+          <p className="text-xl font-black text-orange-600">{metricas?.totales?.pendientes || 0}</p>
+          <p className="text-[10px] text-gray-500">Pendientes</p>
+        </div>
+        <div>
+          <p className="text-xl font-black text-blue-600">{metricas?.totales?.completados || 0}</p>
+          <p className="text-[10px] text-gray-500">Completados</p>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── ESCENARIO 1: Usuario sin servicios (vitrina) ──
   if (!tieneServiciosActivos) {
     return (
@@ -29,6 +52,8 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
             Descubre todo lo que tenemos para ti. Aprende a manejar, fórmate online o aprovecha nuestros servicios.
           </p>
         </div>
+
+        {resumenCinta}
 
         <div>
           <h3 className="text-sm font-black text-gray-700 uppercase tracking-wider px-1 mb-2">
@@ -86,23 +111,7 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
         )}
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <p className="text-xs font-black text-gray-700 uppercase tracking-wider mb-2">Resumen</p>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <p className="text-xl font-black text-green-600">{metricas?.totales?.activos || 0}</p>
-            <p className="text-[10px] text-gray-500">Activos</p>
-          </div>
-          <div>
-            <p className="text-xl font-black text-orange-600">{metricas?.totales?.pendientes || 0}</p>
-            <p className="text-[10px] text-gray-500">Pendientes</p>
-          </div>
-          <div>
-            <p className="text-xl font-black text-blue-600">{metricas?.totales?.completados || 0}</p>
-            <p className="text-[10px] text-gray-500">Completados</p>
-          </div>
-        </div>
-      </div>
+      {resumenCinta}
 
       <button
         onClick={() => onNavigate?.('servicios')}

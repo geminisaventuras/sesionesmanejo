@@ -50,7 +50,7 @@ export default function PacksPublicosView() {
         const tiene = snap.docs.some(d => {
           const p = d.data();
           const cursoIds = p.packSnapshot?.cursoIds || [];
-          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && cursoIds.length > 0;
+          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && (p.estado === 'activo' || p.estado === undefined) && cursoIds.length > 0;
         });
         if (activo) setTienePackSesionesActivo(tiene);
       } catch (err) {

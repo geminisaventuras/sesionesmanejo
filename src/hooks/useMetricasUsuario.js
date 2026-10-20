@@ -15,7 +15,11 @@ function mapEstado(estadoPago, estadoCurso) {
   if (estadoPago === 'Rechazado') return 'rechazados';
   if (estadoPago === 'Cancelado') return 'cancelados';
   if (estadoPago === 'Aprobado') {
-    if (estadoCurso === 'Aprobado' || estadoCurso === 'Completado') return 'completados';
+    // Reservas individuales: estadoCurso === 'Aprobado' (mayúscula) o 'Completado' (legacy).
+    // Packs: estado === 'completado' | 'vencido' | 'cancelado' (minúscula, según schema).
+    if (estadoCurso === 'Aprobado' || estadoCurso === 'Completado' || estadoCurso === 'completado') return 'completados';
+    if (estadoCurso === 'vencido') return 'vencidos';
+    if (estadoCurso === 'cancelado') return 'cancelados';
     return 'activos';
   }
   return 'pendientes';

@@ -276,7 +276,7 @@ export const ReservaService = {
         const yaTiene = rpSnap.docs.some(d => {
           const p = d.data();
           const cursoIds = p.packSnapshot?.cursoIds || [];
-          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && cursoIds.length > 0;
+          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && (p.estado === 'activo' || p.estado === undefined) && cursoIds.length > 0;
         });
         if (yaTiene) {
           return { success: false, error: { code: 'pack-sesiones-activo', message: 'Ya tienes un pack de sesiones activo. Termínalo antes de comprar otro.' } };
