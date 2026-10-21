@@ -7,7 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import ErrorBoundary from '../../shared/components/ErrorBoundary';
 import { useReservasInstructor } from '../hooks/useReservasInstructor';
-import { Activity, Wallet, Settings, AlertCircle, RefreshCw } from 'lucide-react';
+import { Activity, Wallet, Settings, AlertCircle, RefreshCw, Calendar } from 'lucide-react';
 import ResumenTab from '../components/ResumenTab';
 import PendientesTab from '../components/PendientesTab';
 import ModalDetalleReserva from '../components/ModalDetalleReserva';
@@ -16,6 +16,7 @@ import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 import FinanzasTab from '../components/FinanzasTab';
 import PerfilTab from '../components/PerfilTab';
+import DisponibilidadTab from '../components/DisponibilidadTab';
 
 export default function InstructorPanel() {
   const { user, saveInstructor, showToast, logoutUser, cursos: cursosGlobal, horarios: horariosGlobal, sedes: sedesGlobal } = useContext(AppContext);
@@ -69,6 +70,7 @@ export default function InstructorPanel() {
     <DashboardFooter
       tabs={[
         { id: 'inicio', icon: Activity, label: 'Inicio' },
+        { id: 'disponibilidad', icon: Calendar, label: 'Disponibilidad' },
         { id: 'finanzas', icon: Wallet, label: 'Finanzas' },
         { id: 'config', icon: Settings, label: 'Perfil' }
       ]}
@@ -138,6 +140,10 @@ export default function InstructorPanel() {
 
           {tab === 'finanzas' && (
                        <FinanzasTab reservas={misReservas} cursos={cursos} user={user} />
+          )}
+
+          {tab === 'disponibilidad' && (
+            <DisponibilidadTab user={user} />
           )}
 
           {tab === 'config' && (

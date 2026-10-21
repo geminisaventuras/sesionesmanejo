@@ -32,7 +32,8 @@ import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
 
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
-import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
+import { useBloqueosInstructor } from '../../../hooks/useBloqueosInstructor';
+import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor, afectaInstructor } from '../../shared/utils/bloqueosHelpers';
 import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/utils/motoHelpers';
 import { EmailService } from '../../shared/services/EmailService';
 import { ordenarHorarios } from '../../shared/utils/horarios';
@@ -92,10 +93,20 @@ const capturarContextoLock = (form, esPack, packId) => ({
 
 // ─── Función pura de disponibilidad ─────────────────────
 const evaluarDisponibilidad = ({
-  form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
+  form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
 }) => {
     // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
   const { cursoIncluyeMoto, necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
+
+  // FIX-INSTRUCTORES-PERMITIDOS: SSOT para filtrar instructores permitidos por curso.
+  // Si el curso no define instructoresPermitidos (o está vacío), todos los activos son válidos.
+  const instructoresPermitidosCurso = cursoSeleccionado?.instructoresPermitidos;
+  // FIX-ALT-B: fail-closed. Si el curso NO tiene instructoresPermitidos configurado,
+  // NADIE puede impartirlo. Detecta config faltante antes de asignar instructor no calificado.
+  const estaPermitido = (i) => {
+    if (!Array.isArray(instructoresPermitidosCurso) || instructoresPermitidosCurso.length === 0) return false;
+    return instructoresPermitidosCurso.includes(String(i.id));
+  };
     const locksDeOtros = (activeLocks || []).filter(l => {
   if (l.userId === currentUserId) return false;
   // Validar estructura mínima del lock (evita locks corruptos)
@@ -178,7 +189,13 @@ const evaluarDisponibilidad = ({
 
     const instructoresDisponibles = (instructores || [])
       .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
-      .filter(i => !isInstructorOcupado(i.id, bloque.id, fecha1, fecha2));
+      .filter(i => estaPermitido(i))
+      .filter(i => !isInstructorOcupado(i.id, bloque.id, fecha1, fecha2))
+      .filter(i => !(bloqueosInstructor || []).some(b =>
+        afectaInstructor(b, i.id, fecha1, bloque.id, form.sedeId) ||
+        (fecha2 && afectaInstructor(b, i.id, fecha2, bloque.id, form.sedeId))
+      ));
+
 
         let motosDisponibles = [];
     if (necesitaMoto) {
@@ -214,7 +231,19 @@ if (!necesitaMoto) {
     return { ...bloque, disponible: true, reason: '', instructorId: instructorSeleccionado.id, motoAsignadaId: motosDisponibles[0].id };
 }
 
-    const instructoresTotal = (instructores || []).filter(i => i.activo && (i.sedes || []).includes(form.sedeId));
+    // FIX-NO-DISPONIBLE: contar instructores permitidos ANTES del filtro de bloqueo.
+    // Si todos los permitidos están bloqueados por bloqueosInstructor → NO_DISPONIBLE.
+    // Si hay algún permitido libre pero ocupado por reserva → RESERVADO (comportamiento actual).
+    const instructoresPermitidosTotal = (instructores || [])
+      .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
+      .filter(i => estaPermitido(i))
+      .length;
+    const instructoresTotal = (instructores || []).filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
+      .filter(i => estaPermitido(i))
+      .filter(i => !(bloqueosInstructor || []).some(b =>
+        afectaInstructor(b, i.id, fecha1, bloque.id, form.sedeId) ||
+        (fecha2 && afectaInstructor(b, i.id, fecha2, bloque.id, form.sedeId))
+      ));
            const motosTotal = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
         const instructoresLibresSinLocks = instructoresTotal.filter(i => !reservasDeOtros.some(r => {
       if (r.instructorId !== i.id) return false;
@@ -231,13 +260,19 @@ if (!necesitaMoto) {
           if (fecha2 && getHoraIdOcupacion(r, fecha2) === bloque.id) return true;
           return false;
         })).length
-      : 999; if (!necesitaMoto) {
+      : 999;
+    // FIX-NO-DISPONIBLE: discriminar entre "todos los permitidos bloqueados" (NO_DISPONIBLE)
+    // y "instructores ocupados por reserva" (RESERVADO, comportamiento actual).
+    const reasonInactividad = (instructoresPermitidosTotal > 0 && instructoresTotal.length === 0)
+      ? 'NO_DISPONIBLE'
+      : 'RESERVADO';
+    if (!necesitaMoto) {
       
-      if (instructoresLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
+      if (instructoresLibresSinLocks === 0) return { ...bloque, disponible: false, reason: reasonInactividad, instructorId: null, motoAsignadaId: null };
     
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
     } else {
-      if (instructoresLibresSinLocks === 0 || motosLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
+      if (instructoresLibresSinLocks === 0 || motosLibresSinLocks === 0) return { ...bloque, disponible: false, reason: reasonInactividad, instructorId: null, motoAsignadaId: null };
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
     }
   };
@@ -878,6 +913,9 @@ useEffect(() => {
       const todayStr = ctx.getTodayStr();
   const bloqueosProveedor = useBloqueosProveedor(form.fecha1, step === '3');
   const { bloqueos: bloqueosAdmin, cargando: cargandoBloqueos } = useBloqueosAdmin(step === '3');
+  // FEATURE-BLOQUEOS-INSTRUCTORES: carga TODOS los bloqueos activos.
+  // El filtro por fecha + instructor + hora lo hace afectaInstructor.
+  const bloqueosInstructor = useBloqueosInstructor(step === '3');
   const sedeSeleccionada = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
 
  
@@ -886,9 +924,9 @@ const disponibilidad = useMemo(() => {
  return evaluarDisponibilidad({
     form, horarios: ctx.horarios, instructores: ctx.instructores, motos: ctx.motos,
     reservasConfirmadas: ocupacionConfirmada, activeLocks: activeLocks || [], selectingBlockId,
-    currentUserId: ctx.fbUser?.uid, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
+    currentUserId: ctx.fbUser?.uid, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
   });
-}, [form, ctx.horarios, ctx.instructores, ctx.motos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin]);
+}, [form, ctx.horarios, ctx.instructores, ctx.motos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor]);
   useEffect(() => {
     if (step !== '3') return;
     if (cargandoBloqueos) return;
@@ -1213,13 +1251,25 @@ const disponibilidad = useMemo(() => {
     });
      // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
   const { necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
+   // FIX-INSTRUCTORES-PERMITIDOS + FIX-ALT-B: revalidar en handler con fail-closed.
+   // Mismo criterio que estaPermitido en evaluarDisponibilidad.
+   const instructoresPermitidosCursoH = cursoSeleccionado?.instructoresPermitidos;
+   const estaPermitidoH = (i) => {
+     if (!Array.isArray(instructoresPermitidosCursoH) || instructoresPermitidosCursoH.length === 0) return false;
+     return instructoresPermitidosCursoH.includes(String(i.id));
+   };
    const instructoresLibres = (ctx.instructores || [])
   .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
+  .filter(i => estaPermitidoH(i))
   .filter(i => !locksDeOtros.some(lock => lock.instructorId === i.id && lock.horaId === bloque.id && (lock.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && lock.fecha === disponibilidad.fecha2Calc))))  .filter(i => !reservasDeOtros.some(r => {
     if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
     if (r.instructorId !== i.id) return false;
     if (String(r.horaId) !== String(bloque.id)) return false;
-    return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);  }));
+    return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);  }))
+  .filter(i => !(bloqueosInstructor || []).some(b =>
+    afectaInstructor(b, i.id, form.fecha1, bloque.id, form.sedeId) ||
+    (disponibilidad?.fecha2Calc && afectaInstructor(b, i.id, disponibilidad.fecha2Calc, bloque.id, form.sedeId))
+  ));
      let motosLibres = [];
 if (necesitaMoto) {
   motosLibres = (ctx.motos || [])
@@ -1303,7 +1353,7 @@ if (necesitaMoto) {
       else showToast(result.error?.message || 'No se pudo bloquear el horario', 'error');
     }
     setIsSelectingHorario(false); setSelectingBlockId(null);
-  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, bloqueosAdmin, bloqueosProveedor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
+  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, bloqueosAdmin, bloqueosProveedor, bloqueosInstructor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
   const handleRenovarLock = useCallback(async () => {
     if (!lockId || renovacionUsada) return;
     setRenovacionUsada(true);

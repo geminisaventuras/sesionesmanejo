@@ -74,3 +74,35 @@ export function afectaProveedor(bloqueo, motoId, fecha, horaLabel) {
   const bloqueMinutos = hBloque * 60 + mBloque;
   return bloqueMinutos >= rangoInicio && bloqueMinutos < rangoFin;
 }
+
+/**
+ * ¿El bloqueoInstructor afecta a este instructor en esta fecha + horario?
+ * Schema de bloqueosInstructores:
+ *   { instructorId, fechaInicio, fechaFin, todoElDia, horarios[], sedeId, motivo, estado, ... }
+ *
+ * Debe combinarse con el filtro por instructorId del array de bloqueos.
+ *
+ * @param {object} bloqueo   - Doc de bloqueosInstructores
+ * @param {string} instructorId - ID del instructor a evaluar
+ * @param {string} fecha     - 'YYYY-MM-DD'
+ * @param {string} horaId    - 'h1', 'h2', ... (o null para todoElDia)
+ * @returns {boolean}
+ */
+export function afectaInstructor(bloqueo, instructorId, fecha, horaId, sedeId) {
+  if (!bloqueo || !instructorId || !fecha) return false;
+  if (String(bloqueo.instructorId) !== String(instructorId)) return false;
+  // Soft-delete: cancelados no afectan.
+  if (bloqueo.estado === 'cancelado') return false;
+  // FIX-SEDE: si el bloqueo es específico de una sede, debe coincidir con la del contexto.
+  // Si bloqueo.sedeId es null (o no existe) → aplica a todas las sedes.
+  if (bloqueo.sedeId && String(bloqueo.sedeId) !== String(sedeId || '')) return false;
+  // Rango de fechas
+  if (fecha < bloqueo.fechaInicio) return false;
+  const fin = bloqueo.fechaFin || bloqueo.fechaInicio;
+  if (fecha > fin) return false;
+  // Si es todoElDia, cubre cualquier hora.
+  if (bloqueo.todoElDia) return true;
+  // Si no es todoElDia, debe matchear alguno de los horarios seleccionados.
+  if (!horaId) return false;
+  return (bloqueo.horarios || []).includes(horaId);
+}

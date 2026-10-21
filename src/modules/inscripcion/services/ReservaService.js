@@ -1122,6 +1122,27 @@ export const ReservaService = {
     };
   },
 
+  // FEATURE-BLOQUEOS-INSTRUCTORES: reservas activas de un instructor en un rango.
+  // Usado por ModalBloqueoInstructor para validar conflicto antes de crear bloqueo.
+  async obtenerReservasPorInstructor(instructorId, fechaInicio, fechaFin) {
+    if (!instructorId) return { success: false, error: { code: 'missing-instructor', message: 'Falta el ID del instructor' } };
+    try {
+      const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
+      const q = query(reservasRef, where('instructorId', '==', String(instructorId)));
+      const snap = await getDocs(q);
+      const reservas = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => {
+          if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
+          if (r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado') return false;
+          const enRango = (f) => f && f >= fechaInicio && f <= fechaFin;
+          return enRango(r.fecha) || enRango(r.fecha2);
+        });
+      return { success: true, data: reservas };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
   // A2.6: reservas canceladas (por pago no coincidente). Ya vienen ordenadas
   // por createdAt desc desde obtenerReservasPorUsuario. La primera es la más reciente.
   async obtenerReservasCanceladas(uid) {
