@@ -25,6 +25,11 @@ const AdminReservasList = React.lazy(() => import('./modules/admin/components/Ad
 const AdminReservaDetalle = React.lazy(() => import('./modules/admin/components/AdminReservaDetalle'));
 const AdminPackDetalle = React.lazy(() => import('./modules/admin/components/AdminPackDetalle'));
 const AdminAccesoTeoricoDetalle = React.lazy(() => import('./modules/admin/components/AdminAccesoTeoricoDetalle'));
+const AdminUsuarioDetalle = React.lazy(() => import('./modules/admin/components/AdminUsuarioDetalle'));
+const AdminDirectorio = React.lazy(() => import('./modules/admin/components/AdminDirectorio'));
+const AdminInstructorDetalle = React.lazy(() => import('./modules/admin/components/AdminInstructorDetalle'));
+const AdminProveedorDetalle = React.lazy(() => import('./modules/admin/components/AdminProveedorDetalle'));
+const AdminMotoDetalle = React.lazy(() => import('./modules/admin/components/AdminMotoDetalle'));
 const ProgresoAcademicoView = React.lazy(() => import('./modules/shared/views/ProgresoAcademicoView'));
 
 const AdminOcupacion = React.lazy(() => import('./modules/admin/components/AdminOcupacion'));
@@ -140,6 +145,32 @@ function App() {
                   <Route path="/admin/reserva/:reservaId" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminReservaDetalle />
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/admin/usuario/:uid" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminUsuarioDetalle />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/directorio" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminDirectorio />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/tutor/:uid" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminInstructorDetalle />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/proveedor/:uid" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminProveedorDetalle />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/moto/:uid" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminMotoDetalle />
             </ProtectedRoute>
           } />
           <Route path="/admin/pack/:packReservaId" element={

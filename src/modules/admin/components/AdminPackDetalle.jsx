@@ -115,10 +115,13 @@ const AdminPackDetalle = () => {
       const res = await ReservaService.aprobarReservaPack(pack.id, child.id);
       if (res.success) {
         // Movimiento contable (fire-and-forget): 1 ingreso por el total del pack
+        // FIX-FINANCIERO: Se calcula la resta (Base - Descuento) para evitar montos corruptos de compras viejas
+        const montoRealContable = Math.max(0, (pack.precioBaseCongelado || 0) - (pack.descuentoCongelado?.monto || 0)) || (Number(pack.precioTotalCongelado) || 0);
+        
         await saveMovimiento({
           id: Date.now().toString(),
           tipo: 'ingreso',
-          monto: Number(pack.precioTotalCongelado) || 0,
+          monto: Number(montoRealContable.toFixed(2)),
           desc: `Pack ${pack.packNombre || ''} - C-${String(pack.id).slice(-4)}`,
           fecha: new Date().toISOString().split('T')[0],
           userId: pack.userId
@@ -252,16 +255,32 @@ const AdminPackDetalle = () => {
 
         {/* Cursos del pack */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
-          <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">
-            Cursos del pack ({(pack.subReservas || []).length})
-          </h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider">
+              Progreso del Pack
+            </h3>
+            <span className="text-xs font-bold text-indigo-600">
+              {(pack.subReservas || []).filter(s => s.estado === 'completado').length} de {(pack.subReservas || []).length} completados
+            </span>
+          </div>
+          
+          {/* Barra de progreso visual */}
+          <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3 overflow-hidden">
+            <div
+              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${((pack.subReservas || []).length > 0 ? ((pack.subReservas || []).filter(s => s.estado === 'completado').length / (pack.subReservas || []).length) * 100 : 0)}%` }}
+            />
+          </div>
+
           <div className="space-y-1.5">
             {(pack.subReservas || []).map((sub, idx) => {
               const estadoIcono = sub.estado === 'completado' ? '✅' : sub.estado === 'activo' ? '🔵' : '🔒';
               return (
                 <div key={idx} className="flex items-center gap-2 text-[11px]">
                   <span>{estadoIcono}</span>
-                  <span className="font-medium flex-1 truncate">{sub.cursoNombre || sub.cursoId}</span>
+                  <span className={`font-medium flex-1 truncate ${sub.estado === 'completado' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                    {sub.cursoNombre || sub.cursoId}
+                  </span>
                   <span className="text-[10px] text-gray-500 uppercase">{sub.estado}</span>
                 </div>
               );
@@ -271,7 +290,7 @@ const AdminPackDetalle = () => {
 
         {/* Detalles del primer curso */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
-          <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Primer curso agendado</h3>
+          <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Detalle de la sesión actual</h3>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
             <div className="flex items-center gap-1 col-span-2"><BookOpen size={12} className="text-gray-400" /><span className="font-medium">{cursoEquilibrio?.nombre || '—'}</span></div>
             <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400" /><span>{formatearFecha(child.fecha)}</span></div>
@@ -293,7 +312,7 @@ const AdminPackDetalle = () => {
             <div className="flex items-center gap-1"><span className="font-bold">Ref: {pack.pagoRef || '—'}</span></div>
             <div className="col-span-2 flex items-center gap-1 font-bold text-blue-700">
               <span>Total Pack: Bs. {pack.pagoTotalVES?.toFixed?.(2) || pack.pagoTotalVES || '—'}</span>
-              <span className="text-gray-400">| USD {pack.precioTotalCongelado || '—'}</span>
+              <span className="text-gray-400">| USD {(Math.max(0, (pack.precioBaseCongelado || 0) - (pack.descuentoCongelado?.monto || 0))).toFixed(2)}</span>
             </div>
             <div className="col-span-2 text-[10px] text-gray-500">
               Base: ${pack.precioBaseCongelado} · Descuento: −${pack.descuentoCongelado?.monto}

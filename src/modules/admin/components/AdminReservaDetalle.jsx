@@ -1,5 +1,5 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-ADMIN-DETALLE | backup: AdminReservaDetalle.jsx.backup-20260828-161000 | desc: Añade reasignación de instructor y cambio de horario
-import { useContext, useState, useCallback, useMemo } from 'react';
+import { useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button } from '../../../components/UI';
@@ -11,7 +11,7 @@ import {
   ChevronLeft, CheckCircle, AlertCircle, X, User, Users, Phone, Mail, MapPin,
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings, Check, MessageCircle
 } from 'lucide-react';
-import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, arrayUnion, Timestamp } from 'firebase/firestore';
+import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, Timestamp, updateDoc } from 'firebase/firestore';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { db } from '../../../firebase';
@@ -46,7 +46,26 @@ const AdminReservaDetalle = () => {
   const [waModalData, setWaModalData] = useState(null);
 
   const isAdmin = user?.role === 'admin';
-  const res = (reservas || []).find(r => String(r.id) === String(reservaId));
+  const [reservaLocal, setReservaLocal] = useState(null);
+  
+  const res = (reservas || []).find(r => String(r.id) === String(reservaId)) || reservaLocal;
+
+  useEffect(() => {
+    if (!res && reservaId) {
+      const fetchReserva = async () => {
+        try {
+          const ref = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', reservaId);
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            setReservaLocal({ id: snap.id, ...snap.data() });
+          }
+        } catch (err) {
+          console.error("Error buscando reserva:", err);
+        }
+      };
+      fetchReserva();
+    }
+  }, [res, reservaId]);
 
   const curso = (cursos || []).find(c => String(c.id) === String(res?.cursoId));
   const bloqueEfectivo = res ? getHoraIdOcupacion(res, res.fecha2 || res.fecha) : null;
@@ -764,6 +783,72 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     Cancelado: 'bg-gray-200 text-gray-700',
   };
 
+  // HANDLER: Completar un solo módulo
+  const completarModulo = async (nombreModulo, duracion = 0) => {
+    if (!isAdmin) return;
+    try {
+      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+      const nuevosEstados = {
+        ...(res.modulosEstado || {}),
+        [nombreModulo]: {
+          fecha: new Date().toISOString(),
+          duracion: Number(duracion) || 0
+        }
+      };
+      await updateDoc(reservaRef, {
+        modulosEstado: nuevosEstados,
+        updatedAt: serverTimestamp()
+      });
+      // FIX-UX: Actualiza el estado local de inmediato para que la UI reaccione
+      setReservaLocal(prev => prev ? { ...prev, modulosEstado: nuevosEstados } : res);
+      showToast(`Módulo "${nombreModulo}" completado`, 'success');
+    } catch (error) {
+      showToast('Error al completar módulo: ' + error.message, 'error');
+    }
+  };
+
+  // HANDLER: Completar el curso entero
+  const completarCursoEntero = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm('⚠️ ¿Marcar TODOS los módulos como completados y aprobar el curso?\n\nEsta acción no se puede deshacer.')) return;
+    
+    try {
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
+      
+      const modulosCurso = (curso?.modulos || []).map(mod => 
+        typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre, duracion: mod.duracion }
+      );
+      
+      const nuevosEstados = { ...(res.modulosEstado || {}) };
+      
+      modulosCurso.forEach(m => {
+        if (!nuevosEstados[m.nombre]?.fecha) {
+          nuevosEstados[m.nombre] = {
+            fecha: new Date().toISOString(),
+            duracion: Number(m.duracion) || 0
+          };
+        }
+      });
+
+      batch.update(reservaRef, {
+        modulosEstado: nuevosEstados,
+        estadoCurso: 'Aprobado',
+        updatedAt: serverTimestamp()
+      });
+
+      // Invalida caché de métricas en el estudiante
+      batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
+        updatedAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      showToast('Curso completado y aprobado exitosamente', 'success');
+    } catch (error) {
+      showToast('Error al completar curso: ' + error.message, 'error');
+    }
+  };
+
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
       <div className="flex flex-col h-full">        
@@ -788,7 +873,15 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Datos del Usuario y Sesión</h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-              <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">CI: {res.cedula}</span></div>
+              <div className="flex items-center justify-between col-span-2 border-b border-gray-100 pb-1 mb-1">
+                <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">CI: {res.cedula}</span></div>
+                <button 
+                  onClick={() => navigate(`/admin/usuario/${res.userId}`)}
+                  className="text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded hover:bg-indigo-100 transition-colors"
+                >
+                  Ver Ficha del Cliente →
+                </button>
+              </div>
               <div className="flex items-center gap-1"><Phone size={12} className="text-gray-400 flex-shrink-0" />{res.telefono ? <a href={`tel:${String(res.telefono).replace(/\D/g, '')}`} className="truncate text-blue-600 underline">{res.telefono}</a> : <span className="truncate">—</span>}</div>              
               <div className="flex items-center gap-1"><Mail size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">{res.correo || '—'}</span></div>
               <div className="flex items-center gap-1"><Phone size={12} className="text-gray-400 flex-shrink-0" /><span>Emerg: </span>{res.contactoEmergencia ? <a href={`tel:${String(res.contactoEmergencia).replace(/\D/g, '')}`} className="truncate text-blue-600 underline">{res.contactoEmergencia}</a> : <span>—</span>}</div>              
@@ -984,39 +1077,71 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
             <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center text-xs font-bold text-gray-700">🚫 Esta reserva fue cancelada.</div>
           )}
 
-          {/* A2.8-bis: Progreso Académico - resumen + link a vista dedicada (al final) */}
+          {/* Progreso Académico y Herramientas Admin */}
           {(() => {
             const estados = res.modulosEstado || {};
             const modulosCurso = (curso?.modulos || []).map(mod =>
-              typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre }
+              typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre, duracion: mod.duracion }
             );
             const total = modulosCurso.length;
             const completados = modulosCurso.filter(m => estados[m.nombre]?.fecha).length;
             const pct = total > 0 ? Math.round((completados / total) * 100) : 0;
-            const tiempoConsumido = Object.values(estados).reduce(
-              (acc, m) => acc + (m.duracion || 0) + (m.duracionExtra || 0), 0
-            );
 
             return (
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider">Progreso Académico</h3>
-                  <span className="text-[11px] font-bold text-blue-600">{completados}/{total}</span>
+                  <span className="text-[11px] font-bold text-indigo-600">{completados}/{total}</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+                <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3 overflow-hidden">
                   <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                    className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <p className="text-[10px] text-gray-500 mb-2">
-                  {completados} de {total} módulos · {tiempoConsumido} min consumidos
-                </p>
+
+                {/* Lista de Módulos Interactiva */}
+                <div className="space-y-1.5 mb-4">
+                  {modulosCurso.map((m, idx) => {
+                    const completado = !!estados[m.nombre]?.fecha;
+                    return (
+                      <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
+                        <span className={completado ? 'line-through text-gray-400 font-medium' : 'text-gray-700 font-medium truncate pr-2'}>
+                          {idx + 1}. {m.nombre}
+                        </span>
+                        {!completado ? (
+                          <button
+                            onClick={() => completarModulo(m.nombre, m.duracion)}
+                            className="px-2 py-1 bg-white border border-gray-200 text-indigo-600 rounded-md font-bold text-[10px] hover:bg-indigo-50 flex-shrink-0"
+                          >
+                            Completar
+                          </button>
+                        ) : (
+                          <span className="text-green-500 font-bold text-[10px] flex items-center gap-1 flex-shrink-0">
+                            <CheckCircle size={12} /> Hecho
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Botón de completar todo */}
+                {pct < 100 && (
+                  <button
+                    onClick={completarCursoEntero}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-xs font-bold transition-colors mb-2 flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle size={14} /> Completar Curso Entero
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => navigate(`/reservas/${res.id}/progreso`, { state: { from: volverA } })}                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-xs font-bold transition-colors"
+                  onClick={() => navigate(`/reservas/${res.id}/progreso`, { state: { from: volverA } })}
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-bold transition-colors"
                 >
-                  Ver Avance Académico →
+                  Ver Avance Detallado →
                 </button>
               </div>
             );

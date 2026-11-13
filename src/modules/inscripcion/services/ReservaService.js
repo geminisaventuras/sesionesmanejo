@@ -2,7 +2,7 @@
 // @build: 2026-07-21 | id: SERV-PROGRESO-INSCRIPCION | desc: Nuevos métodos para progreso de inscripción
 
 import { db, auth } from '../../shared/firebase/firebase';
-import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, serverTimestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 
@@ -220,7 +220,8 @@ export const ReservaService = {
           pin: reservaData.pin || null,
                  comisionInstructor: typeof reservaData.comisionInstructor === 'number' ? reservaData.comisionInstructor : 0,
           comisionProveedor: typeof reservaData.comisionProveedor === 'number' ? reservaData.comisionProveedor : 0,
-          origenReinscripcion: reservaData.origenReinscripcion || 'nueva'
+          origenReinscripcion: reservaData.origenReinscripcion || 'nueva',
+          createdAt: serverTimestamp()
         };
 
         transaction.set(reservaDoc, datosReserva);
@@ -340,10 +341,11 @@ export const ReservaService = {
 
         const cursoEq = cursosPack[0];
         const sumaBase = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
-        const precioPack = Number(packData.pagoTotalMoneda) || 0;
         const descuentoMonto = Number(pack.descuentoTipo === 'porcentaje'
           ? (sumaBase * (Number(pack.descuentoValor) || 0)) / 100
           : (Number(pack.descuentoValor) || 0));
+        // FIX-FINANCIERO: El backend calcula el precio, no confía en el frontend.
+        const precioPack = Math.max(0, sumaBase - descuentoMonto);
 
         // 4. Prorrateo del primer curso (Equilibrio)
         const precioEqBase = Number(cursoEq.precioBase) || 0;
@@ -418,6 +420,8 @@ export const ReservaService = {
           pagoRef: packData.pagoRef || null,
           subReservas,
           origen: packData.origen || 'pack-publico',
+          createdAt: serverTimestamp(),
+          
           createdAt: Timestamp.now()
         };
 
@@ -487,6 +491,7 @@ export const ReservaService = {
           pin: packData.pin || null,
           terminosAceptados: packData.terminosAceptados === true,
           fechaAceptacionTerminos: packData.fechaAceptacionTerminos || null,
+          createdAt: serverTimestamp(),
           // Campos de diferenciación
           packReservaId: maestraRef.id,
           tipoReserva: 'pack_sub',
@@ -709,6 +714,7 @@ export const ReservaService = {
           traeMoto,
           sabeBicicleta: 'Sí', // implícito por pack (ya completó Equilibrio)
           proveedorId: packData.proveedorId || null,
+          createdAt: serverTimestamp(),
           pagoTotalMoneda: precioProrrateado,
           pagoTotalVES: Number(maestra.pagoTotalVES) || 0,
           pagoBanco: maestra.pagoBanco || null,

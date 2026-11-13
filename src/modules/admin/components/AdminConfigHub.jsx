@@ -7,7 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   BookOpen, MapPin, Clock, Bike, Users, Briefcase, Settings, ChevronRight,
-  Activity, Wallet, Calendar, CreditCard, Package, Library} from 'lucide-react';
+  Activity, Wallet, Calendar, CreditCard, Package, Library, Contact} from 'lucide-react';
 import AdminCRUDPage from './AdminCRUDPage';
 
 const AdminConfigHub = memo(() => {
@@ -29,7 +29,17 @@ const AdminConfigHub = memo(() => {
   ];
 
   const { notifications } = useContext(AppContext);
-  const header = <DashboardHeader title="Configuración" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
+  const header = (
+    <DashboardHeader 
+      title="Configuración" 
+      onBack={() => {
+        if (vista !== 'hub') setVista('hub');
+        else navigate('/dashboard');
+      }} 
+      onLogout={handleLogout} 
+      notifications={notifications} 
+    />
+  );
   const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="config"
@@ -62,6 +72,9 @@ const AdminConfigHub = memo(() => {
               </button>
                             <button type="button" onClick={() => setVista('proveedores')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <Briefcase size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Proveedores</span>
+              </button>
+              <button type="button" onClick={() => navigate('/admin/directorio')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-indigo-300 transition-colors">
+                <Contact size={28} className="text-indigo-500" /><span className="font-bold text-sm text-gray-800">Directorio</span>
               </button>
                            <button type="button" onClick={() => setVista('metodosPago')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <CreditCard size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Métodos de Pago</span>

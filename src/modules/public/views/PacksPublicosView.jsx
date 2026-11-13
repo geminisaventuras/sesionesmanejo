@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
-import { Package, Clock, ChevronLeft, GraduationCap, Sparkles } from 'lucide-react';
+import { Package, Clock, ChevronLeft, GraduationCap, Sparkles, Info, X } from 'lucide-react';
 import LegalFooter from '../../shared/components/LegalFooter';
 import { calcularDiasPack, formatearDias } from '../../shared/utils/duraciones';
 
@@ -17,6 +17,7 @@ export default function PacksPublicosView() {
   const [cursos, setCursos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tienePackSesionesActivo, setTienePackSesionesActivo] = useState(false);
+  const [cursoDetalle, setCursoDetalle] = useState(null);
 
   useEffect(() => {
     const packsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'packs');
@@ -145,12 +146,21 @@ export default function PacksPublicosView() {
                       </h3>
                       <div className="space-y-2">
                         {cursosPack.map((c, i) => (
-                          <div key={c.id} className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                          <div key={c.id} className="flex items-start gap-2 group">
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
                               {i + 1}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-gray-900">{c.nombre}</p>
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-bold text-gray-900">{c.nombre}</p>
+                                <button 
+                                  onClick={() => setCursoDetalle(c)}
+                                  className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                                  title="Ver descripción"
+                                >
+                                  <Info size={16} />
+                                </button>
+                              </div>
                               <p className="text-xs text-gray-500">
                                 ${c.precioBase} · {Math.round((c.duracionTotal || 0) / 60)}h
                               </p>
@@ -254,6 +264,42 @@ export default function PacksPublicosView() {
       </div>
 
       <LegalFooter />
+
+      {cursoDetalle && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setCursoDetalle(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">{cursoDetalle.nombre}</h3>
+                <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider mt-1">
+                  Detalles de la sesión
+                </p>
+              </div>
+              <button onClick={() => setCursoDetalle(null)} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200">
+                <X size={18} className="text-gray-600" />
+              </button>
+            </div>
+            
+            <div className="space-y-3 text-sm text-gray-700 max-h-[60vh] overflow-y-auto pr-2">
+              <p>{cursoDetalle.descripcion || cursoDetalle.queAprenderas || 'Sin descripción detallada.'}</p>
+              {cursoDetalle.dirigidoA && (
+                <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-800">
+                  <strong>Dirigido a:</strong> {cursoDetalle.dirigidoA}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5">
+              <button 
+                onClick={() => setCursoDetalle(null)}
+                className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-xl hover:bg-indigo-700 transition-colors"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
