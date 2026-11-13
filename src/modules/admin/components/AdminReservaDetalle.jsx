@@ -787,6 +787,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
   const completarModulo = async (nombreModulo, duracion = 0) => {
     if (!isAdmin) return;
     try {
+      const batch = writeBatch(db);
       const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
       const nuevosEstados = {
         ...(res.modulosEstado || {}),
@@ -795,13 +796,50 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           duracion: Number(duracion) || 0
         }
       };
-      await updateDoc(reservaRef, {
+
+      // Verificamos si con este modulo ya se completaron TODOS
+      const modulosCurso = (curso?.modulos || []).map(mod => 
+        typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre }
+      );
+      const total = modulosCurso.length;
+      const completados = modulosCurso.filter(m => nuevosEstados[m.nombre]?.fecha).length;
+      const cursoCompletado = total > 0 && completados === total;
+
+      const updateData = {
         modulosEstado: nuevosEstados,
         updatedAt: serverTimestamp()
+      };
+      
+      if (cursoCompletado) {
+        updateData.estadoCurso = 'Aprobado';
+      }
+
+      batch.update(reservaRef, updateData);
+
+      // Si el curso se completo, invalidamos la cache de metricas del estudiante
+      if (cursoCompletado) {
+        batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await batch.commit();
+
+      // Actualizacion inmediata de la UI local
+      setReservaLocal(prev => {
+        const base = prev || res;
+        return { 
+          ...base, 
+          modulosEstado: nuevosEstados,
+          ...(cursoCompletado ? { estadoCurso: 'Aprobado' } : {})
+        };
       });
-      // FIX-UX: Actualiza el estado local de inmediato para que la UI reaccione
-      setReservaLocal(prev => prev ? { ...prev, modulosEstado: nuevosEstados } : res);
-      showToast(`Módulo "${nombreModulo}" completado`, 'success');
+
+      if (cursoCompletado) {
+        showToast(`Curso completado y aprobado.`, 'success');
+      } else {
+        showToast(`Módulo "${nombreModulo}" completado`, 'success');
+      }
     } catch (error) {
       showToast('Error al completar módulo: ' + error.message, 'error');
     }

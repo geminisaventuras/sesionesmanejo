@@ -332,3 +332,20 @@ Esto garantiza un punto de restauración antes de cada modificación.
 5. Confirmar el mensaje `✅ Siembra completada exitosamente.`
 
 **Nota:** El proyecto está configurado como módulo ES (`"type": "module"`), por lo que el script debe tener extensión `.cjs` para usar `require`.
+### SESION 13/11/2026 (Noche) - Directorio ERP y Cierre de Deudas Admin
+
+**Estado:** PROD actualizado y estable.
+
+**Frentes cerrados hoy:**
+1. Directorio unificado (Configuracion > Directorio) para buscar Clientes, Tutores, Proveedores y Motos.
+2. Fichas individuales para cada actor, con historial filtrado por estado (Asignada, En Curso, Completado, Ausente) y navegacion a la reserva.
+3. Dashboard Admin redisenado con nuevas metricas (Top ventas, Conversion).
+4. Correccion de calculo de ingresos (basado en fecha de compra).
+5. Integracion de WhatsApp centralizada.
+
+**Regla de Negocio Clave:**
+- Un actor (Tutor/Proveedor/Moto) solo ve en su historial las reservas reales (Aprobadas/En Curso/Completadas/Ausente). NUNCA ve canceladas ni pendientes de pago.
+
+**Deuda Principal:**
+- Falta permitir editar datos del actor directamente desde su ficha.
+- Recordar limpiar scripts temporales y revisar el encoding en MINGW64.

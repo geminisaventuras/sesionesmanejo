@@ -355,3 +355,16 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - **[MEDIA] B153** – Implementar pruebas unitarias en el módulo inscripcion (carpeta 	ests/). Actualmente no existen pruebas de caja negra para los flujos HTTP 200, 400 y 409.
 - **[BAJA]** – Agregar capitalización automática (trim + capitalizar) en el campo Nombre del paso 1 (Sección III.2).
 - **[BAJA]** – Evaluar implementación de Rate Limiting si se migra al plan Blaze de Firebase (Sección III.3).
+
+## Actualizacion 2026-11-13 - Cierre Directorio y Deploy PROD
+
+**Cerrado:**
+- Directorio de Actores con filtros cruzados y busqueda.
+- 4 Fichas dedicadas con historial y boton de WhatsApp.
+- Rediseno del Admin Dashboard y logica de ingresos (createdAt).
+- Deploy a PROD exitoso.
+
+**Deudas Pendientes:**
+- [DEUDA-FICHA-EDITABLE] Permitir editar datos (telefono, correo) desde la ficha.
+- [DEUDA-PROXIMO-SERVICIO] Widget de proxima clase en Ficha del Tutor.
+- [DEUDA-LIMPIEZA-PROD] Verificar si los movimientos huerfanos de packs requieren limpieza.

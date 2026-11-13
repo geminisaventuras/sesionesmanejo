@@ -376,3 +376,16 @@ Considerar localStorage o Firestore bundles para datos que deban persistir entre
 
 **Para el Futuro:**
 > El script `seed.cjs` queda como referencia en la raíz del proyecto `motoescuela-pro`. Para futuras siembras, solo se necesita instalar `firebase-admin` (`npm install firebase-admin`) y ejecutar `node seed.cjs` con el archivo de clave de servicio correcto.
+#### [ARQUITECTO] - 2026-11-13 - Directorio de Actores, Fichas ERP y Deploy a PROD
+
+**Decisiones Clave:**
+> 1. Se creo el Directorio de Actores (`AdminDirectorio.jsx`) con filtros cruzados por tipo de servicio y estado de sesion.
+> 2. Se crearon 4 fichas dedicadas (Usuario, Tutor, Proveedor, Moto). Incluyen historial clickeable y logica de 3 estados: Asignada, En Curso, Completado, mas el estado Ausente.
+> 3. Se integro `useLocation` para forzar el refresco de la ficha al volver del progreso academico.
+> 4. Se agrego el boton de WhatsApp directo en las fichas.
+> 5. Se audito la base de datos de PROD y se confirmo que los calculos financieros de los packs estan correctos.
+> 6. Deploy exitoso a PROD.
+
+**Para el Futuro:**
+> - El uso de `cat >` con MINGW64 sigue corrompiendo archivos si tienen tildes o emojis. Regla estricta: usar ASCII puro o editar con `code`.
+> - La navegacion del boton Atras debe respetar la jerarquia.
