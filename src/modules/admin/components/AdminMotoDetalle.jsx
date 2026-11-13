@@ -6,8 +6,9 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { Bike, Calendar, ShieldCheck } from 'lucide-react';
-import { doc, getDoc, collection, query, getDocs, limit } from 'firebase/firestore';
+import { doc, getDoc, collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -29,29 +30,26 @@ export default function AdminMotoDetalle() {
         const mSnap = await getDoc(doc(db, ...base, 'motos', uid));
         if (mSnap.exists()) setMoto(mSnap.data());
         
-        const rSnap = await getDocs(query(collection(db, ...base, 'reservas'), limit(500)));
-        const todas = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const q1 = query(collection(db, ...base, 'reservas'), where('motoAsignadaId', '==', uid));
+        const q2 = query(collection(db, ...base, 'reservas'), where('motoReposicionId', '==', uid));
         
-        setReservas(todas.filter(r => {
-          const pertenece = String(r.motoAsignadaId) === String(uid);
-          const esReal = r.estadoPago === 'Aprobado' || r.estadoCurso === 'En Curso' || r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado' || r.estadoCurso === 'Ausente';
-          return pertenece && esReal;
-        }));
+        const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+        
+        const mapa = new Map();
+        [...snap1.docs, ...snap2.docs].forEach(d => {
+          if (!mapa.has(d.id)) mapa.set(d.id, { id: d.id, ...d.data() });
+        });
+        
+        setReservas(Array.from(mapa.values()).filter(r => 
+          r.estadoPago === 'Aprobado' || r.estadoCurso === 'En Curso' || r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado' || r.estadoCurso === 'Ausente'
+        ));
       } catch (error) { console.error('[AdminMotoDetalle] Error:', error); }
       finally { setLoading(false); }
     };
     if (uid) cargarTodo();
   }, [uid, location.key]);
 
-  const getEstadoLogico = (r) => {
-    if (r.estadoCurso === 'Ausente') return 'ausente';
-    if (r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado') return 'completado';
-    const tieneTiempo = Number(r.tiempoEfectivo) > 0;
-    const tieneModulos = r.modulosEstado && Object.keys(r.modulosEstado).length > 0;
-    if (tieneTiempo || tieneModulos || r.moduloEnProgreso) return 'en_curso';
-    return 'asignada';
-  };
-
+  
   const metricas = useMemo(() => {
     let horasUso = 0;
     let sesionesCompletadas = 0;
@@ -92,6 +90,9 @@ export default function AdminMotoDetalle() {
           <div className="bg-gradient-to-br from-slate-600 to-slate-800 text-white p-4 rounded-2xl shadow-sm"><p className="text-[10px] font-bold text-slate-200 uppercase tracking-wider mb-1">Horas de Uso</p><h2 className="text-2xl font-black">{metricas.horasUso}h</h2></div>
           <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-4 rounded-2xl shadow-sm"><p className="text-[10px] font-bold text-indigo-100 uppercase tracking-wider mb-1">Sesiones</p><h2 className="text-2xl font-black">{metricas.sesionesCompletadas} <span className="text-sm opacity-60">/ {metricas.sesionesTotales}</span></h2></div>
         </div>
+        <p className="text-[10px] text-gray-400 text-center italic px-2">
+          Calculado sobre {metricas.sesionesTotales} sesiones. Puede no incluir el historial completo.
+        </p>
 
         <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
           {['todos', 'asignada', 'en_curso', 'completado', 'ausente'].map(f => (

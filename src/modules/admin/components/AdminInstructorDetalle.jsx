@@ -6,8 +6,9 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { Mail, Phone, BookOpen, Award, MapPin, MessageCircle } from 'lucide-react';
-import { doc, getDoc, collection, query, getDocs, limit } from 'firebase/firestore';
+import { doc, getDoc, collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -30,17 +31,22 @@ export default function AdminInstructorDetalle() {
         let datosPerfil = null;
         if (userSnap.exists()) { datosPerfil = userSnap.data(); setPerfil(datosPerfil); }
         
-        const rSnap = await getDocs(query(collection(db, ...base, 'reservas'), limit(500)));
-        const todas = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         const idInterno = datosPerfil?.id || uid;
         const idsValidos = [String(uid), String(idInterno)];
         
-        const filtradas = todas.filter(r => {
-          const idsReserva = [String(r.instructorId), String(r.instructorOriginalId), ...(r.implicadosIds || []).map(String), ...(r.instructoresInvolucrados || []).map(i => String(i.id))].filter(Boolean);
-          const perteneceAlTutor = idsReserva.some(id => idsValidos.includes(id));
-          const esReservaReal = r.estadoPago === 'Aprobado' || r.estadoCurso === 'En Curso' || r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado' || r.estadoCurso === 'Ausente';
-          return perteneceAlTutor && esReservaReal;
+        const q1 = query(collection(db, ...base, 'reservas'), where('instructorId', 'in', idsValidos));
+        const q2 = query(collection(db, ...base, 'reservas'), where('implicadosIds', 'array-contains-any', idsValidos));
+        
+        const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+        
+        const mapa = new Map();
+        [...snap1.docs, ...snap2.docs].forEach(d => {
+          if (!mapa.has(d.id)) mapa.set(d.id, { id: d.id, ...d.data() });
         });
+        
+        const filtradas = Array.from(mapa.values()).filter(r => 
+          r.estadoPago === 'Aprobado' || r.estadoCurso === 'En Curso' || r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado' || r.estadoCurso === 'Ausente'
+        );
         setReservas(filtradas);
       } catch (error) { console.error('[AdminInstructorDetalle] Error:', error); }
       finally { setLoading(false); }
@@ -48,15 +54,7 @@ export default function AdminInstructorDetalle() {
     if (uid) cargarTodo();
   }, [uid, location.key]);
 
-  const getEstadoLogico = (r) => {
-    if (r.estadoCurso === 'Ausente') return 'ausente';
-    if (r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado') return 'completado';
-    const tieneTiempo = Number(r.tiempoEfectivo) > 0;
-    const tieneModulos = r.modulosEstado && Object.keys(r.modulosEstado).length > 0;
-    if (tieneTiempo || tieneModulos || r.moduloEnProgreso) return 'en_curso';
-    return 'asignada';
-  };
-
+  
   const metricas = useMemo(() => {
     let totalGanado = 0;
     let sesionesCompletadas = 0;
@@ -123,6 +121,9 @@ export default function AdminInstructorDetalle() {
           <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white p-4 rounded-2xl shadow-sm"><p className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mb-1">Total Ganado</p><h2 className="text-2xl font-black">${metricas.totalGanado.toFixed(2)}</h2></div>
           <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-4 rounded-2xl shadow-sm"><p className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-1">Sesiones</p><h2 className="text-2xl font-black">{metricas.sesionesCompletadas} <span className="text-sm opacity-60">/ {metricas.sesionesTotales}</span></h2></div>
         </div>
+        <p className="text-[10px] text-gray-400 text-center italic px-2">
+          Calculado sobre {metricas.sesionesTotales} reservas. Puede no incluir el historial completo.
+        </p>
 
         <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
           {['todos', 'asignada', 'en_curso', 'completado', 'ausente'].map(f => (

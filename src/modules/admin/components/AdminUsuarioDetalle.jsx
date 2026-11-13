@@ -8,6 +8,7 @@ import DashboardFooter from '../../shared/components/DashboardFooter';
 import { User, Mail, Phone, BookOpen, Package, GraduationCap, ShieldCheck, MessageCircle } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -52,15 +53,7 @@ export default function AdminUsuarioDetalle() {
     if (uid) cargarTodo();
   }, [uid, location.key]);
 
-  const getEstadoLogico = (r) => {
-    if (r.estadoCurso === 'Ausente') return 'ausente';
-    if (r.estadoCurso === 'Aprobado' || r.estadoCurso === 'Completado') return 'completado';
-    const tieneTiempo = Number(r.tiempoEfectivo) > 0;
-    const tieneModulos = r.modulosEstado && Object.keys(r.modulosEstado).length > 0;
-    if (tieneTiempo || tieneModulos || r.moduloEnProgreso) return 'en_curso';
-    return 'asignada';
-  };
-
+  
   const metricas = useMemo(() => {
     let totalGastado = 0;
     let cursosComprados = 0;

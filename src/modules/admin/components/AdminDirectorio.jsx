@@ -8,6 +8,7 @@ import DashboardFooter from '../../shared/components/DashboardFooter';
 import { Search, User, Users, Bike, Building2, ChevronRight, BookOpen, Activity, Calendar, Wallet, Settings, Filter } from 'lucide-react';
 import { collection, query, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
