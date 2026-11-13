@@ -1,5 +1,6 @@
 // @build: 2026-09-25.A2.15 | id: ADMIN-PACK-DETALLE | desc: Detalle y aprobación de packs comerciales
 import { useContext, useState, useMemo } from 'react';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button } from '../../../components/UI';
@@ -14,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
 import ModalMotivoRechazo from '../../shared/components/ModalMotivoRechazo';
+import ModalWhatsApp from '../../shared/components/ModalWhatsApp';
+import { construirMensajePackAprobado, construirMensajeRechazo, construirLinkWhatsApp, codigoReservaCorto, getBaseUrl } from '../../shared/services/WhatsAppService';
 
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
@@ -26,6 +29,7 @@ const AdminPackDetalle = () => {
   const { packReservaId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [waModalData, setWaModalData] = useState(null);
   const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, saveMovimiento } = useContext(AppContext);  
   const { reservas, packs } = useAdminReservas();
 
@@ -127,7 +131,31 @@ const AdminPackDetalle = () => {
         } else {
           showToast('Pack aprobado correctamente', 'success');
         }
-        navigate('/admin/reservas');
+
+        // Generar mensaje de WhatsApp para el pack aprobado
+        const cursoObj = cursos.find(c => String(c.id) === String(child?.cursoId));
+        const horarioObj = horarios.find(h => String(h.id) === String(child?.horaId));
+        const sedeObj = sedes.find(s => String(s.id) === String(child?.sedeId));
+        const instructorObj = instructores.find(i => String(i.id) === String(child?.instructorId));
+
+        const msg = construirMensajePackAprobado({
+          nombre: child?.nombre || pack.nombre || 'Estudiante',
+          packNombre: pack.packNombre,
+          curso: cursoObj?.nombre || 'Primera sesión',
+          fecha: formatearFecha(child?.fecha),
+          horario: horarioObj?.label || child?.horaId || '',
+          sede: sedeObj || {},
+          instructor: instructorObj ? `${instructorObj.nombre} ${instructorObj.apellido || ''}`.trim() : 'Por asignar',
+          codigoReserva: codigoReservaCorto(pack.id),
+          linkPanel: `${getBaseUrl()}/mi-pack/${pack.id}`
+        });
+
+        const waUrl = construirLinkWhatsApp(child?.telefono || pack.telefono, msg);
+        if (waUrl) {
+          setWaModalData({ url: waUrl, mensaje: msg, titulo: 'Notificar Pack Aprobado' });
+        } else {
+          navigate('/admin/reservas');
+        }
       } else {
         showToast('Error al aprobar: ' + res.error.message, 'error');
       }
@@ -142,7 +170,23 @@ const AdminPackDetalle = () => {
       const res = await ReservaService.rechazarReservaPack(pack.id, child.id, motivo);
       if (res.success) {
         showToast('Pack rechazado', 'info');
-        navigate('/admin/reservas');
+
+        const intentosActuales = child?.intentosCorreccion || 0;
+        const intentosRestantes = Math.max(0, 3 - (intentosActuales + 1));
+        const msg = construirMensajeRechazo({
+          nombre: child?.nombre || pack?.nombre || 'Estudiante',
+          curso: pack?.packNombre || 'tu pack',
+          motivo: motivo || 'La referencia del pago no coincide',
+          codigoReserva: codigoReservaCorto(pack.id),
+          intentosRestantes,
+          linkCorreccion: `${getBaseUrl()}/corregir-pago/pack/${pack.id}`
+        });
+        const waUrl = construirLinkWhatsApp(child?.telefono || pack?.telefono, msg);
+        if (waUrl) {
+          setWaModalData({ url: waUrl, mensaje: msg, titulo: 'Notificar Rechazo de Pack' });
+        } else {
+          navigate('/admin/reservas');
+        }
       } else {
         showToast('Error al rechazar: ' + res.error.message, 'error');
       }
@@ -176,6 +220,14 @@ const AdminPackDetalle = () => {
 
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
+            {waModalData && (
+        <ModalWhatsApp
+          url={waModalData.url}
+          mensaje={waModalData.mensaje}
+          titulo={waModalData.titulo}
+          onClose={() => { setWaModalData(null); navigate('/admin/reservas'); }}
+        />
+      )}
       <div className="p-3 space-y-2">
         {/* Header estado */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-2">
@@ -224,7 +276,7 @@ const AdminPackDetalle = () => {
             <div className="flex items-center gap-1 col-span-2"><BookOpen size={12} className="text-gray-400" /><span className="font-medium">{cursoEquilibrio?.nombre || '—'}</span></div>
             <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400" /><span>{formatearFecha(child.fecha)}</span></div>
             <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400" /><span>{horario?.label || child.horaId || '—'}</span></div>
-            <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" /><span>Sede: {sede?.nombre || '—'}</span></div>
+            <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" /><span>Sede: {formatearSede(sede)}</span></div>
             <div className="flex items-center gap-1"><User size={12} className="text-gray-400" /><span className="truncate">Inst: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : '—'}</span></div>
             <div className="flex items-center gap-1 col-span-2"><Users size={12} className="text-gray-400" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
             <div className="flex items-center gap-1 col-span-2"><Bike size={12} className="text-gray-400" /><span>{child.tipoMoto || '—'} · {child.traeMoto === 'Sí' ? 'Propia' : 'Escuela'}</span></div>

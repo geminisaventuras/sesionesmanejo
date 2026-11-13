@@ -1,5 +1,6 @@
 // @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-PACK-DETALLE | desc: Página dedicada al detalle del pack del estudiante
 import { useContext, useState, useEffect } from 'react';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';
@@ -293,7 +294,7 @@ const estadoBadgeClass = {
                   {sede?.nombre && (
                     <div className="flex items-center gap-2">
                       <MapPin size={14} className="text-gray-400" />
-                      <span>{sede.nombre}</span>
+                      <span>{formatearSede(sede)}</span>
                     </div>
                   )}
                   {instructor && (

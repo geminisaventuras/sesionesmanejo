@@ -1,5 +1,6 @@
 // @build: 2026-09-21 | id: PROGRESO-ACADEMICO-VIEW | desc: Vista dedicada de progreso académico por reserva (admin, instructor, estudiante)
 import { useContext, useState, useEffect, useMemo } from 'react';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../../firebase';
@@ -208,7 +209,7 @@ export function ProgresoAcademicoView() {
             {sede && (
               <div className="flex items-center gap-1 col-span-2">
                 <MapPin size={12} className="text-gray-400 flex-shrink-0" />
-                <span className="truncate">Sede: {sede.nombre}</span>
+                <span className="truncate">Sede: {formatearSede(sede)}</span>
               </div>
             )}
           </div>

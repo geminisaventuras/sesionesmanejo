@@ -1,5 +1,5 @@
-// @build: 2026-08-06 | id: OCUPACION-DIA-AGOTADO | desc: Indicador de día agotado (sin recursos) en la tabla de ocupación
-import { useContext, useState, useMemo, memo, useCallback, useEffect } from 'react';
+// @build: 2026-11-06 | id: ADMIN-OCUPACION-PARCIAL | desc: Agrega estado parcial_bloqueado y ajustes visuales.
+import { useContext, useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { collection, getDocs, query, where } from 'firebase/firestore';
@@ -10,134 +10,110 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { ordenarHorarios } from '../../shared/utils/horarios';
+import { useOcupacionPorRango } from '../../../hooks/useOcupacionPorRango';
+import { calcularEstadoBloque } from '../utils/ocupacionHelpers';
 import {
-  Calendar, MapPin, BookOpen, Activity, Wallet, Settings
+  Calendar, MapPin, BookOpen, Activity, Wallet, Settings, Lock, Filter
 } from 'lucide-react';
 
 const AdminOcupacion = memo(() => {
-  const { reservas, horarios, sedes, instructores, motos, user, logoutUser } = useContext(AppContext);
+  const { horarios, sedes, instructores, motos, cursos, user, logoutUser } = useContext(AppContext);
   const navigate = useNavigate();
-  const [sedeSeleccionada, setSedeSeleccionada] = useState('todas');
-  const [fechaInicio, setFechaInicio] = useState(() => new Date().toISOString().split('T')[0]);
-  const [bloqueosGlobales, setBloqueosGlobales] = useState([]);
-    const [purgandoLocks, setPurgandoLocks] = useState(false);
   const { showToast } = useToast();
-
-  // Cargar bloqueos globales para el rango de fechas visible (7 días)
-  useEffect(() => {
-    const cargarBloqueos = async () => {
-      try {
-        const fechaFin = new Date(fechaInicio + 'T12:00:00');
-        fechaFin.setDate(fechaFin.getDate() + 6);
-        const fechaFinISO = fechaFin.toISOString().split('T')[0];
-        const q = query(
-          collection(db, 'bloqueosGlobales'),
-          where('fecha', '>=', fechaInicio),
-          where('fecha', '<=', fechaFinISO)
-        );
-        const snap = await getDocs(q);
-        const bloqueos = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setBloqueosGlobales(bloqueos);
-      } catch (error) {
-        console.error('Error cargando bloqueos globales:', error);
-        setBloqueosGlobales([]);
-      }
-    };
-    cargarBloqueos();
+  
+  const [fechaInicio, setFechaInicio] = useState(() => new Date().toISOString().split('T')[0]);
+  const [filtroSede, setFiltroSede] = useState('');
+  const [filtroCurso, setFiltroCurso] = useState('');
+  const [filtroInstructor, setFiltroInstructor] = useState('');
+  const [filtroMoto, setFiltroMoto] = useState('');
+  
+  const [bloqueosAdmin, setBloqueosAdmin] = useState([]);
+  const [bloqueosInstructores, setBloqueosInstructores] = useState([]);
+  const [bloqueosProveedor, setBloqueosProveedor] = useState([]);
+  const [celdaSeleccionada, setCeldaSeleccionada] = useState(null);
+  const [purgandoLocks, setPurgandoLocks] = useState(false);
+  
+  const fechaFin = useMemo(() => {
+    const d = new Date(fechaInicio + 'T12:00:00');
+    d.setDate(d.getDate() + 6);
+    return d.toISOString().split('T')[0];
   }, [fechaInicio]);
-
+  
   const dias = useMemo(() => {
-    const diasArr = [];
+    const arr = [];
     const cursor = new Date(fechaInicio + 'T12:00:00');
     for (let i = 0; i < 7; i++) {
-      diasArr.push(cursor.toISOString().split('T')[0]);
+      arr.push(cursor.toISOString().split('T')[0]);
       cursor.setDate(cursor.getDate() + 1);
     }
-    return diasArr;
+    return arr;
   }, [fechaInicio]);
-
+  
+  const { reservas: reservasSemana } = useOcupacionPorRango(fechaInicio, fechaFin);
+  
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        const qAdmin = query(
+          collection(db, 'bloqueosAdmin'),
+          where('fechaInicio', '<=', fechaFin)
+        );
+        const snapAdmin = await getDocs(qAdmin);
+        setBloqueosAdmin(snapAdmin.docs.map(d => ({ id: d.id, ...d.data() })));
+        
+        const qInst = query(
+          collection(db, 'bloqueosInstructores'),
+          where('estado', '==', 'activo')
+        );
+        const snapInst = await getDocs(qInst);
+        setBloqueosInstructores(snapInst.docs.map(d => ({ id: d.id, ...d.data() })));
+        
+        const qProv = query(
+          collection(db, 'bloqueosGlobales'),
+          where('fecha', '>=', fechaInicio),
+          where('fecha', '<=', fechaFin)
+        );
+        const snapProv = await getDocs(qProv);
+        setBloqueosProveedor(snapProv.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (error) {
+        console.error('Error cargando bloqueos:', error);
+      }
+    };
+    cargar();
+  }, [fechaInicio, fechaFin]);
+  
   const bloquesActivos = useMemo(() => ordenarHorarios((horarios || []).filter(h => h.activo && !h.isLunch)), [horarios]);
-
-  // Verificar si un día está completamente agotado (sin instructores ni motos disponibles en ningún bloque)
-  const isDiaAgotado = useCallback((fecha) => {
-    if (!instructores?.length || !motos?.length) return false;
-
-    // Filtrar instructores activos para la sede seleccionada
-    const instructoresSede = (sedeSeleccionada === 'todas')
-      ? instructores.filter(i => i.activo)
-      : instructores.filter(i => i.activo && (i.sedes || []).includes(sedeSeleccionada));
-
-    // Para cada bloque horario activo, verificar si hay al menos un instructor y una moto disponible
-    for (const bloque of bloquesActivos) {
-      const horaId = bloque.id;
-
-      // Instructores ocupados (reservas)
-      const instructoresOcupados = new Set(
-        (reservas || [])
-          .filter(r => (r.estadoPago === 'Pendiente' || r.estadoPago === 'Aprobado') &&
-                       String(r.horaId) === String(horaId) &&
-                       (r.fecha === fecha || r.fecha2 === fecha))
-          .map(r => r.instructorId)
-      );
-
-      // Motos ocupadas (reservas)
-      const motosOcupadas = new Set(
-        (reservas || [])
-          .filter(r => (r.estadoPago === 'Pendiente' || r.estadoPago === 'Aprobado') &&
-                       String(r.horaId) === String(horaId) &&
-                       (r.fecha === fecha || r.fecha2 === fecha) &&
-                       r.traeMoto !== 'Sí')
-          .map(r => r.motoAsignadaId)
-      );
-
-      // Filtrar instructores disponibles
-      const instructoresDisponibles = instructoresSede.filter(i => !instructoresOcupados.has(i.id));
-
-      if (instructoresDisponibles.length === 0) continue;
-
-      // Para cada instructor disponible, buscar al menos una moto disponible (considerando bloqueos)
-      for (const instructor of instructoresDisponibles) {
-        // Motos del tipo adecuado para la sede y que no estén ocupadas ni bloqueadas
-        const motosDisponibles = (motos || []).filter(m => {
-          if (!m.activo) return false;
-          if (sedeSeleccionada !== 'todas' && !(m.sedes || []).includes(sedeSeleccionada)) return false;
-          if (motosOcupadas.has(m.id)) return false;
-
-          // Verificar bloqueos de proveedor para esta moto (o globales)
-          const bloqueada = bloqueosGlobales.some(b => {
-            if (b.fecha !== fecha) return false;
-            if (b.motoId !== m.id && b.motoId !== 'ALL') return false;
-            // Verificar solapamiento horario (simplificado: si el bloqueo cubre el bloque actual)
-            const [hIni, mIni] = (b.horaInicio || '00:00').split(':').map(Number);
-            const [hFin, mFin] = (b.horaFin || '23:59').split(':').map(Number);
-            const bloqueInicio = hIni * 60 + mIni;
-            const bloqueFin = hFin * 60 + mFin;
-            // Obtener minutos del bloque actual
-            const labelParts = bloque.label.match(/(\d+):(\d+)\s*(AM|PM)/i);
-            if (!labelParts) return false;
-            let hBloque = parseInt(labelParts[1], 10);
-            const mBloque = parseInt(labelParts[2], 10);
-            const mod = labelParts[3].toUpperCase();
-            if (mod === 'PM' && hBloque < 12) hBloque += 12;
-            if (mod === 'AM' && hBloque === 12) hBloque = 0;
-            const bloqueMinutos = hBloque * 60 + mBloque;
-            return bloqueMinutos >= bloqueInicio && bloqueMinutos < bloqueFin;
-          });
-          return !bloqueada;
+  
+  const matriz = useMemo(() => {
+    const result = {};
+    const filtros = {
+      sedeId: filtroSede || null,
+      cursoId: filtroCurso || null,
+      instructorId: filtroInstructor || null,
+      motoId: filtroMoto || null,
+    };
+    
+    for (const fecha of dias) {
+      result[fecha] = {};
+      for (const bloque of bloquesActivos) {
+        result[fecha][bloque.id] = calcularEstadoBloque({
+          fecha,
+          bloque,
+          instructores: instructores || [],
+          motos: motos || [],
+          cursos: cursos || [],
+          reservas: reservasSemana,
+          bloqueosAdmin,
+          bloqueosInstructores,
+          bloqueosProveedor,
+          filtros,
         });
-
-        if (motosDisponibles.length > 0) {
-          return false; // Hay al menos un instructor y una moto disponible → día NO agotado
-        }
       }
     }
-
-    // Si ningún bloque tuvo disponibilidad, el día está agotado
-    return true;
-  }, [instructores, motos, reservas, bloquesActivos, bloqueosGlobales, sedeSeleccionada]);
-
-
-    const handlePurgarLocks = async () => {
+    return result;
+  }, [dias, bloquesActivos, instructores, motos, cursos, reservasSemana, bloqueosAdmin, bloqueosInstructores, bloqueosProveedor, filtroSede, filtroCurso, filtroInstructor, filtroMoto]);
+  
+  const handlePurgarLocks = useCallback(async () => {
     if (!dias.length) return showToast('No hay fechas para purgar', 'error');
     if (!window.confirm('¿Deseas purgar todos los locks corruptos/expirados en el rango visible (7 días)?')) return;
     
@@ -163,45 +139,13 @@ const AdminOcupacion = memo(() => {
     } finally {
       setPurgandoLocks(false);
     }
-  };
-  const getEstadoCelda = (fecha, bloqueId) => {
-    // Primero verificar si el día completo está agotado
-    if (isDiaAgotado(fecha)) return 'agotado';
-
-    const reserva = reservas.find(r => {
-      if (r.estadoPago === 'Cancelado') return false;
-      if (String(r.horaId) !== String(bloqueId)) return false;
-      if (r.fecha === fecha || r.fecha2 === fecha) return true;
-      return false;
-    });
-    if (!reserva) return 'libre';
-    if (reserva.estadoPago === 'Pendiente') return 'pendiente';
-    if (reserva.estadoPago === 'Aprobado') return 'ocupado';
-    if (reserva.estadoPago === 'Rechazado') return 'rechazado';
-    return 'libre';
-  };
-
-  const colorCelda = {
-    libre: 'bg-green-400',
-    ocupado: 'bg-red-400',
-    pendiente: 'bg-yellow-400',
-    rechazado: 'bg-orange-400',
-    agotado: 'bg-black',
-  };
-
-  const labelCelda = {
-    libre: 'Libre',
-    ocupado: 'Ocupado',
-    pendiente: 'Pendiente',
-    rechazado: 'Rechazado',
-    agotado: 'Agotado',
-  };
-
+  }, [dias, showToast]);
+  
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
   }, [logoutUser, navigate]);
-
+  
   const footerTabs = [
     { id: 'inicio', icon: Activity, label: 'Inicio', action: () => navigate('/dashboard') },
     { id: 'reservas', icon: BookOpen, label: 'Reservas', action: () => navigate('/admin/reservas') },
@@ -209,7 +153,7 @@ const AdminOcupacion = memo(() => {
     { id: 'finanzas', icon: Wallet, label: 'Finanzas', action: () => navigate('/admin/finanzas') },
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
-
+  
   const { notifications } = useContext(AppContext);
   const header = <DashboardHeader title="Ocupación Diaria" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter
@@ -220,50 +164,113 @@ const AdminOcupacion = memo(() => {
       if (tab?.action) tab.action();
     }}
   />;
-
+  
+  const configEstado = {
+    libre: { color: 'bg-green-100 text-green-700 border-green-300', icon: null },
+    parcial: { color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: null },
+    lleno: { color: 'bg-red-100 text-red-700 border-red-300', icon: null },
+    bloqueado: { color: 'bg-gray-200 text-gray-600 border-gray-400', icon: Lock },
+    parcial_bloqueado: { color: 'bg-gray-100 text-gray-500 border-gray-300', icon: null }, // Nuevo estado
+  };
+  
+  const leyenda = [
+    { label: 'Libre', color: 'bg-green-100 border-green-300' },
+    { label: 'Parcial', color: 'bg-yellow-100 border-yellow-300' },
+    { label: 'Lleno', color: 'bg-red-100 border-red-300' },
+    { label: 'Bloqueado', color: 'bg-gray-200 border-gray-400' },
+    { label: 'Parcial Bloq.', color: 'bg-gray-100 border-gray-300' }, // Nueva leyenda
+  ];
+  
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50">
-      <div className="p-4 space-y-5 h-full flex flex-col">
-        <div className="flex gap-3 items-end shrink-0">
-          <div className="flex-1">
-            <label className="block text-xs font-bold text-gray-600 mb-1 ml-1">Sede</label>
-            <div className="relative">
-              <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              <select
-                value={sedeSeleccionada}
-                onChange={e => setSedeSeleccionada(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm outline-none focus:border-blue-500 appearance-none"
-              >
-                <option value="todas">Todas</option>
-                {(sedes || []).filter(s => s.activo).map(s => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </select>
-            </div>
+      <div className="p-4 space-y-4 h-full flex flex-col">
+        {/* Filtros */}
+        <div className="bg-white p-3 rounded-xl border border-gray-100 space-y-2 shrink-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Filter size={16} className="text-gray-500" />
+            <span className="text-xs font-black text-gray-700 uppercase tracking-wider">Filtros</span>
           </div>
-          <div className="flex-1">
-            <label className="block text-xs font-bold text-gray-600 mb-1 ml-1">Fecha inicio</label>
-            <div className="relative">
-              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 ml-1">Fecha inicio</label>
               <input
                 type="date"
                 value={fechaInicio}
                 onChange={e => setFechaInicio(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm outline-none focus:border-blue-500"
+                className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
               />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 ml-1">Sede</label>
+              <select
+                value={filtroSede}
+                onChange={e => setFiltroSede(e.target.value)}
+                className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+              >
+                <option value="">Todas</option>
+                {(sedes || []).filter(s => s.activo).map(s => (
+                  <option key={s.id} value={s.id}>{s.nombre}{s.direccion ? ` - ${s.direccion}` : ''}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 ml-1">Curso</label>
+              <select
+                value={filtroCurso}
+                onChange={e => setFiltroCurso(e.target.value)}
+                className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+              >
+                <option value="">Todos</option>
+                {(cursos || []).map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 ml-1">Instructor</label>
+              <select
+                value={filtroInstructor}
+                onChange={e => setFiltroInstructor(e.target.value)}
+                className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+              >
+                <option value="">Todos</option>
+                {(instructores || []).filter(i => i.activo).map(i => (
+                  <option key={i.id} value={i.id}>{i.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 ml-1">Moto</label>
+              <select
+                value={filtroMoto}
+                onChange={e => setFiltroMoto(e.target.value)}
+                className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+              >
+                <option value="">Todas</option>
+                {(motos || []).filter(m => m.activo).map(m => (
+                  <option key={m.id} value={m.id}>{m.id}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
+        
+        {/* Leyenda */}
         <div className="flex gap-4 text-[10px] font-bold shrink-0 flex-wrap">
-          {Object.entries(colorCelda).map(([estado, color]) => (
-            <span key={estado} className="flex items-center gap-1.5">
-              <span className={`w-3.5 h-3.5 ${color} rounded-full`}></span>
-              {labelCelda[estado]}
+          {leyenda.map(({ label, color }) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <span className={`w-3.5 h-3.5 ${color} border rounded`}></span>
+              {label}
             </span>
           ))}
         </div>
-
-                <div className="shrink-0">
+        
+        {/* Purgar Locks */}
+        <div className="shrink-0">
           <button
             onClick={handlePurgarLocks}
             disabled={purgandoLocks}
@@ -272,11 +279,13 @@ const AdminOcupacion = memo(() => {
             {purgandoLocks ? 'Purgando...' : 'Purgar locks corruptos (7 días)'}
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        
+        {/* Tabla */}
+        <div className="flex-1 min-h-0 overflow-auto">
           <table className="w-full text-[9px] table-fixed border-collapse">
             <thead>
               <tr className="bg-gray-100">
-                <th className="p-1 text-left w-12">Bloque</th>
+                <th className="p-1 text-left w-12 sticky left-0 bg-gray-100 z-10">Bloque</th>
                 {dias.map(d => (
                   <th key={d} className="p-1 text-center">
                     {d.split('-').slice(1).join('/')}
@@ -287,17 +296,28 @@ const AdminOcupacion = memo(() => {
             <tbody>
               {bloquesActivos.map(b => (
                 <tr key={b.id} className="border-b border-gray-100">
-                  <td className="p-1 font-bold truncate" title={b.label}>
+                  <td className="p-1 font-bold truncate sticky left-0 bg-white" title={b.label}>
                     {b.label.split(' - ')[0]}
                   </td>
                   {dias.map(d => {
-                    const estado = getEstadoCelda(d, b.id);
+                    const info = matriz[d]?.[b.id] || { estado: 'libre', total: 0, disponibles: 0 };
+                    const cfg = configEstado[info.estado];
+                    const Icon = cfg?.icon;
+                    const esBloqueado = info.estado === 'bloqueado';
+                    
                     return (
-                      <td key={d} className="p-1 text-center">
-                        <span 
-                          className={`inline-block w-4 h-4 ${colorCelda[estado]} rounded-full`}
-                          title={labelCelda[estado]}
-                        ></span>
+                      <td key={d} className="p-0.5 text-center">
+                        <button
+                          onClick={() => setCeldaSeleccionada({ fecha: d, bloque: b, info })}
+                          className={`w-full h-8 ${cfg?.color || 'bg-gray-200'} border rounded text-[10px] font-bold flex items-center justify-center gap-0.5 hover:opacity-80 transition-opacity`}
+                          title={`${info.estado}${!esBloqueado ? ` (${info.disponibles}/${info.total})` : ` - ${info.motivo}`}`}
+                        >
+                          {esBloqueado ? (
+                            <Icon size={12} />
+                          ) : (
+                            <span>{info.disponibles}/{info.total}</span>
+                          )}
+                        </button>
                       </td>
                     );
                   })}
@@ -306,6 +326,52 @@ const AdminOcupacion = memo(() => {
             </tbody>
           </table>
         </div>
+        
+        {/* Modal de detalle */}
+        {celdaSeleccionada && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setCeldaSeleccionada(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-black text-gray-900">
+                  {celdaSeleccionada.bloque.label} — {celdaSeleccionada.fecha}
+                </h3>
+                <button onClick={() => setCeldaSeleccionada(null)} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200">
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Estado:</span>
+                  <span className="font-bold">{celdaSeleccionada.info.estado.toUpperCase()}</span>
+                </div>
+                {celdaSeleccionada.info.estado !== 'bloqueado' && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Cupo:</span>
+                    <span className="font-bold">{celdaSeleccionada.info.disponibles}/{celdaSeleccionada.info.total}</span>
+                  </div>
+                )}
+                {celdaSeleccionada.info.estado === 'bloqueado' && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Motivo:</span>
+                    <span className="font-bold">{celdaSeleccionada.info.motivo}</span>
+                  </div>
+                )}
+                {celdaSeleccionada.info.reservas?.length > 0 && (
+                  <div>
+                    <div className="text-gray-600 mb-1 mt-2">Reservas:</div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {celdaSeleccionada.info.reservas.map(r => (
+                        <div key={r.id} className="bg-gray-50 p-2 rounded text-xs">
+                          <span className="font-bold">{r.nombre}</span> — {r.horaId}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

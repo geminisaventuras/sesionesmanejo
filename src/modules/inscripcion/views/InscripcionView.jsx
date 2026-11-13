@@ -27,7 +27,7 @@ import { LockTimerFlotante } from '../components/LockTimerFlotante';
 import { ModalExpiracion } from '../components/ModalExpiracion';
 import { ArrowRight, Check, Award, Bike } from 'lucide-react';
 import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
-
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
@@ -621,7 +621,11 @@ const {
           estado: r.estado || '',
           zona: r.zona || '',
           sabeBicicleta: 'Sí',
-          traeMoto: r.traeMoto || 'No',
+          // FIX-RECOMPRA-MOTO: si el curso no permite traer propia, forzar 'No'
+          // prellenado. Evita que el form muestre 'Sí' seleccionado en un botón
+          // deshabilitado (bug histórico: reservas viejas con 'Sí' en Equilibrio).
+          // El backend ya forzaba el valor correcto al guardar; este fix alinea la UI.
+          traeMoto: (cursoRecompra?.permiteTraerMotoPropia === false) ? 'No' : (r.traeMoto || 'No'),
           cursoId: state.cursoId || '',
           tipoCurso: cursoRecompra.tipoCurso || null,
           tipoMoto,
@@ -1761,7 +1765,7 @@ if (necesitaMoto) {
               recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0}
               showToast={showToast} cargando={!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length}
               cursoNombre={(ctx.cursos || []).find(c => String(c.id) === String(form.cursoId))?.nombre || 'Curso'}
-              sedeNombre={(ctx.sedes || []).find(s => String(s.id) === String(form.sedeId))?.nombre || 'Sede'}
+              sedeNombre={formatearSede((ctx.sedes || []).find(s => String(s.id) === String(form.sedeId)))}
               tipoMoto={form.tipoMoto}
               traeMoto={form.traeMoto}
             />

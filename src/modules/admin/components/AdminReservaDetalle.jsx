@@ -13,12 +13,15 @@ import {
 } from 'lucide-react';
 import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, arrayUnion, Timestamp } from 'firebase/firestore';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { db } from '../../../firebase';
 import CambiarHorarioModal from './CambiarHorarioModal';
 import ModalReasignarInstructor from './ModalReasignarInstructor';
 import ModalCambiarMoto from './ModalCambiarMoto';
 import BadgeReposicion from '../../shared/components/BadgeReposicion';
 import ModalMotivoRechazo from '../../shared/components/ModalMotivoRechazo';
+import ModalWhatsApp from '../../shared/components/ModalWhatsApp';
+import { construirMensajeAprobacion, construirMensajeReprogramacion, construirMensajeRechazo, construirLinkWhatsApp, codigoReservaCorto, getBaseUrl } from '../../shared/services/WhatsAppService';
 
 const formatearFecha = (fechaStr) => {
   if (!fechaStr) return '—';
@@ -40,12 +43,14 @@ const AdminReservaDetalle = () => {
   const [mostrarCambiarMoto, setMostrarCambiarMoto] = useState(false);
   // Estado para el modal de motivo de rechazo: null | 'rechazar'
   const [modalMotivo, setModalMotivo] = useState(null);
+  const [waModalData, setWaModalData] = useState(null);
 
   const isAdmin = user?.role === 'admin';
   const res = (reservas || []).find(r => String(r.id) === String(reservaId));
 
   const curso = (cursos || []).find(c => String(c.id) === String(res?.cursoId));
-  const horario = (horarios || []).find(h => String(h.id) === String(res?.horaId));
+  const bloqueEfectivo = res ? getHoraIdOcupacion(res, res.fecha2 || res.fecha) : null;
+const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectivo || res?.horaId));
   const sede = (sedes || []).find(s => String(s.id) === String(res?.sedeId));
 
   const handleLogout = useCallback(async () => {
@@ -224,7 +229,25 @@ const AdminReservaDetalle = () => {
           : 'Pago rechazado. El usuario puede corregir la referencia.', 
         'info'
       );
-            navigate(volverA);
+
+      if (tipo === 'rechazar') {
+        const intentosRestantes = Math.max(0, 3 - ((res.intentosCorreccion || 0) + 1));
+        const msg = construirMensajeRechazo({
+          nombre: res.nombre,
+          curso: curso?.nombre || 'tu sesión',
+          motivo: motivo || 'La referencia del pago no coincide',
+          codigoReserva: codigoReservaCorto(res.id),
+          intentosRestantes,
+          linkCorreccion: `${getBaseUrl()}/corregir-pago/reserva/${res.id}`
+        });
+        const waUrl = construirLinkWhatsApp(res.telefono, msg);
+        if (waUrl) {
+          setWaModalData({ url: waUrl, mensaje: msg, titulo: 'Notificar Rechazo' });
+          return;
+        }
+      }
+
+      navigate(volverA);
     } catch (error) {
       showToast('Error al rechazar: ' + error.message, 'error');
     }
@@ -549,9 +572,20 @@ const AdminReservaDetalle = () => {
 
         await batch.commit();
 
+        const msg = construirMensajeReprogramacion({
+          nombre: res.nombre,
+          curso: curso?.nombre || 'tu sesión',
+          fecha: formatearFecha(nuevaFecha2),
+          horario: (horarios || []).find(h => String(h.id) === String(horaIdReposicion))?.label || horaIdReposicion,
+          sede: sede || {},
+          motivo: motivo || '',
+          codigoReserva: codigoReservaCorto(res.id)
+        });
+        const waUrl = construirLinkWhatsApp(res.telefono, msg);
+        if (waUrl) setWaModalData({ url: waUrl, mensaje: msg, titulo: 'Notificar Reposición D2' });
+
         showToast('D2 repuesto correctamente', 'success');
         setMostrarCambiarHorario(false);
-        navigate(volverA, { replace: true });
         return;
       }
 
@@ -640,17 +674,20 @@ const AdminReservaDetalle = () => {
 
       await batch.commit();
 
+      const msg = construirMensajeReprogramacion({
+        nombre: res.nombre,
+        curso: curso?.nombre || 'tu sesión',
+        fecha: formatearFecha(nuevaFecha),
+        horario: (horarios || []).find(h => String(h.id) === String(nuevoHoraId))?.label || nuevoHoraId,
+        sede: sede || {},
+        motivo: motivo || '',
+        codigoReserva: codigoReservaCorto(res.id)
+      });
+      const waUrl = construirLinkWhatsApp(res.telefono, msg);
+      if (waUrl) setWaModalData({ url: waUrl, mensaje: msg, titulo: 'Notificar Reprogramación' });
+
       showToast('Horario cambiado correctamente', 'success');
       setMostrarCambiarHorario(false);
-
-      console.log('[AdminReservaDetalle] Horario cambiado:', {
-        reservaId: res.id,
-        horarioAnterior,
-        horarioNuevo,
-        cambiadoPor: user?.uid
-      });
-
-      navigate(volverA, { replace: true });
 
     } catch (error) {
       console.error('[AdminReservaDetalle] Error cambiando horario:', error);
@@ -737,6 +774,12 @@ const AdminReservaDetalle = () => {
           <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${estadoBadge[res.estadoPago] || 'bg-gray-100'}`}>
             {res.estadoPago === 'Cancelado' ? 'CANCELADO' : res.estadoPago}
           </span>
+          {res.estadoCurso === 'Ausente' && (
+            <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-slate-700 text-white flex-shrink-0">AUSENTE</span>
+          )}
+          {res.horasPendientes > 0 && (
+            <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500 text-white flex-shrink-0">⏱ {res.horasPendientes}h pend.</span>
+          )}
           <h2 className="text-sm font-bold text-gray-900 truncate flex-1">{res.nombre} {res.apellido}</h2>
         </div>
 
@@ -755,11 +798,23 @@ const AdminReservaDetalle = () => {
               <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Tutor: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : 'Sin asignar'}</span></div>
               <div className="flex items-center gap-1"><Users size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
               <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>{formatearFecha(res.fecha)} – {formatearFecha(res.fecha2)}</span></div>
-              <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || res.horaId || '—'}</span></div>
-              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {sede?.nombre || res.sedeId || '—'}</span></div>
+              <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || bloqueEfectivo || res.horaId || '—'}</span></div>
+              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {formatearSede(sede)}</span></div>
                          <div className="flex items-center gap-1"><Bike size={12} className="text-gray-400 flex-shrink-0" /><span>{res.tipoMoto} · {res.traeMoto === 'Sí' ? 'Propia' : 'Moto App'} · Bici: {res.sabeBicicleta}</span></div>
             </div>
             <BadgeReposicion reserva={res} horarios={horarios} variant="compact" />
+            {res.estadoCurso === 'Ausente' && (
+              <div className="mt-2 bg-slate-100 border border-slate-300 rounded-lg p-2 text-[10px]">
+                <p className="font-bold text-slate-800">⚠️ Estudiante marcado como Ausente</p>
+                {res.ausenteMotivo && <p className="text-slate-600 mt-0.5">Motivo: {res.ausenteMotivo}</p>}
+              </div>
+            )}
+            {res.horasPendientes > 0 && (
+              <div className="mt-2 bg-amber-50 border border-amber-300 rounded-lg p-2 text-[10px]">
+                <p className="font-bold text-amber-800">⏱ {res.horasPendientes} hora(s) pendiente(s) de servicio</p>
+                <p className="text-amber-700 mt-0.5">Pendiente de reprogramación o compensación</p>
+              </div>
+            )}
           </div>
 
           {/* Pago */}
@@ -790,39 +845,25 @@ const AdminReservaDetalle = () => {
               )}
               
               {res.estadoPago === 'Aprobado' && (() => {
-                const telLimpio = String(res.telefono || '').replace(/\D/g, '');
-                if (telLimpio.length < 10) {
+                const mensaje = construirMensajeAprobacion({
+                  nombre: res.nombre,
+                  curso: curso?.nombre || 'tu sesión',
+                  fecha: formatearFecha(res.fecha),
+                  horario: horario?.label || bloqueEfectivo || res.horaId || '',
+                  sede: sede || {},
+                  codigoReserva: codigoReservaCorto(res.id)
+                });
+                const waUrl = construirLinkWhatsApp(res.telefono, mensaje);
+                if (!waUrl) {
                   return (
                     <div className="w-full mb-2 py-1.5 px-3 rounded-lg text-[10px] font-bold text-center bg-gray-100 text-gray-500">
                       Sin teléfono válido para enviar confirmación
                     </div>
                   );
                 }
-                let tel = telLimpio;
-                if (tel.startsWith('0') && tel.length === 11) tel = '58' + tel.slice(1);
-                else if (tel.length === 10) tel = '58' + tel;
-
-                const mensaje = `Hola ${res.nombre}! 
-
-¡Buenas noticias! Tu pago fue aprobado correctamente 
-
-Sesión: ${curso?.nombre || 'tu sesión'}
-Fecha: ${formatearFecha(res.fecha)}
-Hora: ${horario?.label || res.horaId || ''}
-Sede: ${sede?.nombre || ''}
-
-*Codigo de Vestimenta:*
-• Pantalón tipo Jean
-• Zapatos cerrados
-• Sudadera o suéter
-
-¡Gracias por confiar en nosotros!
-
-— Equipo Moto App`;
-
                 return (
                   <a
-                    href={`https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}`}
+                    href={waUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => showToast('Se abrió WhatsApp. Presiona Enviar.', 'info')}
@@ -1020,6 +1061,16 @@ Sede: ${sede?.nombre || ''}
             setModalMotivo(null);
           }}
           onCancel={() => setModalMotivo(null)}
+        />
+      )}
+
+      {/* Modal de WhatsApp */}
+      {waModalData && (
+        <ModalWhatsApp
+          url={waModalData.url}
+          mensaje={waModalData.mensaje}
+          titulo={waModalData.titulo}
+          onClose={() => { setWaModalData(null); navigate(volverA, { replace: true }); }}
         />
       )}
 

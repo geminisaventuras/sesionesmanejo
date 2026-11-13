@@ -19,7 +19,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { ArrowRight, Check, Package, Activity, BookOpen, Compass, Library, Settings, FileText } from 'lucide-react';
-
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 const LOCK_DURATION = 10 * 60 * 1000;
 
@@ -207,7 +207,8 @@ export function AgendarPackView() {
       : sedesValidasSesion[0];
     setSedeSeleccionadaId(sedeDefault);
     if (pack?.sedeId && sedeDefault !== pack.sedeId) {
-      const sedeNombre = (sedes || []).find(s => String(s.id) === String(sedeDefault))?.nombre || sedeDefault;
+      const sedeObj = (sedes || []).find(s => String(s.id) === String(sedeDefault));
+const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       showToast(`Este curso se ofrece en ${sedeNombre}. Se seleccionó automáticamente.`, 'info');
     }
   }, [sedesValidasSesion, sedeSeleccionadaId, pack?.sedeId, sedes]);
@@ -542,7 +543,7 @@ export function AgendarPackView() {
           <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Agendar sesión</p>
           <h2 className="text-lg font-black truncate">{cursoData.nombre}</h2>
           <p className="text-[11px] opacity-90 mt-1">
-            {sede?.nombre || 'Sede'}{form.tipoMoto ? ` · ${form.tipoMoto}` : ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
+            {formatearSede(sede)}{form.tipoMoto ? ` · ${form.tipoMoto}` : ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
           </p>
         </div>
 
@@ -561,7 +562,7 @@ export function AgendarPackView() {
                 const s = (sedes || []).find(x => String(x.id) === String(sid));
                 return (
                   <option key={sid} value={sid}>
-                    {s?.nombre || sid}
+                    {formatearSede(s)}
                   </option>
                 );
               })}
@@ -586,7 +587,7 @@ export function AgendarPackView() {
             showToast={showToast}
             cargando={!instructores?.length || !motos?.length || !horarios?.length || cargandoBloqueos}
             cursoNombre={cursoData.nombre}
-            sedeNombre={sede?.nombre || 'Sede'}
+            sedeNombre={formatearSede(sede)}
             tipoMoto={pack.tipoMoto}
             traeMoto={form.traeMoto}
           />

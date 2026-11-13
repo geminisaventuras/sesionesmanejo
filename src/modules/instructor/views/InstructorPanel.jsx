@@ -13,6 +13,7 @@ import PendientesTab from '../components/PendientesTab';
 import ModalDetalleReserva from '../components/ModalDetalleReserva';
 import HistorialTab from '../components/HistorialTab';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { getHoraIdEfectivoHoy } from '../../shared/utils/reservaHelpers';
 import FinanzasTab from '../components/FinanzasTab';
 import PerfilTab from '../components/PerfilTab';

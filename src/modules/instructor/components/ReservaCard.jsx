@@ -1,7 +1,8 @@
 // @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-RESERVA-CARD | backup: ReservaCard.backup-20260903-000000 | desc: Tarjeta de reserva para panel del instructor con acciones separadas
 import React from 'react';
-import { Calendar, Clock, MapPin, Play, Eye } from 'lucide-react';
 
+import { Calendar, Clock, MapPin, Play, Eye } from 'lucide-react';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 const ReservaCard = React.memo(function ReservaCard({
   reserva,
   curso,
@@ -23,33 +24,41 @@ const ReservaCard = React.memo(function ReservaCard({
             <p className="text-xs text-gray-600 mt-0.5 truncate">{curso.nombre}</p>
           )}
         </div>
-        {badges && badges.length > 0 && (
-          <div className="flex flex-wrap gap-1 ml-2 justify-end">
-            {badges.map(badge => (
-              <span
-                key={badge}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  badge === 'EN PROGRESO'
-                    ? 'bg-green-100 text-green-700'
-                    : badge === 'PAGO PENDIENTE'
-                    ? 'bg-yellow-100 text-yellow-700'
-                    : badge === 'HOY'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {badge}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1 ml-2 justify-end">
+          {badges && badges.map(badge => (
+            <span
+              key={badge}
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                badge === 'EN PROGRESO'
+                  ? 'bg-green-100 text-green-700'
+                  : badge === 'PAGO PENDIENTE'
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : badge === 'HOY'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {badge}
+            </span>
+          ))}
+          {reserva.estadoCurso === 'Ausente' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700 text-white">
+              AUSENTE
+            </span>
+          )}
+          {reserva.horasPendientes > 0 && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+              ⏱ {reserva.horasPendientes}h
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mb-3">
         {sede && (
           <span className="flex items-center gap-1">
             <MapPin size={12} className="text-gray-400" />
-            {sede.nombre}
+            {formatearSede(sede)}
           </span>
         )}
         <span className="flex items-center gap-1">

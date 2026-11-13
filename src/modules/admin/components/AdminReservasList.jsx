@@ -1,4 +1,4 @@
-// @build: 2026-09-21.HH-MM-SS | id: A2.10 | backup: AdminReservasList.jsx.backup-20260921-HHMMSS | desc: Persistencia de filtros en sessionStorage (sobrevive navegación al detalle + F5)
+// @build: 2026-11-12.HH-MM-SS | id: FILTRO-HORAS-PENDIENTES | desc: Agrega checkbox para filtrar solo reservas con horas pendientes.
 import { useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -17,8 +17,9 @@ import {
   obtenerFechaMasCercana
 } from '../utils/reservasHelpers';
 import { useAdminReservas } from '../hooks/useAdminReservas';
+import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 
-// A2.10: Persistencia de filtros en sessionStorage (sobrevive navegación al detalle + F5)
 const FILTROS_KEY = 'admin_reservas_filtros_v1';
 
 const cargarFiltrosGuardados = () => {
@@ -30,11 +31,11 @@ const cargarFiltrosGuardados = () => {
   }
 };
 
-// A2.9: helpers de estado académico (nivel módulo — puros, sin dependencia de state)
 const getEstadoAcademico = (r) => {
   if (!r) return 'NoIniciado';
   if (r.estadoPago === 'Cancelado') return null;
   if (r.estadoCurso === 'Aprobado') return 'Completado';
+  if (r.estadoCurso === 'Ausente') return 'Ausente';
   if (r.sesionTotalInicio) return 'Iniciado';
   return 'NoIniciado';
 };
@@ -42,12 +43,13 @@ const getEstadoAcademico = (r) => {
 const badgeAcademico = {
   Completado: { texto: 'COMPLETADO', clase: 'bg-emerald-600 text-white' },
   Iniciado: { texto: 'INICIADO', clase: 'bg-orange-500 text-white' },
+  Ausente: { texto: 'AUSENTE', clase: 'bg-slate-700 text-white' },
 };
 
 const AdminReservasList = () => {
   const { instructores, cursos, horarios, sedes, user, logoutUser } = useContext(AppContext);
   const { reservas, cargando, error } = useAdminReservas();
-   const navigate = useNavigate();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const filtrosGuardados = useMemo(() => cargarFiltrosGuardados(), []);
   const filtroInicial = searchParams.get('filtro') || filtrosGuardados.filtroEstado || 'Todas';
@@ -62,8 +64,8 @@ const AdminReservasList = () => {
   const [filtroSede, setFiltroSede] = useState(filtrosGuardados.filtroSede || 'todas');
   const [filtroCurso, setFiltroCurso] = useState(filtrosGuardados.filtroCurso || 'todos');
   const [filtroInstructor, setFiltroInstructor] = useState(filtrosGuardados.filtroInstructor || 'todos');
-  // A2.9: filtro por estado académico
-  const [filtroAcademico, setFiltroAcademico] = useState(filtrosGuardados.filtroAcademico || 'todos');
+  const [filtroAcademico, setFiltroAcademico] = useState(filtrosGuardados.filtroAcademico || 'Todos');
+  const [filtroHorasPendientes, setFiltroHorasPendientes] = useState(filtrosGuardados.filtroHorasPendientes || false);
 
   const [tick, setTick] = useState(Date.now());
   useEffect(() => {
@@ -97,7 +99,7 @@ const AdminReservasList = () => {
           r.nombre, r.apellido, r.cedula, r.telefono, r.correo, r.contactoEmergencia,
           r.cursoId, r.sedeId, r.tipoMoto, r.pagoBanco, r.pagoRef, r.estado, r.zona,
           r.fecha, r.fecha2, r.horaId,
-          instr?.nombre, instr?.apellido, curso?.nombre, sede?.nombre
+          instr?.nombre, instr?.apellido, curso?.nombre, formatearSede(sede)
         ].filter(Boolean).join(' ').toLowerCase();
         return campos.includes(q);
       });
@@ -122,21 +124,25 @@ const AdminReservasList = () => {
     if (filtroCurso !== 'todos') {
       filtradas = filtradas.filter(r => String(r.cursoId) === filtroCurso);
     }
-       if (filtroInstructor !== 'todos') {
+    if (filtroInstructor !== 'todos') {
       filtradas = filtradas.filter(r => String(r.instructorId) === filtroInstructor);
     }
-    // A2.9: filtro académico
-    if (filtroAcademico !== 'todos') {
+    if (filtroAcademico !== 'Todos') {
       filtradas = filtradas.filter(r => {
         const est = getEstadoAcademico(r);
         if (filtroAcademico === 'No iniciado') return est === 'NoIniciado';
         if (filtroAcademico === 'Iniciado') return est === 'Iniciado';
         if (filtroAcademico === 'Completado') return est === 'Completado';
+        if (filtroAcademico === 'Ausente') return est === 'Ausente';
         return true;
       });
     }
+    if (filtroHorasPendientes) {
+      filtradas = filtradas.filter(r => (r.horasPendientes || 0) > 0);
+    }
     return filtradas;
-  }, [res, filtroEstado, busqueda, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico, instructores, cursos, sedes]);
+  }, [res, filtroEstado, busqueda, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico, filtroHorasPendientes, instructores, cursos, sedes]);
+
   const reservasHoy = useMemo(() => {
     return reservasFiltradas.filter(r => r.fecha === hoyStr || r.fecha2 === hoyStr);
   }, [reservasFiltradas, hoyStr]);
@@ -191,28 +197,24 @@ const AdminReservasList = () => {
   const fin = inicio + POR_PAGINA;
   const reservasPagina = reservasOrdenadas.slice(inicio, fin);
 
-    // A2.10: Persistir filtros en cada cambio (sessionStorage, sin Firestore)
   useEffect(() => {
     try {
       sessionStorage.setItem(FILTROS_KEY, JSON.stringify({
         filtroEstado, orden, busqueda, fechaDesde, fechaHasta,
         filtroSede, filtroCurso, filtroInstructor, filtroAcademico,
+        filtroHorasPendientes,
       }));
-    } catch { /* sessionStorage no disponible — sin impacto funcional */ }
-  }, [filtroEstado, orden, busqueda, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico]);
+    } catch { /* sessionStorage no disponible */ }
+  }, [filtroEstado, orden, busqueda, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico, filtroHorasPendientes]);
 
- 
-  
-  
-  useEffect(() => { setPagina(1); }, [filtroEstado, busqueda, orden, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico]);
+  useEffect(() => { setPagina(1); }, [filtroEstado, busqueda, orden, fechaDesde, fechaHasta, filtroSede, filtroCurso, filtroInstructor, filtroAcademico, filtroHorasPendientes]);
+
   const estadoBadge = {
     Pendiente: 'bg-orange-100 text-orange-700',
     Aprobado: 'bg-green-100 text-green-700',
     Rechazado: 'bg-red-100 text-red-700',
     Cancelado: 'bg-gray-200 text-gray-700',
   };
-
-
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -229,7 +231,6 @@ const AdminReservasList = () => {
 
   const { notifications } = useContext(AppContext);
   const header = <DashboardHeader title="Gestión Reservas" onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;
-
   const footer = <DashboardFooter
     tabs={footerTabs}
     activeTab="reservas"
@@ -251,8 +252,14 @@ const AdminReservasList = () => {
             <span className="text-xs font-black text-gray-700 uppercase tracking-wider">Filtros</span>
           </div>
           <div className="flex gap-2">
-                       <Select label="" options={['Todas', 'Pendiente', 'Aprobado', 'Rechazado', 'Cancelado']} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="!mb-0 flex-1" />
-            <Select label="" options={['Todos', 'No iniciado', 'Iniciado', 'Completado']} value={filtroAcademico} onChange={e => setFiltroAcademico(e.target.value)} className="!mb-0 flex-1" />
+            <Select label="" options={['Todas', 'Pendiente', 'Aprobado', 'Rechazado', 'Cancelado']} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="!mb-0 flex-1" />
+            <Select label="" options={[
+              { id: 'Todos', nombre: 'Todos' },
+              { id: 'No iniciado', nombre: 'No iniciado' },
+              { id: 'Iniciado', nombre: 'Iniciado' },
+              { id: 'Completado', nombre: 'Completado' },
+              { id: 'Ausente', nombre: 'Ausente' }
+            ]} value={filtroAcademico} onChange={e => setFiltroAcademico(e.target.value)} className="!mb-0 flex-1" />
             <Select label="" options={[
               { id: 'curso_cercano', nombre: 'Próximas primero' },
               { id: 'recientes_desc', nombre: 'Más recientes' },
@@ -273,7 +280,7 @@ const AdminReservasList = () => {
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <Select label="" options={[{ id: 'todas', nombre: 'Sedes' }, ...(sedes || []).map(s => ({ id: String(s.id), nombre: s.nombre }))]} value={filtroSede} onChange={e => setFiltroSede(e.target.value)} className="!mb-0" />
+            <Select label="" options={[{ id: 'todas', nombre: 'Sedes' }, ...(sedes || []).map(s => ({ id: String(s.id), nombre: `${s.nombre}${s.direccion ? ` - ${s.direccion}` : ''}` }))]} value={filtroSede} onChange={e => setFiltroSede(e.target.value)} className="!mb-0" />
             <Select label="" options={[{ id: 'todos', nombre: 'Cursos' }, ...(cursos || []).map(c => ({ id: String(c.id), nombre: c.nombre }))]} value={filtroCurso} onChange={e => setFiltroCurso(e.target.value)} className="!mb-0" />
             <Select label="" options={[{ id: 'todos', nombre: 'Instruct.' }, ...(instructores || []).filter(i => i.activo).map(i => ({ id: String(i.id), nombre: `${i.nombre} ${i.apellido || ''}` }))]} value={filtroInstructor} onChange={e => setFiltroInstructor(e.target.value)} className="!mb-0" />
           </div>
@@ -283,6 +290,16 @@ const AdminReservasList = () => {
             <input type="text" placeholder="Buscar: nombre, CI, tel, sede, instructor, fecha..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500" />
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={filtroHorasPendientes}
+              onChange={e => setFiltroHorasPendientes(e.target.checked)}
+              className="w-4 h-4 accent-amber-500"
+            />
+            <span className="text-xs font-bold text-amber-700">⏱ Solo con horas pendientes</span>
+          </label>
         </div>
 
         {reservasHoy.length > 0 && (
@@ -295,23 +312,33 @@ const AdminReservasList = () => {
               {reservasHoy.map(r => {
                 const enCurso = esReservaEnCurso(r, horarios, hoyStr, minutosActuales);
                 return (
-                  <button key={r.id} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas/lista' } })} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 text-left hover:border-blue-300 transition-colors active:scale-[0.99]">                    <div className="flex items-center justify-between mb-1">
+                  <button key={r.id} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas/lista' } })} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 text-left hover:border-blue-300 transition-colors active:scale-[0.99]">
+                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-900">HOY</span>
                         {enCurso && <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN PROGRESO</span>}
                         {r.id === proximaReservaId && !enCurso && <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500 text-white">PRÓXIMA</span>}
-                                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${estadoBadge[r.estadoPago] || 'bg-gray-100'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span>
+                        <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${estadoBadge[r.estadoPago] || 'bg-gray-100'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span>
                         {(() => {
                           const estAcad = getEstadoAcademico(r);
                           const b = estAcad ? badgeAcademico[estAcad] : null;
-                          return b ? <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${b.clase}`}>{b.texto}</span> : null;
+                          return b ? (
+                            <>
+                              <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${b.clase}`}>{b.texto}</span>
+                              {r.horasPendientes > 0 && (
+                                <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500 text-white">
+                                  ⏱ {r.horasPendientes}h pend.
+                                </span>
+                              )}
+                            </>
+                          ) : null;
                         })()}
                       </div>
                       <span className="font-bold text-sm text-gray-900">{r.nombre} {r.apellido}</span>
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-gray-500">
                       <span className="flex items-center gap-1"><Calendar size={11} />{formatearFechaCorta(r.fecha || r.fecha1)} – {formatearFechaCorta(r.fecha2)}</span>
-                      <span className="flex items-center gap-1"><Clock size={11} />{horarios?.find(h => String(h.id) === String(r.horaId))?.label || r.horaId}</span>
+                      <span className="flex items-center gap-1"><Clock size={11} />{horarios?.find(h => String(h.id) === String(getHoraIdOcupacion(r, r.fecha2 || r.fecha)))?.label || r.horaId}</span>
                     </div>
                   </button>
                 );
@@ -332,18 +359,29 @@ const AdminReservasList = () => {
               const instr = (instructores || []).find(i => String(i.id) === String(r.instructorId));
               const sede = (sedes || []).find(s => String(s.id) === String(r.sedeId));
               const curso = (cursos || []).find(c => String(c.id) === String(r.cursoId));
-              const horario = (horarios || []).find(h => String(h.id) === String(r.horaId));
+              const bloqueEfectivo = getHoraIdOcupacion(r, r.fecha2 || r.fecha);
+              const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectivo || r.horaId));
               const enCurso = esReservaEnCurso(r, horarios, hoyStr, minutosActuales);
               return (
-                <button key={r.id} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas/lista' } })} className="w-full bg-white p-3 rounded-xl shadow-sm border border-gray-100 text-left hover:border-blue-300 transition-colors active:scale-[0.99]">                  <div className="flex items-center justify-between mb-1">
+                <button key={r.id} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas/lista' } })} className="w-full bg-white p-3 rounded-xl shadow-sm border border-gray-100 text-left hover:border-blue-300 transition-colors active:scale-[0.99]">
+                  <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {r.id === proximaReservaId && !enCurso && <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500 text-white">PRÓXIMA</span>}
                       {enCurso && <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN PROGRESO</span>}
-                                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${estadoBadge[r.estadoPago] || 'bg-gray-100'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span>
+                      <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${estadoBadge[r.estadoPago] || 'bg-gray-100'}`}>{r.estadoPago === 'Cancelado' ? 'CANCELADO' : r.estadoPago}</span>
                       {(() => {
                         const estAcad = getEstadoAcademico(r);
                         const b = estAcad ? badgeAcademico[estAcad] : null;
-                        return b ? <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${b.clase}`}>{b.texto}</span> : null;
+                        return b ? (
+                          <>
+                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${b.clase}`}>{b.texto}</span>
+                            {r.horasPendientes > 0 && (
+                              <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500 text-white">
+                                ⏱ {r.horasPendientes}h pend.
+                              </span>
+                            )}
+                          </>
+                        ) : null;
                       })()}
                     </div>
                     <div className="flex items-center gap-2">
@@ -356,7 +394,7 @@ const AdminReservasList = () => {
                   </div>
                   <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
                     <span>👤 {instr ? `${instr.nombre} ${instr.apellido || ''}` : 'Sin instructor'}</span>
-                    <span className="flex items-center gap-1"><MapPin size={11} />{sede?.nombre || r.sedeId || '—'}</span>
+                    <span className="flex items-center gap-1"><MapPin size={11} />{formatearSede(sede)}</span>
                     <span className="flex items-center gap-1"><BookOpen size={11} />{curso?.nombre || r.cursoId || '—'}</span>
                     <span className="flex items-center gap-1"><Bike size={11} />{r.tipoMoto}</span>
                   </div>

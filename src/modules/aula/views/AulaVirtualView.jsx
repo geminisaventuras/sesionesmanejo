@@ -23,7 +23,7 @@ import ResumenFinal from '../components/ResumenFinal';
 import ReservaPanel from '../components/ReservaPanel';
 import ReservaActivaPanel from '../components/ReservaActivaPanel';
 import { isAlertaSonoraHabilitada, setAlertaSonora as guardarPreferenciaSonora } from '../../shared/utils/audio';
-
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 const MATERIAL_APOYO = {
   senales: [{ nombre: 'Pare', descripcion: 'Detenerse completamente antes de la intersección.' }, { nombre: 'Ceda el Paso', descripcion: 'Reducir velocidad y ceder el paso.' }, { nombre: 'Velocidad Máxima', descripcion: 'Límite de velocidad permitido.' }],
   leyes: [{ titulo: 'Artículo 154', texto: 'Los conductores deben mantener la distancia de seguridad.' }, { titulo: 'Artículo 169', texto: 'Está prohibido el uso de dispositivos móviles al conducir.' }],
@@ -227,7 +227,7 @@ const tiempoAgotado = sgta.totalCompletado;
         <div className="rounded-xl shadow-xl shadow-blue-600/20 overflow-hidden">
           <div className="bg-blue-600 text-white p-3 relative">
             <div className="flex items-center gap-2 mb-2"><Bike size={18} className="text-blue-200" /><p className="text-sm font-bold uppercase tracking-widest flex-1">{curso.nombre || 'Sesión'}</p></div>
-            <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {sede?.nombre || 'N/A'}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">{esEstudiante ? `Tutor: ${inst?.nombre || 'N/A'}` : `Usuario: ${reserva.nombre || 'N/A'}`}</span></div></div>
+            <div className="grid grid-cols-2 gap-2 text-sm mb-2"><div className="flex items-center gap-1.5"><MapPin size={14} className="text-blue-300" /><span className="font-bold">Sede: {formatearSede(sede)}</span></div><div className="flex items-center gap-1.5"><User size={14} className="text-blue-300" /><span className="font-bold truncate">{esEstudiante ? `Tutor: ${inst?.nombre || 'N/A'}` : `Usuario: ${reserva.nombre || 'N/A'}`}</span></div></div>
             <div className="absolute top-2 right-2 bg-white/20 rounded-lg px-2 py-1 text-center"><p className="text-lg font-black leading-none">{sello.mes}</p><p className="text-[10px] font-bold leading-none">{sello.anio}</p></div>
             <div className="bg-gray-800/50 p-3 rounded-xl text-xs">
               <div className="flex items-start gap-3">

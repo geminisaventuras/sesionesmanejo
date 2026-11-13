@@ -69,10 +69,17 @@ export default function CambiarHorarioModal({
       const otraOcupaSlot = (r, horaId) => {
       if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
 
-      // La propia reserva también cuenta como ocupante.
-      // Si el bloque actual ya es de esta reserva, no debe ofrecerse en el dropdown.
       const horaOcupada = getHoraIdOcupacion(r, fechaParaFiltrar);
-      return horaOcupada !== null && String(horaOcupada) === String(horaId);
+      if (horaOcupada === null || String(horaOcupada) !== String(horaId)) return false;
+
+      // La propia reserva ocupa el slot actual (para no ofrecer el mismo bloque).
+      if (r.id === reserva.id) return true;
+
+      // Solo bloquea si comparte instructor o moto con la reserva actual.
+      const motoActual = modo === 'reponer_d2' ? (motoReposicionId || reserva.motoAsignadaId) : reserva.motoAsignadaId;
+      const mismaInstructor = String(r.instructorId) === String(reserva.instructorId);
+      const mismaMoto = motoActual && String(r.motoAsignadaId) === String(motoActual);
+      return mismaInstructor || mismaMoto;
     };
 
        const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });

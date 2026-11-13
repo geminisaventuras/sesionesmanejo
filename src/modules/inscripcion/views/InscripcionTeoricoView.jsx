@@ -126,7 +126,7 @@ export function InscripcionTeoricoView() {
           updateForm({ pin: res.data.pin });
           setStep('2');
         } else if (res.error.code === 'already-enrolled' || res.error.code === 'auth/email-already-in-use') {
-          showToast('Ya tienes cuenta con ese correo. Ingresa con tu PIN.F', 'error');
+          showToast('Ya tienes cuenta con ese correo. Ingresa con tu PIN', 'error');
           navigate('/login');
         } else if (res.error.code === 'duplicate-cedula') {
           showToast('Esta cédula ya está registrada.', 'error');

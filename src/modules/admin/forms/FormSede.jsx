@@ -44,8 +44,8 @@ const FormSede = memo(({ item, onSave, onCancel }) => {
         <h3 className="font-bold text-lg">{item.id ? 'Editar' : 'Nueva'} Sede</h3>
       </div>
 
-      <Input label="Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
-      <Input label="Direccion / Ubicacion" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} />
+      <Input label="Ciudad / Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+      <Input label="Punto de Encuentro / Zona (Ej: Chacao, Montalbán)" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} />
 
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex items-center justify-between mb-3">

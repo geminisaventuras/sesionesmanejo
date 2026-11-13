@@ -1,6 +1,7 @@
 // @build: 2026-09-03 | id: LEGAL-TERMINOLOGIA-MODAL-DETALLE | backup: ModalDetalleReserva.backup-20260903-000000 | desc: Modal de detalle de reserva sin teléfono, con avance académico
 import React, { useEffect, useRef } from 'react';
 import { X, User, Calendar, Clock, MapPin, Bike, CreditCard, CheckCircle, Circle } from 'lucide-react';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { Button } from '../../../components/UI';
 
 import BadgeReposicion from '../../shared/components/BadgeReposicion';
@@ -88,7 +89,7 @@ export default function ModalDetalleReserva({
             {sede && (
               <div className="flex items-center gap-2">
                 <MapPin size={14} className="text-gray-400" />
-                <span className="text-gray-700">{sede.nombre}</span>
+                <span className="text-gray-700">{formatearSede(sede)}</span>
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -101,6 +102,20 @@ export default function ModalDetalleReserva({
               <CreditCard size={14} className="text-gray-400" />
               <span className="text-gray-700">Estado de pago: {reserva.estadoPago}</span>
             </div>
+            {reserva.estadoCurso === 'Ausente' && (
+              <div>
+                <span className="inline-block text-[10px] font-black uppercase px-2 py-1 rounded bg-slate-700 text-white">
+                  AUSENTE
+                </span>
+              </div>
+            )}
+            {reserva.horasPendientes > 0 && (
+              <div>
+                <span className="inline-block text-[10px] font-black uppercase px-2 py-1 rounded bg-amber-500 text-white">
+                  ⏱ {reserva.horasPendientes}h pend.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Reposición D2 */}

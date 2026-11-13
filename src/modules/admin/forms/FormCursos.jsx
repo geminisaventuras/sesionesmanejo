@@ -4,6 +4,7 @@ import { Button, Input } from '../../../components/UI';
 import { ChevronLeft, Clock, Plus, Equal, Minus } from 'lucide-react';
 import { TIPOS_CURSO } from '../../../constants/tiposCurso';
 import { AppContext } from '../../../context/AppContextValue';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 const TABS = [
   { id: 'basico', label: 'Básico' },
@@ -52,6 +53,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
     comisionProveedorPorSede: (item?.comisionProveedorPorSede && typeof item.comisionProveedorPorSede === 'object') ? { ...item.comisionProveedorPorSede } : {},
     // Moto
        motoIncluida: item?.motoIncluida ?? true,
+    permiteTraerMotoPropia: item?.permiteTraerMotoPropia ?? true,
     tiposMotoEscuela: Array.isArray(item?.tiposMotoEscuela) ? item.tiposMotoEscuela : [],
     precioAlquilerMoto: item?.precioAlquilerMoto ?? 0,
     // Horarios por sede
@@ -173,6 +175,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
       modulos: form.modulos.filter(m => m.nombre.trim() !== ''),
       queAprenderas: queAprenderasArr,
       tiposMotoEscuela: form.motoIncluida ? form.tiposMotoEscuela : [],
+      permiteTraerMotoPropia: form.motoIncluida ? form.permiteTraerMotoPropia : true,
       comisionProveedorPorSede: form.comisionProveedorPorSede || {}
     };
 
@@ -395,7 +398,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                       onChange={() => toggleSede(s.id)}
                       className="w-4 h-4"
                     />
-                    <span className="text-sm">{s.nombre} <span className="text-xs text-gray-400">({s.id})</span></span>
+                    <span className="text-sm">{formatearSede(s)} <span className="text-xs text-gray-400">({s.id})</span></span>
                   </label>
                 ))}
               </div>
@@ -437,12 +440,24 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                 onChange={e => setForm({ ...form, motoIncluida: e.target.checked })}
                 className="w-5 h-5"
               />
-              <span className="text-sm font-bold text-gray-700">La escuela ofrece moto</span>
+              <span className="text-sm font-bold text-gray-700">Moto App incluida</span>
             </label>
 
             {form.motoIncluida && (
               <div>
-                <label className="block text-xs font-bold text-gray-600 mb-2 ml-1">Tipos de moto de la escuela</label>
+                <label className="flex items-center gap-2 cursor-pointer mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                  <input
+                    type="checkbox"
+                    checked={form.permiteTraerMotoPropia}
+                    onChange={e => setForm({ ...form, permiteTraerMotoPropia: e.target.checked })}
+                    className="w-5 h-5"
+                  />
+                  <div>
+                    <span className="text-sm font-bold text-gray-700">Permitir traer moto propia</span>
+                    <p className="text-[11px] text-gray-500 mt-0.5">Si está desactivado, el usuario debe usar la moto de Moto App.</p>
+                  </div>
+                </label>
+                <label className="block text-xs font-bold text-gray-600 mb-2 ml-1">Tipos de moto de Moto App</label>
                 <div className="space-y-2">
                   {['Automática', 'Sincrónica'].map(tipo => (
                     <label key={tipo} className="flex items-center gap-2 cursor-pointer">
@@ -507,7 +522,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                   const valorActual = form.comisionProveedorPorSede[sedeId];
                   return (
                     <div key={sedeId} className="flex items-center gap-2">
-                      <span className="flex-1 text-xs text-gray-700">{sede?.nombre || sedeId}</span>
+                      <span className="flex-1 text-xs text-gray-700">{formatearSede(sede) || sedeId}</span>
                       <input
                         type="number"
                         min="0"
@@ -539,7 +554,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                 <p className="text-[11px] text-gray-500 mt-1 ml-1">Monto fijo por curso. 0 si ya va incluido en el precio.</p>
               </>
             ) : (
-              <p className="text-[11px] text-yellow-700">Activa "La escuela ofrece moto" en la pestaña "Relaciones" para configurar este campo.</p>
+              <p className="text-[11px] text-yellow-700">Activa "Moto App incluida" en la pestaña "Relaciones" para configurar este campo.</p>
             )}
           </div>
         </div>
@@ -565,7 +580,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                 return (
                   <div key={sedeId} className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between mb-3">
-                      <label className="text-sm font-bold text-gray-700">{sede?.nombre || sedeId}</label>
+                      <label className="text-sm font-bold text-gray-700">{formatearSede(sede) || sedeId}</label>
                       <button
                         type="button"
                         onClick={() => toggleTodosHorariosEnSede(sedeId)}

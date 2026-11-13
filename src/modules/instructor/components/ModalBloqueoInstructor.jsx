@@ -72,7 +72,7 @@ export default function ModalBloqueoInstructor({
       const conflictos = await ReservaService.obtenerReservasPorInstructor(
         instructorId,
         fechaInicio,
-        fechaFin
+        fechaFinEfectiva
       );
 
       if (!conflictos.success) {
@@ -81,11 +81,31 @@ export default function ModalBloqueoInstructor({
         return;
       }
 
-      if (conflictos.data.length > 0) {
-        setErrorLocal(
-          `Tienes ${conflictos.data.length} reserva(s) activa(s) en este rango. ` +
-          `Contacta a los estudiantes para reprogramar antes de bloquear.`
-        );
+      // FIX-BLOQUEO-POR-HORARIO: Solo hay conflicto si las reservas chocan
+      // con los horarios que se intentan bloquear.
+      const conflictosReales = conflictos.data.filter(r => {
+        if (todoElDia) return true; // Si bloquea todo el día, cualquier reserva choca
+        // Si bloquea por horas, verificar si la reserva usa alguno de esos horarios
+        const horaReserva = r.horaIdReposicion || r.horaId;
+        return horariosSel.includes(horaReserva);
+      });
+
+      if (conflictosReales.length > 0) {
+        if (todoElDia) {
+          setErrorLocal(
+            `Tienes ${conflictosReales.length} reserva(s) activa(s) en esta fecha. ` +
+            `No puedes bloquear todo el día. Contacta a los estudiantes para reprogramar.`
+          );
+        } else {
+          const horasOcupadas = [...new Set(conflictosReales.map(r => r.horaIdReposicion || r.horaId))];
+          const etiquetas = horasOcupadas.map(hid => 
+            horariosOperativos.find(h => h.id === hid)?.label || hid
+          ).join(', ');
+          setErrorLocal(
+            `No puedes bloquear los horarios seleccionados porque tienes reservas activas en: ${etiquetas}. ` +
+            `Desmarca esos horarios o reprograma a los estudiantes.`
+          );
+        }
         setIsSubmitting(false);
         return;
       }

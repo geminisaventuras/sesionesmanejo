@@ -196,7 +196,13 @@ export const ReservaService = {
           instructorId: reservaData.instructorId,
                     motoAsignadaId: (cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null),
           
-          traeMoto: reservaData.traeMoto,
+          // FIX-PERMITE-TRAER-MOTO: forzar coherencia con la config del curso.
+          // Caso 1: curso sin moto (motoIncluida: false) → 'Sí' obligatorio (el estudiante DEBE traer propia).
+          // Caso 2: curso con moto pero permiteTraerMotoPropia: false (Equilibrio) → 'No' obligatorio (moto escuela).
+          // Caso 3: curso con moto y permiteTraerMotoPropia: true → respetar lo que envíe el cliente.
+          traeMoto: (cursoData?.motoIncluida === false) ? 'Sí'
+                   : (cursoData?.permiteTraerMotoPropia === false) ? 'No'
+                   : (reservaData.traeMoto || 'No'),
           sabeBicicleta: reservaData.sabeBicicleta,
           fechaNacimiento: reservaData.fechaNacimiento,
           pagoTotalMoneda: reservaData.pagoTotalMoneda,
@@ -454,7 +460,11 @@ export const ReservaService = {
           horaId: packData.horaId || null,
           instructorId: packData.instructorId || null,
           motoAsignadaId: packData.motoAsignadaId || null,
-          traeMoto: 'No', // Equilibrio siempre con moto escuela
+          // FIX-PERMITE-TRAER-MOTO-PACK-CREATE: reemplaza hardcode por 3 casos.
+          // Mismo criterio que agendarSiguienteCursoPack y crearReserva individual.
+          traeMoto: (cursoEq?.motoIncluida === false) ? 'Sí'
+                   : (cursoEq?.permiteTraerMotoPropia === false) ? 'No'
+                   : (packData.traeMotoPorCurso?.[String(cursoEq.id)] || 'No'),
           sabeBicicleta: 'No', // implícito por pack
           proveedorId: packData.proveedorId || null,
           pagoTotalMoneda: precioEqProrrateado,
@@ -627,8 +637,14 @@ export const ReservaService = {
         const totalComisiones = comisionInstructor + comisionProveedor;
         const deficit = Number((totalComisiones - precioProrrateado).toFixed(2));
 
-        // 7. traeMoto desde el mapa
-        const traeMoto = (maestra.traeMotoPorCurso || {})[String(cursoData.id)] || 'No';
+        // 7. traeMoto con SSOT del curso (FIX-PERMITE-TRAER-MOTO-PACK-BACKEND).
+        // Jerarquía: mismo criterio que crearReserva (individual) y Paso2Pack (cliente).
+        //   1. Sin moto app (motoIncluida: false) → 'Sí' obligatorio.
+        //   2. Con moto app pero NO permite propia (Equilibrio) → 'No' obligatorio.
+        //   3. Con moto app y permite propia → respetar el mapa traeMotoPorCurso.
+        const traeMoto = (cursoData?.motoIncluida === false) ? 'Sí'
+                       : (cursoData?.permiteTraerMotoPropia === false) ? 'No'
+                       : ((maestra.traeMotoPorCurso || {})[String(cursoData.id)] || 'No');
 
         // 7-bis. FIX-PACK-SEDE-POR-SESION: validar intersección curso ∩ pack.
         // Sedes del pack (fallback legacy: solo sedeId).

@@ -7,7 +7,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import ModalBloqueoInstructor from './ModalBloqueoInstructor';
 import { Button } from '../../../components/UI';
-
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 const COLL = 'bloqueosInstructores';
 
@@ -112,9 +112,8 @@ export default function DisponibilidadTab({ user }) {
             const etiqueta = esRango
               ? `${formatearFecha(b.fechaInicio)} → ${formatearFecha(b.fechaFin)}`
               : formatearFecha(b.fechaInicio);
-            const sedeNombre = b.sedeId
-              ? (ctx.sedes || []).find(s => String(s.id) === String(b.sedeId))?.nombre || b.sedeId
-              : 'Todas las sedes';
+            const sedeObj = b.sedeId ? (ctx.sedes || []).find(s => String(s.id) === String(b.sedeId)) : null;
+            const sedeNombre = b.sedeId ? formatearSede(sedeObj) : 'Todas las sedes';
             const horariosTexto = b.todoElDia
               ? 'Todo el día'
               : (b.horarios || []).map(hId => {

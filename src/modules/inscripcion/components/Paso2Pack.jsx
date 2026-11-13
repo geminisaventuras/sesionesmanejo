@@ -24,15 +24,21 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
   );
 
   // Determinar comportamiento de cada curso
+  // FIX-PERMITE-TRAER-MOTO-PACK: usar el campo permiteTraerMotoPropia como SSOT.
+  // Reemplaza el hardcode por tipoCurso === 'equilibrio'. Jerarquía:
+  //   1. Sin moto app (motoIncluida: false) → obligado traer propia.
+  //   2. Con moto app pero NO permite propia (ej: Equilibrio) → obligado usar moto escuela.
+  //   3. Con moto app y permite propia → el estudiante elige.
+  // Isomórfico con Paso2Configuracion.jsx y ReservaService.crearReserva.
   const cursosConComportamiento = cursosPack.map(curso => {
-    const esEquilibrio = curso.tipoCurso === 'equilibrio';
     const motoIncluida = curso.motoIncluida !== false;
+    const permiteTraerMotoPropia = curso.permiteTraerMotoPropia !== false;
 
-    if (esEquilibrio) {
-      return { curso, modo: 'fijo-escuela' };
-    }
     if (!motoIncluida) {
       return { curso, modo: 'fijo-propia' };
+    }
+    if (!permiteTraerMotoPropia) {
+      return { curso, modo: 'fijo-escuela' };
     }
     return { curso, modo: 'preguntar' };
   });

@@ -14,6 +14,7 @@ import {
   esReservaEnCurso
 } from '../utils/reservasHelpers';
 import { useAdminReservas } from '../hooks/useAdminReservas';
+import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 
 const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
   const estadoColor = {
@@ -23,7 +24,8 @@ const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
     Cancelado: 'bg-gray-200 text-gray-700',
   };
   const fechaStr = reserva.fecha || reserva.fecha1 || '';
-  const horaStr = reserva.horaId || '';
+  const bloqueEfectivo = getHoraIdOcupacion(reserva, reserva.fecha2 || reserva.fecha);
+const horaStr = bloqueEfectivo || '';
   const horaCorta = horaStr.split(' - ')[0] || horaStr;
   return (
     <button onClick={onClick} className="flex-shrink-0 w-24 bg-white rounded-xl shadow-sm border border-gray-100 p-2 text-left hover:border-blue-300 transition-colors active:scale-[0.98]">

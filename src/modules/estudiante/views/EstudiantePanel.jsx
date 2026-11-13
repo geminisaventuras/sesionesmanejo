@@ -26,7 +26,7 @@ import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
   User, AlertCircle, Info, ChevronLeft, Share2, Zap, Lock, Check, KeyRound, Package, GraduationCap
 } from 'lucide-react';
-
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -435,7 +435,7 @@ export function EstudiantePanel() {
                   <Clock size={12} /><span className="font-bold">{horaInicio} - {horaFin}</span>
                 </p>
                 <p className="flex items-center justify-center gap-1.5">
-                  <MapPin size={12} /><span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
+                  <MapPin size={12} /><span className="font-bold">{formatearSede(sedeActual)}</span>
                   <span className="mx-1">·</span>
                   <User size={12} /><span className="font-bold">Tutor: {inst ? inst.nombre : 'Asignando'}</span>
                 </p>
@@ -889,7 +889,7 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
           <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{ctx.user?.data?.cedula || reservaActual?.cedula || '—'}</p></div>
           <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{ctx.user?.data?.telefono || reservaActual?.telefono || 'No registrado'}</p></div>
           <div><p className="text-xs text-gray-500">Sesión Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div>
-          <div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{sedeActual?.nombre || 'No asignada'}</p></div>
+          <div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{formatearSede(sedeActual)}</p></div>
           
           <div className="border-t border-gray-100 pt-3">
             {!mostrarCambioPin ? (

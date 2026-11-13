@@ -3,6 +3,8 @@ import { AppContext } from '../../../context/AppContextValue';
 import { Calendar, Clock, Bike, MapPin, User, RefreshCw } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 const ProveedorActividad = () => {
   const { user, motos, horarios, sedes, instructores } = useContext(AppContext);
@@ -82,7 +84,8 @@ const ProveedorActividad = () => {
         <div className="space-y-3">
           {clasesDelDia.map(r => {
             const moto = (motos || []).find(m => String(m.id) === String(r.motoAsignadaId));
-            const horario = (horarios || []).find(h => String(h.id) === String(r.horaId));
+            const bloqueEfectivo = getHoraIdOcupacion(r, r.fecha2 || r.fecha);
+const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectivo || r.horaId));
             const sede = (sedes || []).find(s => String(s.id) === String(r.sedeId));
             const instructor = (instructores || []).find(i => String(i.id) === String(r.instructorId));
             return (
@@ -93,11 +96,11 @@ const ProveedorActividad = () => {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <Clock size={14} />
-                  {horario?.label || r.horaId}
+                  {horario?.label || bloqueEfectivo || r.horaId}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <MapPin size={14} />
-                  {sede?.nombre || r.sedeId}
+                  {formatearSede(sede)}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <User size={14} />

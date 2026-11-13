@@ -141,6 +141,12 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   const motoIncluida = cursoSeleccionado?.motoIncluida !== false;
   const tiposMotoEscuela = cursoSeleccionado?.tiposMotoEscuela || [];
   const bloqueaTraeMoto = !!cursoSeleccionado && !motoIncluida;
+  // FIX-PERMITE-TRAER-MOTO: nueva lógica basada en campo configurable del curso.
+  // - Si el curso NO ofrece moto (motoIncluida: false) → bloqueaTraeMoto = true (fuerza a traer propia).
+  // - Si el curso SÍ ofrece moto Y permite traer propia → ambos botones activos.
+  // - Si el curso SÍ ofrece moto Y NO permite traer propia (Equilibrio) → botón "Sí" bloqueado.
+  const permiteTraerMotoPropia = cursoSeleccionado?.permiteTraerMotoPropia !== false;
+  const bloqueaMotoPropia = !!cursoSeleccionado && motoIncluida && !permiteTraerMotoPropia;
 
     const bloqueaTipoMoto = (tipo) => {
     if (form.sabeBicicleta === 'No' && tipo !== 'Automática') return true;
@@ -351,7 +357,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         >
           <option value="">Selecciona sede</option>
           {sedesPermitidas.map(s => (
-            <option key={s.id} value={s.id}>{s.nombre}</option>
+            <option key={s.id} value={s.id}>{s.nombre}{s.direccion ? ` - ${s.direccion}` : ''}</option>
           ))}
         </select>
         {cursoSeleccionado?.sedesPermitidas?.length > 0 && sedesPermitidas.length === 0 && (
@@ -377,10 +383,11 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
           </button>
           <button
             type="button"
-            onClick={() => updateForm({ traeMoto: 'Sí' })}
+            onClick={() => !bloqueaMotoPropia && updateForm({ traeMoto: 'Sí' })}
+            disabled={bloqueaMotoPropia}
             className={`p-4 border-2 rounded-xl transition-colors ${
               form.traeMoto === 'Sí' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
-            }`}
+            } ${bloqueaMotoPropia ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             <span className="text-2xl">✅</span>
             <p className="font-bold text-sm">Sí</p>
@@ -389,6 +396,11 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         {bloqueaTraeMoto && (
           <p className="text-[11px] text-yellow-700 mt-2 ml-1">
             Esta sesión requiere que traigas tu propia moto.
+          </p>
+        )}
+        {bloqueaMotoPropia && (
+          <p className="text-[11px] text-yellow-700 mt-2 ml-1">
+            Esta sesión requiere que uses la moto de Moto App.
           </p>
         )}
       </div>
