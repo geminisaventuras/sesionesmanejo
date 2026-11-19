@@ -2735,3 +2735,12 @@ Deudas cerradas en esta sesión
 - [x] Backups: PROD backup/pre-deploy-bug2-crosscheck; DEV backup/pre-bug2-crosscheck y backup/pre-hotfix-parity.
 - [ ] Pendiente: smoke test happy path (reserva normal) y monitoreo de errores slot-occupied/ocupacion-no-verificable.
 
+
+
+**Documentacion de flujos (19/11/2026):**
+- [x] Base documental creada: docs/README.md, docs/flujos/_PLANTILLA.md, docs/flujos/INDICE.md, fichas 01 y 02.
+- [ACEPTADO] R-PIN-PII-19NOV: exposicion de PIN/PII en progresoInscripcion aceptada temporalmente. Ver docs/decisiones/ADR-001-riesgo-pin-pii-aceptado.md.
+- [DEUDA] B-REGISTRO-REDESIGN: rediseno del flujo de registro y recuperacion (mostrar PIN antes del pago, email-link o reset, separar PII/PIN). Sin fecha.
+- [DEUDA] B123 sigue vigente: recuperacion de PIN olvidado.
+- [DEUDA] B-DOC-FLUJOS-FASE2: documentar flujos 03-13 segun prioridad del INDICE.
+

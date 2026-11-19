@@ -2631,3 +2631,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Post-deploy BUG-2 (19/11/2026):** Deploy a PROD completado (89 archivos, release completa). Verificacion en vivo: sitio HTTP 200; chunks AgendarPackView-CfrkTym4.js e InscripcionView-IqQkOKk1.js responden 200 y contienen slot-occupied. Paridad total src DEV/PROD: 0 diferencias (SHA256). Auto-jump desactivado en ambos por hotfix. Backups PROD: backup/pre-deploy-bug2-crosscheck. Pendiente: smoke test de reserva normal (happy path) y monitoreo de logs.
 
+
+
+**Documentacion tecnica de flujos (19/11/2026):** Creado docs/README.md, docs/flujos/INDICE.md, docs/flujos/_PLANTILLA.md, fichas 01 (inscripcion individual) y 02 (reinscripcion/recuperacion), y ADR-001 (riesgo PIN/PII aceptado). Regla nueva: leer docs/flujos/INDICE.md antes de tocar un flujo. Los documentos viven en DEV y se sincronizan a PROD.
+
