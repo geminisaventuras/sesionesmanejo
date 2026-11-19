@@ -2667,3 +2667,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 9 (19/11/2026):** Ficha 12 (teoricos). Hallazgos CRITICOS: TeoricoModuloView no valida acceso (bypass por URL); crearAcceso confia en el precio del cliente; el vencimiento no se valida; doble compra no transaccional; puntaje de quiz calculado en cliente. Deudas: B-TEORICO-MODULO-BYPASS, B-TEORICO-PRECIO-CLIENTE, B-TEORICO-VENCIMIENTO, B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE, B-TEORICO-MOV-ATOMICO, B-TEORICO-APROBACION-DOBLE, B-TEORICO-CAPACIDAD.
 
+
+
+**Documentacion Fase 10 - CIERRE (19/11/2026):** Ficha 13 (operacion/deploy/backups). Documentacion de flujos COMPLETA: 13/13 fichas. Hallazgos CRITICOS: DEV tiene git sucio (ahead 3/behind 8, cientos de archivos sin commit; la fuente real es el filesystem); la memoria dice que las reglas viven solo en consola pero el repo trackea firestore.rules y firebase.json lo despliega; DEV no declara firestore.indexes y PROD si; PWA autoUpdate puede servir bundles viejos; deploy manual sin script. Deudas: B-DEV-GIT-SUCIO, B-REGLAS-FUENTE-DUDOSA, B-FIREBASE-JSON-PARIDAD, B-PWA-CACHE-STALE, B-NO-DEPLOY-SCRIPT, B-REMOTES-DISTINTOS, B-BACKUPS-LOCAL-ONLY, B-MIGRACION-DOC-OUTDATED, B-DEPLOY-RULES-SIN-EMULADOR, B-HOSTING-VS-COMMIT. Siguiente fase: analisis de criticos con regresion antes de tocar codigo.
+

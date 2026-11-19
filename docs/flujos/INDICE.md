@@ -17,7 +17,7 @@
 | 10 | Portales (estudiante / instructor / proveedor) | 🟡 | 19/11/2026 (código) | `EstudiantePanel.jsx`, `InstructorPanel.jsx`, `ProveedorPanel.jsx`, `PerfilTab.jsx` | B-INSTRUCTOR-PERFIL-RULES, B-PROVEEDOR-MIRROR-PAGOS, B-INSTRUCTOR-SPLIT-VISIBILIDAD |
 | 11 | Finanzas y movimientos | 🟡 | 19/11/2026 (código) | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx` | B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY |
 | 12 | Teóricos | 🟡 | 19/11/2026 (código) | `TeoricoCursoView.jsx`, `TeoricoModuloView.jsx`, `AccesoTeoricoService.js`, `ProgresoTeoricoService.js` | B-TEORICO-MODULO-BYPASS, B-TEORICO-PRECIO-CLIENTE, B-TEORICO-VENCIMIENTO, B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE |
-| 13 | Operación: deploy, backups, entornos | ⚪ | — | `firebase.json`, `scripts/`, `docs/MIGRACION_PRODUCCION.md` | paridad de config |
+| 13 | Operación: deploy, backups, entornos | 🟡 | 19/11/2026 (config + repos) | `package.json`, `firebase.json`, `.firebaserc`, `vite.config.js`, `ARRANQUE_MEMORIA_IA.md` | B-DEV-GIT-SUCIO, B-REGLAS-FUENTE-DUDOSA, B-FIREBASE-JSON-PARIDAD, B-PWA-CACHE-STALE |
 
 ## Mapa de dependencias (resumen)
 
@@ -74,6 +74,10 @@ graph LR
 - **Vencimiento teórico ignorado:** `TeoricoCursoView` no revisa `vencimiento`; un acceso temporal vencido sigue abierto. Deuda `B-TEORICO-VENCIMIENTO`.
 - **Doble compra teórica:** el pre-check no es transaccional. Deuda `B-TEORICO-DOBLE-COMPRA`.
 - **Quiz calculado en cliente:** el puntaje se envía desde el navegador sin validación. Deuda `B-TEORICO-QUIZ-CLIENTE`.
+- **DEV con Git sucio (CRÍTICO):** `main` ahead 3/behind 8 y cientos de archivos sin commit; la fuente de verdad es el filesystem. Deuda `B-DEV-GIT-SUCIO`.
+- **Fuente de reglas dudosa (CRÍTICO):** la memoria dice “reglas solo en consola”, pero `firestore.rules` está trackeado y se despliega desde archivo. Deuda `B-REGLAS-FUENTE-DUDOSA`.
+- **Paridad de `firebase.json`:** DEV no declara `firestore.indexes`; PROD sí. Deuda `B-FIREBASE-JSON-PARIDAD`.
+- **PWA y deploy manual:** no hay script de deploy y el service worker puede servir bundles viejos. Deudas `B-PWA-CACHE-STALE`, `B-NO-DEPLOY-SCRIPT`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -94,6 +98,10 @@ graph LR
 - `11-finanzas-movimientos.md`
 - `10-portales.md`
 - `12-teoricos.md`
+- `13-operacion-deploy-backups.md`
 
 ## Pendiente de documentar (prioridad)
-1. 13 Operación: deploy, backups, entornos.
+**Ninguno: 13/13 flujos documentados.** Siguiente fase: análisis de críticos y regresión antes de tocar código.
+1. Dictamen de reglas de packs/teóricos/portales.
+2. Plan de pruebas de regresión por flujo.
+3. Corrección por lotes con backup, build, smoke y deploy.

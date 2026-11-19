@@ -2823,3 +2823,14 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-TEORICO-VENCIMIENTO: el acceso temporal vencido sigue abierto.
 - [DEUDA] B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE, B-TEORICO-MOV-ATOMICO, B-TEORICO-APROBACION-DOBLE, B-TEORICO-CAPACIDAD.
 
+
+
+**Documentacion Fase 10 - CIERRE (19/11/2026):**
+- [x] Ficha 13 (operacion/deploy/backups) creada y enlazada.
+- [x] Documentacion de flujos completa: 13/13 fichas (01-13).
+- [DEUDA CRITICA] B-DEV-GIT-SUCIO: DEV ahead 3/behind 8 y cientos de archivos sin commit; fuente = filesystem.
+- [DEUDA CRITICA] B-REGLAS-FUENTE-DUDOSA: memoria dice consola, repo trackea firestore.rules.
+- [DEUDA] B-FIREBASE-JSON-PARIDAD (DEV sin indexes), B-PWA-CACHE-STALE, B-NO-DEPLOY-SCRIPT.
+- [DEUDA] B-REMOTES-DISTINTOS, B-BACKUPS-LOCAL-ONLY, B-MIGRACION-DOC-OUTDATED, B-DEPLOY-RULES-SIN-EMULADOR, B-HOSTING-VS-COMMIT.
+- [SIGUIENTE] Analisis de criticos + plan de regresion antes de corregir.
+
