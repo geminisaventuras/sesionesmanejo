@@ -2635,3 +2635,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion tecnica de flujos (19/11/2026):** Creado docs/README.md, docs/flujos/INDICE.md, docs/flujos/_PLANTILLA.md, fichas 01 (inscripcion individual) y 02 (reinscripcion/recuperacion), y ADR-001 (riesgo PIN/PII aceptado). Regla nueva: leer docs/flujos/INDICE.md antes de tocar un flujo. Los documentos viven en DEV y se sincronizan a PROD.
 
+
+
+**Documentacion Fase 2 (19/11/2026):** Agregadas fichas 03 (disponibilidad y locks) y 04 (reserva y espejo). Hallazgos documentados: instructoresPermitidos NO esta homologado (individual fail-closed, packs fail-open); el PIN se muestra solo despues del pago; reserva.pin es campo muerto. Deuda nueva: B-ESPACIO-LIMITE-100.
+

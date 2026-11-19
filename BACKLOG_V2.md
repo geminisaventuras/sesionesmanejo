@@ -2744,3 +2744,10 @@ Deudas cerradas en esta sesión
 - [DEUDA] B123 sigue vigente: recuperacion de PIN olvidado.
 - [DEUDA] B-DOC-FLUJOS-FASE2: documentar flujos 03-13 segun prioridad del INDICE.
 
+
+
+**Documentacion Fase 2 (19/11/2026):**
+- [x] Fichas 03 (disponibilidad/locks) y 04 (reserva/espejo) creadas y enlazadas en el INDICE.
+- [HALLAZGO] instructoresPermitidos no homologado: individual fail-closed (InscripcionView:105-109) vs packs fail-open (useDisponibilidadPack:43-50). Requiere dictamen FIRE+MAMBA.
+- [DEUDA] B-ESPACIO-LIMITE-100: useOcupacionConfirmada limita a 100 docs por query; evaluar subir/paginar y medir cuota.
+
