@@ -1185,13 +1185,24 @@ const disponibilidad = useMemo(() => {
       console.log('[handleConfirmarPago] Pantalla de éxito mostrada con PIN:', pinParaMostrar ? 'SÍ' : 'NO');
     } else {
       const codigo = result.error?.code;
-      if (codigo === 'invalid-data') {
+      if (codigo === 'slot-occupied') {
+        // BUG-2: el servicio ya libero el lock; limpiamos el estado local y volvemos al paso 3.
+        limpiarLockPropioOptimista(lockId);
+        updateLockId('');
+        updateLockExpiresAt(null);
+        setRenovacionUsada(false);
+        setIsSelectingHorario(false);
+        setSelectingBlockId(null);
+        sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+        updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+        showToast(result.error.message || 'Ese horario acaba de ser ocupado. Elegí otro bloque.', 'error');
+      } else if (codigo === 'invalid-data') {
         showToast(result.error.message || 'Datos inválidos', 'error');
       } else {
         showToast(result.error.message || 'Error al crear la reserva', 'error');
       }
     }
-    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm]);
+    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista]);
   const handleIrAlPanel = useCallback(async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error de sesión. No se puede acceder al panel.', 'error'); return; }

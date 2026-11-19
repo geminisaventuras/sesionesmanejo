@@ -493,6 +493,15 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       showToast('¡Sesión agendada! Ya puedes ver la fecha en tu pack.', 'success');
       navigate(`/mi-pack/${packReservaId}`);
     } else {
+      if (result.error?.code === 'slot-occupied') {
+        // BUG-2: el servicio ya libero el lock; limpiamos el estado local del horario.
+        setLockId('');
+        setLockExpiresAt(null);
+        setHoraId('');
+        setInstructorId('');
+        setMotoAsignadaId('');
+        setSelectingBlockId(null);
+      }
       showToast('Error al agendar: ' + (result.error?.message || 'Intentá de nuevo'), 'error');
     }
   }, [uid, lockId, horaId, childAnterior, cursoData, disponibilidad, motos, pack, packReservaId, fecha1, showToast, navigate]);

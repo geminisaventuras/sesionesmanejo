@@ -696,6 +696,10 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         fecha: nuevaFecha,
         fecha2: nuevaFecha2,
         horaId: nuevoHoraId,
+        // BUG-2/F1: un cambio total de horario invalida la reposicion D2 previa.
+        // Evita que horaIdReposicion/motoReposicionId obsoletos contaminen el espejo.
+        horaIdReposicion: null,
+        motoReposicionId: null,
         horarioAnterior: horarioAnterior,
         horarioNuevo: horarioNuevo,
         reprogramaciones: arrayUnion(evento),

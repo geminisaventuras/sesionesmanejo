@@ -2693,3 +2693,45 @@ Deudas cerradas en esta sesión
 - Backup previo: backup/prod/simon-RCPBr7pVP7OKu27o3mAW-2026-11-19T19-31-06-025Z.json
 - Script de reparacion eliminado tras uso (no commiteado).
 
+
+
+### Actualizacion 2026-11-19 - BUG-2 implementado en DEV (pendiente deploy)
+
+**Cerrado en DEV (no deployado):**
+- [x] Pre-check de ocupacion en crearReserva, crearReservaPack y agendarSiguienteCursoPack.
+- [x] D1: bloqueo por lock activo de otro usuario (ocupacionTemporal).
+- [x] Cross-check de instructor y moto + normalizacion de traeMoto.
+- [x] Propagacion de horaIdReposicion/motoReposicionId al espejo; cambio total de horario limpia D2 obsoleto.
+- [x] Reset de estado de lock en InscripcionView y AgendarPackView ante slot-occupied.
+- [x] Fixtures del helper: 15/15 PASS. Build DEV verde.
+
+**Deudas registradas:**
+- [CRITICO] B-SLOTS-INSTRUCTOR: migrar a coleccion slotsInstructor con ID deterministico (opcion b MAMBA) + backfill. Cierra la ventana TOCTOU residual.
+- [CRITICO] B-CROSSCHECK-ADMIN: extender el cross-check a cambiarHorario, reasignarInstructor y reposicion D2.
+- [MEDIA] B-ESPEJO-FANTASMA-RECHAZADO: reservas rechazadas para correccion que nunca se corrigen/cancelan mantienen el espejo en Pendiente y bloquean el horario. Requiere script de reconciliacion.
+- [MEDIA] B-REMOVER-KILLSWITCH: retirar SOLAPAMIENTO_CROSSCHECK_ENABLED tras estabilizar en PROD.
+- [MEDIA] B-MIRROR-WHITELIST (ya registrada): el batch.set al espejo propaga campos de auditoria por spread; evaluar whitelist.
+
+
+
+**Actualizacion 19/11/2026 - Auditorias pre-deploy BUG-2 (solo lectura):**
+- [x] Replay DEV: 79/79 conflictos de instructor y 76/76 de moto detectados; 0 mismatches y 0 falsos positivos en 60 combinaciones; queries 'in' consistentes.
+- [x] PROD: 0 espejos fantasma, 0 colisiones existentes, 0 locks activos; 1 lock expirado (30/11 h2) sin impacto.
+- [x] Locks huerfanos 19/11 h2 y 23/11 h1: ya no existen en ocupacionTemporal/locks. Deuda B-LOCK-HUERFANO cerrada de facto.
+- [ ] Pendiente: happy path en DEV y deploy a PROD con autorizacion del Operador.
+
+
+
+**Actualizacion 19/11/2026 - Paridad DEV/PROD y hotfix auto-jump:**
+- [x] HOTFIX `if (true) return;` agregado tambien en DEV (AgendarPackView.jsx). Diff DEV vs PROD: solo las 9 lineas de reset BUG-2.
+- [x] Regla vigente: los archivos DEV y PROD deben ser siempre identicos; la divergencia se elimina en el mismo release.
+- [INFO] El auto-jump queda desactivado en ambos entornos hasta B-AUTOJUMP-REDISENO. Alternativas futuras: retirar hotfix tras validacion o flag por entorno con dictamen FIRE + MAMBA.
+
+
+
+**Cierre deploy BUG-2 (19/11/2026):**
+- [x] Deploy hosting PROD OK (89 archivos). Sitio 200; chunks con slot-occupied verificados en vivo.
+- [x] Paridad src DEV/PROD: 0 diferencias por SHA256 (incluye hotfix auto-jump en ambos).
+- [x] Backups: PROD backup/pre-deploy-bug2-crosscheck; DEV backup/pre-bug2-crosscheck y backup/pre-hotfix-parity.
+- [ ] Pendiente: smoke test happy path (reserva normal) y monitoreo de errores slot-occupied/ocupacion-no-verificable.
+

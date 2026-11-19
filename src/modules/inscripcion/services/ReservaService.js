@@ -5,10 +5,120 @@ import { db, auth } from '../../shared/firebase/firebase';
 import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, serverTimestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
+import { LockService } from './LockService';
+import { construirSlotsObjetivo, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
+import { consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
 
 const appId = 'motoescuela-pro-v1';
 
 const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId'];
+
+// ⚠️ NO DESACTIVAR EN PROD: previene solapamiento de reservas (BUG-2).
+// Kill-switch de build: si se desactiva, el cross-check se omite (solo para rollback operativo).
+const SOLAPAMIENTO_CROSSCHECK_ENABLED = true;
+
+/**
+ * Cross-check de ocupacion antes de crear una reserva (BUG-2).
+ * Se ejecuta fuera de runTransaction porque el SDK cliente no permite queries
+ * dentro de transacciones. Politica fail-closed total (dictamen MAMBA 19/11/2026):
+ *  - error de red/permisos o truncamiento => no se crea la reserva.
+ *  - conflicto => se libera el lock y se retorna slot-occupied.
+ */
+async function validarDisponibilidadAntesDeCrear({
+  fecha,
+  fecha2 = null,
+  horaId,
+  instructorId = null,
+  motoAsignadaId = null,
+  userId = null,
+  lockId = null,
+  contexto = 'reserva'
+}) {
+  if (!SOLAPAMIENTO_CROSSCHECK_ENABLED) {
+    console.error('[SOLAPAMIENTO] Kill-switch desactivado; cross-check omitido.', { contexto });
+    return { ok: true };
+  }
+
+  const slots = construirSlotsObjetivo({ fecha, fecha2, horaId });
+  if (slots.length === 0 || !instructorId) return { ok: true };
+
+  const fechas = [...new Set(slots.map(s => s.fecha))];
+  const traceId = `SOL-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    const [ocupacion, locks] = await Promise.all([
+      consultarOcupacionPorFechas(fechas),
+      consultarLocksTemporalesPorFechas(fechas)
+    ]);
+
+    if (ocupacion.truncado || locks.truncado) {
+      console.error('[SOLAPAMIENTO] Consulta truncada; fail-closed.', { traceId, contexto, fechas });
+      return {
+        ok: false,
+        error: {
+          code: 'ocupacion-no-verificable',
+          message: 'No pudimos verificar la disponibilidad. Intenta de nuevo en unos segundos.',
+          traceId
+        }
+      };
+    }
+
+    const conflictoReserva = detectarSolapamiento({
+      reservasConfirmadas: ocupacion.reservas,
+      slotsObjetivo: slots,
+      instructorId,
+      motoAsignadaId
+    });
+    const conflictoLock = detectarLocksActivos({
+      locksTemporales: locks.locks,
+      slotsObjetivo: slots,
+      instructorId,
+      currentUserId: userId
+    });
+
+    if (conflictoReserva.haySolapamiento || conflictoLock.hayConflicto) {
+      const conflictos = [...conflictoReserva.conflictos, ...conflictoLock.conflictos];
+      console.warn('[SOLAPAMIENTO] Conflicto detectado', { traceId, contexto, conflictos });
+
+      if (lockId) {
+        await LockService.liberarLock(lockId).catch(err => {
+          console.warn('[SOLAPAMIENTO] No se pudo liberar el lock', {
+            traceId,
+            lockId,
+            error: err?.message
+          });
+        });
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: 'slot-occupied',
+          message: 'Ese horario acaba de ser ocupado por otra reserva. Elegí otro bloque.',
+          traceId
+        }
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error('[SOLAPAMIENTO] Error de verificación; fail-closed.', {
+      traceId,
+      contexto,
+      code: error?.code,
+      message: error?.message
+    });
+    return {
+      ok: false,
+      error: {
+        code: 'ocupacion-no-verificable',
+        message: 'No pudimos verificar la disponibilidad. Revisa tu conexión e intenta de nuevo.',
+        traceId
+      }
+    };
+  }
+}
+
 export const ReservaService = {
   // -------------------------------------------------
   // PROGRESO DE INSCRIPCIÓN
@@ -159,6 +269,20 @@ export const ReservaService = {
       console.error('[crearReserva] Error validando prereqs:', err);
     }
 
+    // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
+    const motoObjetivo = (cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null);
+    const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
+      fecha: reservaData.fecha,
+      fecha2: reservaData.fecha2 || null,
+      horaId: reservaData.horaId,
+      instructorId: reservaData.instructorId || null,
+      motoAsignadaId: motoObjetivo,
+      userId: reservaData.userId,
+      lockId,
+      contexto: 'crearReserva'
+    });
+    if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
+
     const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
     const reservaDoc = doc(reservasRef);
     const lockRef = doc(db, 'locks', lockId);
@@ -230,9 +354,11 @@ export const ReservaService = {
           fecha: datosReserva.fecha,
           fecha2: datosReserva.fecha2,
           horaId: datosReserva.horaId,
+          horaIdReposicion: datosReserva.horaIdReposicion || null,
           instructorId: datosReserva.instructorId,
           tipoCurso: datosReserva.tipoCurso || null,
           motoAsignadaId: datosReserva.motoAsignadaId,
+          motoReposicionId: datosReserva.motoReposicionId || null,
           traeMoto: datosReserva.traeMoto,
           sedeId: datosReserva.sedeId,          
           estadoPago: 'Pendiente',
@@ -293,6 +419,19 @@ export const ReservaService = {
       console.warn('[crearReservaPack] Error validando pack activo:', err);
       // fail-open: no bloquear si la validación falla por red
     }
+
+    // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
+    const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
+      fecha: packData.fecha || null,
+      fecha2: packData.fecha2 || null,
+      horaId: packData.horaId || null,
+      instructorId: packData.instructorId || null,
+      motoAsignadaId: packData.motoAsignadaId || null,
+      userId: usuarioActual.uid,
+      lockId,
+      contexto: 'crearReservaPack'
+    });
+    if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
 
     const packRef = doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId);
     const maestraRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack'));
@@ -508,9 +647,11 @@ export const ReservaService = {
           fecha: datosChild.fecha,
           fecha2: datosChild.fecha2,
           horaId: datosChild.horaId,
+          horaIdReposicion: datosChild.horaIdReposicion || null,
           instructorId: datosChild.instructorId,
           tipoCurso: datosChild.tipoCurso,
           motoAsignadaId: datosChild.motoAsignadaId,
+          motoReposicionId: datosChild.motoReposicionId || null,
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Pendiente',
@@ -567,6 +708,19 @@ export const ReservaService = {
     const lockRef = doc(db, 'locks', lockId);
     const temporalRef = doc(db, 'ocupacionTemporal', lockId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childRef.id);
+
+    // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
+    const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
+      fecha: packData.fecha || null,
+      fecha2: packData.fecha2 || null,
+      horaId: packData.horaId || null,
+      instructorId: packData.instructorId || null,
+      motoAsignadaId: packData.motoAsignadaId || null,
+      userId: usuarioActual.uid,
+      lockId,
+      contexto: 'agendarSiguienteCursoPack'
+    });
+    if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
 
     try {
       let childIdFinal = null;
@@ -762,9 +916,11 @@ export const ReservaService = {
           fecha: datosChild.fecha,
           fecha2: datosChild.fecha2,
           horaId: datosChild.horaId,
+          horaIdReposicion: datosChild.horaIdReposicion || null,
           instructorId: datosChild.instructorId,
           tipoCurso: datosChild.tipoCurso,
           motoAsignadaId: datosChild.motoAsignadaId,
+          motoReposicionId: datosChild.motoReposicionId || null,
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Aprobado',

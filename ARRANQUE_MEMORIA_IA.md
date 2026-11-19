@@ -2582,3 +2582,52 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 
 **Regla de proceso (19/11/2026):** Toda modificacion (codigo o documentos) se realiza en DEV y luego se sincroniza a PROD. Nunca editar PROD primero.
+
+
+### SESION 19/11/2026 - BUG-2 implementado en DEV: cross-check de ocupacion confirmada
+
+**Estado:** Implementado y compilado en DEV (build 14.16s, bundle contiene slot-occupied). NO se toco PROD. Pendiente: pruebas E2E manuales en DEV y deploy con autorizacion.
+
+**Confluencia FIRE + MAMBA + Deek (19/11):**
+- Pre-check fuera de runTransaction (el SDK cliente no permite queries dentro de transacciones).
+- Fail-closed total: error de red/permisos o truncamiento abortan la creacion (MAMBA).
+- D1: consulta a ocupacionTemporal, NO a locks (las reglas solo permiten leer locks propios o admin).
+- Sin excluir reservas del propio usuario en el espejo (idempotencia y doble sesion).
+- Cross-check de instructor y de moto, normalizando traeMoto ('Si' con y sin tilde).
+- Kill-switch de build SOLAPAMIENTO_CROSSCHECK_ENABLED (prohibido configurable desde cliente).
+- Punto de FIRE rechazado: el espejo NO pasa a 'Rechazado' al rechazar para correccion (regla de negocio: sigue bloqueando el horario). Se registra deuda de espejos fantasma.
+
+**Archivos nuevos:**
+- src/modules/inscripcion/utils/solapamientoHelpers.js
+- src/modules/inscripcion/services/ocupacionRepository.js
+
+**Archivos modificados:**
+- src/modules/inscripcion/services/ReservaService.js (cross-check en 3 flujos + horaIdReposicion/motoReposicionId en espejo)
+- src/modules/inscripcion/views/InscripcionView.jsx (reset de lock ante slot-occupied)
+- src/modules/estudiante/views/AgendarPackView.jsx (reset de lock ante slot-occupied)
+- src/modules/admin/components/AdminReservaDetalle.jsx (cambio total de horario limpia D2 obsoleto)
+
+**Pruebas:**
+- Build DEV: OK.
+- Fixtures del helper puro: 15/15 PASS (D2 con horaIdReposicion, moto propia con/sin tilde, reserva propia, locks ajenos/expirados, estados inactivos).
+- Pendiente: E2E manual con 2 cuentas en DEV (reserva individual, compra de pack, siguiente curso de pack, fail-closed offline).
+
+**Nota operativa:** El dev server de Vite (npm run dev --host) mantiene mapeado AgendarPackView.jsx; si el editor falla al escribir, detener el dev server o usar reemplazo controlado (ya ocurrio y se resolvio renombrando el archivo al backup).
+
+
+
+**Auditorias pre-deploy (19/11/2026, solo lectura, scripts eliminados tras uso):**
+- DEV replay: 54 espejos activos; 79/79 slots de instructor y 76/76 slots de moto detectados como conflicto; 60 combinaciones libres sin mismatches ni falsos positivos; queries 'in' consistentes. VEREDICTO: OK.
+- PROD fantasmas: 17 reservas/espejos en rango (19/11 a 18/01), 0 espejos fantasma, 0 colisiones existentes, 0 locks activos, 1 lock expirado (30/11 h2, expiro 19/11 20:05Z) sin impacto. Los locks huerfanos de 19/11 h2 y 23/11 h1 ya no existen.
+- Conclusion: el cross-check esta validado contra datos reales y no bloquea horarios legitimos. Pendiente: happy path en DEV y deploy a PROD con autorizacion.
+
+
+
+**Regla de paridad DEV/PROD (19/11/2026):** Los archivos de codigo de DEV y PROD deben ser siempre identicos. No se permite divergencia permanente; cualquier diferencia se resuelve en el mismo release. Excepcion temporal unica: durante el desarrollo, DEV puede ir adelante hasta el deploy.
+
+**Estado hotfix auto-jump (19/11/2026):** El HOTFIX `if (true) return;` de AgendarPackView.jsx ahora existe en DEV y en PROD. El auto-jump queda desactivado en ambos entornos hasta el rediseno (B-AUTOJUMP-REDISENO). Opciones futuras: retirar el hotfix en DEV, validar con monitoreo de cuota y sincronizar; o flag por entorno (import.meta.env.DEV) con dictamen FIRE + MAMBA.
+
+
+
+**Post-deploy BUG-2 (19/11/2026):** Deploy a PROD completado (89 archivos, release completa). Verificacion en vivo: sitio HTTP 200; chunks AgendarPackView-CfrkTym4.js e InscripcionView-IqQkOKk1.js responden 200 y contienen slot-occupied. Paridad total src DEV/PROD: 0 diferencias (SHA256). Auto-jump desactivado en ambos por hotfix. Backups PROD: backup/pre-deploy-bug2-crosscheck. Pendiente: smoke test de reserva normal (happy path) y monitoreo de logs.
+
