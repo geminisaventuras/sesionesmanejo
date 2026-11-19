@@ -6,6 +6,7 @@
 // en la disponibilidad calculada.
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { collection, query, where, limit, onSnapshot, getDocs } from 'firebase/firestore';
+import { useStableArray } from './useStableArray';
 import { db } from '../firebase';
 
 // Constantes estables fuera del hook
@@ -28,7 +29,8 @@ export function useOcupacionConfirmada(options = {}) {
     tiempoReal = true
   } = options;
 
-  const [ocupacion, setOcupacion] = useState([]);
+  const [ocupacionRaw, setOcupacion] = useState([]);
+  const ocupacion = useStableArray(ocupacionRaw);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [fechaConsultada, setFechaConsultada] = useState(null);

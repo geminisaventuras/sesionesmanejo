@@ -348,13 +348,13 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - **[MEDIA] B151** â€“ Alinear la estructura de directorios al Mapa FÃ­sico canÃ³nico del Manual del Arquitecto (SecciÃ³n II). Actualmente no existen las carpetas `routes/`, `controllers/`, `repositories/`, `schemas/` (por mÃ³dulo) y `tests/`.
 - **[MEDIA] B152** â€“ MigraciÃ³n progresiva a la estructura hÃ­brida (Manual adaptado a React + Firebase) descrita en la sesiÃ³n del 24/06/2026. Incluye mover esquemas a cada mÃ³dulo, crear `routes/` modularizadas y renombrar vistas como controladores.
 ---
-### Actualización 24/06/2026 – Auditoría de Endurecimiento y SRE
+### Actualizaciï¿½n 24/06/2026 ï¿½ Auditorï¿½a de Endurecimiento y SRE
 
-**Deuda técnica registrada:**
-- **[BAJA] B150** – Implementar generación de TraceID único por petición en el frontend y propagarlo a las transacciones de Firestore (Sección IV del Manual).
-- **[MEDIA] B153** – Implementar pruebas unitarias en el módulo inscripcion (carpeta 	ests/). Actualmente no existen pruebas de caja negra para los flujos HTTP 200, 400 y 409.
-- **[BAJA]** – Agregar capitalización automática (trim + capitalizar) en el campo Nombre del paso 1 (Sección III.2).
-- **[BAJA]** – Evaluar implementación de Rate Limiting si se migra al plan Blaze de Firebase (Sección III.3).
+**Deuda tï¿½cnica registrada:**
+- **[BAJA] B150** ï¿½ Implementar generaciï¿½n de TraceID ï¿½nico por peticiï¿½n en el frontend y propagarlo a las transacciones de Firestore (Secciï¿½n IV del Manual).
+- **[MEDIA] B153** ï¿½ Implementar pruebas unitarias en el mï¿½dulo inscripcion (carpeta 	ests/). Actualmente no existen pruebas de caja negra para los flujos HTTP 200, 400 y 409.
+- **[BAJA]** ï¿½ Agregar capitalizaciï¿½n automï¿½tica (trim + capitalizar) en el campo Nombre del paso 1 (Secciï¿½n III.2).
+- **[BAJA]** ï¿½ Evaluar implementaciï¿½n de Rate Limiting si se migra al plan Blaze de Firebase (Secciï¿½n III.3).
 
 ## Actualizacion 2026-11-13 - Cierre Directorio y Deploy PROD
 
@@ -368,3 +368,16 @@ B15, B17, B27, B42a, B43, B50, B51, B55, B62, B76, C1, C2, B71-B74, B14/B46/B60.
 - [DEUDA-FICHA-EDITABLE] Permitir editar datos (telefono, correo) desde la ficha.
 - [DEUDA-PROXIMO-SERVICIO] Widget de proxima clase en Ficha del Tutor.
 - [DEUDA-LIMPIEZA-PROD] Verificar si los movimientos huerfanos de packs requieren limpieza.
+
+
+### Actualizacion 2026-11-19 - BUG-1 resuelto y deploy PROD
+
+**Cerrado:**
+- [x] BUG-1: reasignarInstructor registra evento reasignacion_tutor en reprogramaciones (arrayUnion + increment). Deploy PROD verificado (chunk AdminReservaDetalle-BaCKGH-E.js).
+
+**Deudas registradas:**
+- [CRITICO] BUG-2: crearReserva / crearReservaPack / agendarSiguienteCursoPack no validan cross-check contra ocupacionConfirmada. Resolucion aprobada: opcion (a) pre-query + validacion dentro de transaccion. Opcion (b) MAMBA (coleccion slotsInstructor con ID deterministico) queda como deuda post-MVP con backfill.
+- [MEDIA] El batch.set al espejo ocupacionConfirmada propaga reprogramaciones, motivoRelevo y reasignadoPor por el spread de datosActualizacion. Evaluar whitelist de campos del espejo.
+- [MEDIA] Formalizar B-DEPLOY-VERIFICACION: grep del chunk post-build + HTTP 200 y contenido del chunk post-deploy.
+- [INFO] Divergencia intencional DEV/PROD en AgendarPackView.jsx (auto-jump desactivado solo en PROD). No sincronizar.
+

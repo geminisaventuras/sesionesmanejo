@@ -11,7 +11,7 @@ import {
   ChevronLeft, CheckCircle, AlertCircle, X, User, Users, Phone, Mail, MapPin,
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings, Check, MessageCircle
 } from 'lucide-react';
-import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, Timestamp, updateDoc } from 'firebase/firestore';
+import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, increment, Timestamp, updateDoc } from 'firebase/firestore';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { db } from '../../../firebase';
@@ -350,12 +350,23 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
       if (!instructorInicioCurso) {
         // Reasignación simple — sin split. La comisión va completa al nuevo instructor.
+        // BUG-1 FIX (19/11): registrar evento de auditoría (MAMBA: Timestamp.now() dentro del array, NO serverTimestamp())
         datosActualizacion = {
           instructorId: instructorDestinoId,
           instructorAnteriorId: instructorOrigenId,
           motivoRelevo: motivo || '',
           reasignadoPor: user?.uid || 'admin',
-          reasignadoEn: serverTimestamp()
+          reasignadoEn: serverTimestamp(),
+          reprogramaciones: arrayUnion({
+            tipo: 'reasignacion_tutor',
+            timestamp: Timestamp.now(),
+            autor: user?.uid || 'admin',
+            autorRol: 'admin',
+            motivo: (motivo || '').trim(),
+            antes: { instructorId: instructorOrigenId },
+            despues: { instructorId: instructorDestinoId }
+          }),
+          reprogramacionesCount: increment(1)
         };
       } else {
         // Split — A inició el curso, se reparte la comisión.
@@ -393,7 +404,19 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           esReservaCompartida: true,
           motivoRelevo: motivo || '',
           reasignadoPor: user?.uid || 'admin',
-          reasignadoEn: serverTimestamp()
+          reasignadoEn: serverTimestamp(),
+          reprogramaciones: arrayUnion({
+            tipo: 'reasignacion_tutor',
+            timestamp: Timestamp.now(),
+            autor: user?.uid || 'admin',
+            autorRol: 'admin',
+            motivo: (motivo || '').trim(),
+            antes: { instructorId: instructorOrigenId },
+            despues: { instructorId: instructorDestinoId },
+            esSplit: true,
+            instructoresInvolucrados
+          }),
+          reprogramacionesCount: increment(1)
         };
       }
 

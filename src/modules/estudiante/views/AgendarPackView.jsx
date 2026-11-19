@@ -8,6 +8,7 @@ import { ReservaService } from '../../inscripcion/services/ReservaService';
 import { LockService } from '../../../services/LockService';
 import { useDisponibilidadPack } from '../../inscripcion/hooks/useDisponibilidadPack';
 import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
+import { useStableArray } from '../../../hooks/useStableArray';
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
 import { afectaFechaAdmin, afectaHorarioAdmin } from '../../shared/utils/bloqueosHelpers';
@@ -47,7 +48,8 @@ export function AgendarPackView() {
   const [lockExpiresAt, setLockExpiresAt] = useState(null);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeLocks, setActiveLocks] = useState([]);
+  const [activeLocksRaw, setActiveLocks] = useState([]);
+  const activeLocks = useStableArray(activeLocksRaw);
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
   const [tiempoRestante, setTiempoRestante] = useState(null);
@@ -147,14 +149,16 @@ export function AgendarPackView() {
   // SSOT-BLOQUEOS: reemplazado por useBloqueosAdmin hook (más abajo en el componente).
 
   // ─── Listener de locks ──────────────────────────────────────────
+  const getTodayStrRef = useRef(ctx.getTodayStr);
+
   useEffect(() => {
-    if (!fbUser) return;
-    const fechaAEscuchar = fecha1 || ctx.getTodayStr();
+    if (!fbUser?.uid) return;
+    const fechaAEscuchar = fecha1 || getTodayStrRef.current();
     const cleanup = LockService.escucharOcupacionTemporal(fechaAEscuchar, (locks) => {
       setActiveLocks(locks);
     });
     return () => cleanup();
-  }, [fecha1, fbUser, ctx]);
+  }, [fecha1, fbUser?.uid]);
 
   // ─── Contador del lock ──────────────────────────────────────────
   useEffect(() => {
@@ -234,18 +238,19 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     // → heredar del pack (SSOT ya guardado al comprar).
     if (pack?.tipoMoto) return pack.tipoMoto;
 
-    // Fallback legacy: SOLO si hay exactamente 1 básico en el pack
-    // (evita Resource Hijacking si hay 2+ básicos).
+    // FIX (17/11/2026): Heredar del básico del pack SIEMPRE (dictamen FIRE + MAMBA).
+    // El pack se construye a partir de un básico, así que es la fuente confiable.
     const basicos = (pack?.cursoIds || [])
       .map(id => (ctx.cursos || []).find(c => String(c.id) === String(id)))
       .filter(c => c?.tipoCurso === 'basico_auto' || c?.tipoCurso === 'basico_sincro');
 
-    if (basicos.length === 1 && basicos[0]?.tiposMotoEscuela?.length > 0) {
-      return basicos[0].tiposMotoEscuela[0];
+    const basicoConTipos = basicos.find(b => b?.tiposMotoEscuela?.length > 0);
+    if (basicoConTipos) {
+      return basicoConTipos.tiposMotoEscuela[0];
     }
 
-    // Fail-safe: pack sin tipoMoto y fallback ambiguo.
-    console.warn('[SRE-PACK-TIPOMOTO] Pack sin tipoMoto y fallback no aplicable.', {
+    // Fail-safe: pack sin tipoMoto y sin básico con tipos definidos.
+    console.warn('[SRE-PACK-TIPOMOTO] Pack sin tipoMoto y sin básico con tipos. Contactar admin.', {
       packId: pack?.id,
       cantidadBasicos: basicos.length,
       cursoActual: cursoData?.id,
@@ -294,6 +299,8 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
   // fecha con disponibilidad real. Mismo patrón que InscripcionView.
   // Solo se ejecuta cuando fecha1 === '' (no sobreescribe elección del usuario).
   useEffect(() => {
+    if (true) return; // 🔴 HOTFIX 17/11: desactivado temporalmente por loop de fechas
+    if (!tipoMotoEfectivo) return;
     if (cargandoBloqueos) return;
     if (cargandoOcupacion) return;
 
@@ -313,13 +320,23 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     const primerDiaLibre = disponibilidad.diasDisponibles.find(d => d.disponible);
     if (!primerDiaLibre) return;
     if (primerDiaLibre.fecha === fecha1) return;
+    isAutoJumpRef.current = true;
     setFecha1(primerDiaLibre.fecha);
-  }, [fecha1, disponibilidad, ctx, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
+  }, [tipoMotoEfectivo, fecha1, disponibilidad, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
 
   // ─── Reset lock si cambia la fecha ──────────────────────────────
+  const isAutoJumpRef = useRef(false);
   const fechaAnteriorRef = useRef(fecha1);
   useEffect(() => {
     if (fechaAnteriorRef.current === fecha1) return;
+    
+    // Freno Táctico (FIRE + MAMBA): Si el cambio vino del auto-jump, no liberar lock.
+    if (isAutoJumpRef.current) {
+      isAutoJumpRef.current = false;
+      fechaAnteriorRef.current = fecha1;
+      return;
+    }
+    
     if (lockId && horaId) {
       LockService.liberarLock(lockId).catch(() => {});
       setLockId('');

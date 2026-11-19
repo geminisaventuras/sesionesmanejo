@@ -349,3 +349,23 @@ Esto garantiza un punto de restauración antes de cada modificación.
 **Deuda Principal:**
 - Falta permitir editar datos del actor directamente desde su ficha.
 - Recordar limpiar scripts temporales y revisar el encoding en MINGW64.
+
+
+### SESION 19/11/2026 - BUG-1 resuelto: auditoria de reasignacion de tutor
+
+**Estado:** PROD actualizado y verificado. Deploy hosting OK (89 archivos; chunk AdminReservaDetalle-BaCKGH-E.js responde HTTP 200 y contiene reasignacion_tutor).
+
+**BUG-1 (trazabilidad):**
+- Causa: reasignarInstructor actualizaba instructorId, instructorAnteriorId, motivoRelevo, reasignadoPor y reasignadoEn, pero NO registraba evento en reprogramaciones ni incrementaba reprogramacionesCount.
+- Fix (dictamen FIRE + MAMBA): evento tipo reasignacion_tutor con Timestamp.now() dentro del array (NO serverTimestamp), arrayUnion + increment(1), en rama simple y rama split.
+- Archivo: src/modules/admin/components/AdminReservaDetalle.jsx (import increment agregado).
+- Backup previo: backup/pre-deploy-bug1-reasignacion/AdminReservaDetalle.jsx.backup-20261119-145447.
+
+**Divergencia intencional DEV/PROD:**
+- AgendarPackView.jsx: PROD mantiene HOTFIX (auto-jump desactivado) por INC-2026-11-17. DEV NO lo tiene para poder redisenar. NO sincronizar este archivo hasta cerrar B-AUTOJUMP-REDISENO.
+
+**Pendiente inmediato:**
+- BUG-2: cross-check contra ocupacionConfirmada en crearReserva, crearReservaPack y agendarSiguienteCursoPack. Resolucion aprobada: opcion (a) pre-query + validacion; opcion (b) slotsInstructor como deuda post-MVP.
+- Reparar historial de Simon (evento reasignacion_tutor del 19/11 17:01Z no registrado).
+- Registro manual cliente 19/11 10am y locks huerfanos 19/11 h2 y 23/11 h1.
+

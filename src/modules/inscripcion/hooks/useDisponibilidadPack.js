@@ -251,7 +251,11 @@ export function useDisponibilidadPack({
   clockTick = 0
 }) {
   return useMemo(() => {
-    if (!instructores?.length || !motos?.length || !horarios?.length) return null;
+    const emptyResult = { diasDisponibles: [], bloques: [], fecha2Calc: null, maxDate: null };
+    
+    if (!instructores?.length || !motos?.length || !horarios?.length) return emptyResult;
+    if (!form.sedeId || !form.tipoMoto) return emptyResult;
+    
     const cursoUnDia = (cursoSeleccionado?.duracionTotal || 240) <= 120;
     return evaluarDisponibilidad({
       form, horarios, instructores, motos,
