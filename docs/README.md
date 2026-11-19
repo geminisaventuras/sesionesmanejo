@@ -18,11 +18,14 @@ docs/
 │   ├── _PLANTILLA.md              ← plantilla obligatoria
 │   ├── INDICE.md                  ← mapa de flujos, estado y deudas
 │   ├── 01-inscripcion-individual.md
-│   └── 02-reinscripcion-recuperacion.md
+│   ├── ...
+│   └── 13-operacion-deploy-backups.md
 ├── decisiones/
 │   └── ADR-001-riesgo-pin-pii-aceptado.md
 └── MIGRACION_PRODUCCION.md        ← runbook existente (se mantiene aquí)
 ```
+
+**Estado:** 13/13 flujos documentados (01-13), todos en 🟡 (verificados por código; pendiente prueba DEV/PROD y revisión FIRE/MAMBA de los críticos).
 
 ## Reglas de evidencia
 1. Toda afirmación de comportamiento cita `archivo:línea` o el símbolo exacto. Si no se verificó, se marca `[POR VERIFICAR]` o `[SUPUESTO]`.

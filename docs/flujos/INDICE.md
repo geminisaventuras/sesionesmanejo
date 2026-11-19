@@ -95,8 +95,8 @@ graph LR
 - `07-aprobacion-rechazo-pagos.md`
 - `08-reasignacion-horarios-d2.md`
 - `09-aula-virtual-sesiones.md`
-- `11-finanzas-movimientos.md`
 - `10-portales.md`
+- `11-finanzas-movimientos.md`
 - `12-teoricos.md`
 - `13-operacion-deploy-backups.md`
 
