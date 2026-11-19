@@ -2580,3 +2580,5 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Actualizacion 19/11/2026:** Reparacion aplicada - evento reasignacion_tutor del 19/11 17:01Z insertado retroactivamente en la reserva de Simon (count 1 -> 2). Backup previo: backup/prod/simon-RCPBr7pVP7OKu27o3mAW-2026-11-19T19-31-06-025Z.json. Script reparar-auditoria-simon.mjs eliminado tras uso.
 
+
+**Regla de proceso (19/11/2026):** Toda modificacion (codigo o documentos) se realiza en DEV y luego se sincroniza a PROD. Nunca editar PROD primero.
