@@ -2783,3 +2783,14 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-D2-PROVEEDOR (por verificar): motoReposicionId no actualiza proveedor.
 - [DEUDA] B-REASSIGN-PAGO-PARCIAL (por verificar).
 
+
+
+**Documentacion Fase 6 (19/11/2026):**
+- [x] Ficha 09 (aula virtual y sesiones) creada y enlazada.
+- [DEUDA] B-AULA-PRESENCIA-HEARTBEAT: sin heartbeat periodico; primer modulo bloqueado si presencia >2 min.
+- [DEUDA] B-REVERTIR-MODULO: estadoCurso queda Aprobado y el pack ya pudo avanzar.
+- [DEUDA] B-PAUSA-60: pausa >60 min no registra pausa ni finaliza curso.
+- [DEUDA] B-AULA-TIMESTAMPS-CLIENTE: tiempos con Date.now() del navegador, sin validacion de servidor.
+- [DEUDA] B-AULA-TZ: fechas Caracas vs hora local del navegador.
+- [DEUDA] B-AULA-MANUAL-COMPLETE, B-AULA-OFFLINE, B-AULA-ADMIN-ROUTE, B-AULA-EMERGENCIA.
+

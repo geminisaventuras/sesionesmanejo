@@ -2651,3 +2651,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 5 (19/11/2026):** Ficha 08 (reasignacion tutor, cambio moto, horario y D2). Hallazgos: el modal solo bloquea admin/proveedor (instructor/moto son advertencias); helper D2 ignora horaIdReposicion; auditoria se copia al espejo (legible por auth); cambio de horario permitido en canceladas; auditoria mutable. Deudas: B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO, B-REPROG-AUDIT-MUTABLE, B-D2-PROVEEDOR, B-REASSIGN-PAGO-PARCIAL.
 
+
+
+**Documentacion Fase 6 (19/11/2026):** Ficha 09 (aula virtual y sesiones). Hallazgos: presencia sin heartbeat periodico (ventana 2 min); revertir modulo no baja estadoCurso ni revierte pack; pausa >60 min no registra/finaliza; timestamps de sesion en cliente; TZ local vs Caracas; admin soportado en la vista pero no en la ruta. Deudas: B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-MANUAL-COMPLETE, B-AULA-TIMESTAMPS-CLIENTE, B-AULA-OFFLINE, B-AULA-ADMIN-ROUTE, B-AULA-EMERGENCIA.
+

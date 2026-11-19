@@ -13,7 +13,7 @@
 | 06 | Agendamiento de pack | 🟡 | 19/11/2026 (código) | `AgendarPackView.jsx`, `useDisponibilidadPack.js`, `ReservaService.agendarSiguienteCursoPack`, `avanzarPackTrasCompletarCurso` | B-PACK-RULES-OWNER, B-PACK-RULES-CHILD, B-PACK-AVANCE-FIRE-AND-FORGET |
 | 07 | Aprobación / rechazo / corrección de pagos | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `ReservaService.js`, `CorreccionPagoService.js`, `CorregirPagoView.jsx` | B-ESPEJO-FANTASMA, B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION |
 | 08 | Reasignación de tutor / cambio de horario / D2 | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `CambiarHorarioModal.jsx`, `ModalReasignarInstructor.jsx`, `reservaHorarioHelpers.js` | B-CROSSCHECK-ADMIN, B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO |
-| 09 | Aula virtual y sesiones | ⚪ | — | `AulaVirtualView.jsx`, `useSessionTimer.js` | — |
+| 09 | Aula virtual y sesiones | 🟡 | 19/11/2026 (código) | `AulaVirtualView.jsx`, `useSessionTimer.js`, `RelojSesion`, `ModuloItem` | B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-TIMESTAMPS-CLIENTE |
 | 10 | Portales (estudiante / instructor / proveedor) | ⚪ | — | `modules/estudiante`, `InstructorPanel`, `ProveedorPanel` | — |
 | 11 | Finanzas y movimientos | ⚪ | — | `AdminFinanzas.jsx`, `FirestoreProvider.saveMovimiento` | regla `movimientos.create` |
 | 12 | Teóricos | ⚪ | — | `InscripcionTeoricoView.jsx`, `AdminAccesoTeoricoDetalle.jsx` | — |
@@ -55,6 +55,11 @@ graph LR
 - **Auditoría copiada al espejo:** reasignación y cambio total escriben `reprogramaciones`, motivos y split en `ocupacionConfirmada`, legible por cualquier autenticado. Deuda `B-ESPEJO-AUDITORIA`.
 - **Cambio de horario en canceladas:** el botón y el handler no bloquean `estadoPago === 'Cancelado'`. Deuda `B-CAMBIO-CANCELADO`.
 - **Auditoría mutable:** `reprogramaciones` vive en la reserva y el admin puede reescribirla; no hay log inmutable. Deuda `B-REPROG-AUDIT-MUTABLE`.
+- **Presencia sin heartbeat periódico:** el estudiante solo actualiza `estudiantePresente` al montar/visibility/online; si espera >2 min, el instructor no puede iniciar el primer módulo. Deuda `B-AULA-PRESENCIA-HEARTBEAT`.
+- **Revertir módulo no revierte el estado:** `estadoCurso` sigue `Aprobado` y el pack ya pudo avanzar. Deuda `B-REVERTIR-MODULO`.
+- **Pausa >60 min inconsistente:** limpia `pausaActiva`/`moduloEnProgreso` sin registrar la pausa ni finalizar el curso. Deuda `B-PAUSA-60`.
+- **Timestamps de sesión en cliente:** `Date.now()` del navegador alimenta tiempos y finanzas; sin validación de servidor. Deuda `B-AULA-TIMESTAMPS-CLIENTE`.
+- **Zona horaria del aula:** fechas en Caracas vs hora de inicio en hora local del navegador. Deuda `B-AULA-TZ`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -71,10 +76,10 @@ graph LR
 - `06-agendamiento-pack.md`
 - `07-aprobacion-rechazo-pagos.md`
 - `08-reasignacion-horarios-d2.md`
+- `09-aula-virtual-sesiones.md`
 
 ## Pendiente de documentar (prioridad)
-1. 09 Aula virtual y sesiones.
-2. 11 Finanzas y movimientos.
-3. 10 Portales.
-4. 12 Teóricos.
-5. 13 Operación: deploy, backups, entornos.
+1. 11 Finanzas y movimientos.
+2. 10 Portales.
+3. 12 Teóricos.
+4. 13 Operación: deploy, backups, entornos.
