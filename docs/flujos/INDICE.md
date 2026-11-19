@@ -14,7 +14,7 @@
 | 07 | Aprobación / rechazo / corrección de pagos | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `ReservaService.js`, `CorreccionPagoService.js`, `CorregirPagoView.jsx` | B-ESPEJO-FANTASMA, B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION |
 | 08 | Reasignación de tutor / cambio de horario / D2 | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `CambiarHorarioModal.jsx`, `ModalReasignarInstructor.jsx`, `reservaHorarioHelpers.js` | B-CROSSCHECK-ADMIN, B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO |
 | 09 | Aula virtual y sesiones | 🟡 | 19/11/2026 (código) | `AulaVirtualView.jsx`, `useSessionTimer.js`, `RelojSesion`, `ModuloItem` | B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-TIMESTAMPS-CLIENTE |
-| 10 | Portales (estudiante / instructor / proveedor) | ⚪ | — | `modules/estudiante`, `InstructorPanel`, `ProveedorPanel` | — |
+| 10 | Portales (estudiante / instructor / proveedor) | 🟡 | 19/11/2026 (código) | `EstudiantePanel.jsx`, `InstructorPanel.jsx`, `ProveedorPanel.jsx`, `PerfilTab.jsx` | B-INSTRUCTOR-PERFIL-RULES, B-PROVEEDOR-MIRROR-PAGOS, B-INSTRUCTOR-SPLIT-VISIBILIDAD |
 | 11 | Finanzas y movimientos | 🟡 | 19/11/2026 (código) | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx` | B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY |
 | 12 | Teóricos | ⚪ | — | `InscripcionTeoricoView.jsx`, `AdminAccesoTeoricoDetalle.jsx` | — |
 | 13 | Operación: deploy, backups, entornos | ⚪ | — | `firebase.json`, `scripts/`, `docs/MIGRACION_PRODUCCION.md` | paridad de config |
@@ -65,6 +65,10 @@ graph LR
 - **`movimientos.create` abierto:** cualquier autenticado puede crear movimientos propios (`firestore.rules:191`). Deuda `B-MOVIMIENTOS-RULE`.
 - **Pago sin reconciliación:** `PagosStaffService.crearPago` acepta `montoTotal` sin compararlo con `detalles[].comision`. Deuda `B-PAGOS-MONTO-LIBRE`.
 - **Proveedor con doble ruta:** `AdminFinanzas` paga sin `pagosStaff` ni transacción; el modal sí. Deuda `B-PAGOS-PROVEEDOR-LEGACY`.
+- **Perfil de instructor bloqueado por reglas (CRÍTICO):** `PerfilTab` guarda en `instructores`, pero la regla solo permite escritura admin (`firestore.rules:85`); el botón siempre falla. Deuda `B-INSTRUCTOR-PERFIL-RULES`.
+- **Portal del proveedor sin datos de pago (CRÍTICO):** el espejo no escribe `pagadoProveedor` ni `estadoCurso`; muestra cobrado 0, todo por cobrar y completadas 0. Deuda `B-PROVEEDOR-MIRROR-PAGOS`.
+- **Colaborador de split invisible:** el panel del instructor filtra por `instructorId`; el colaborador solo ve la clase en Finanzas. Deuda `B-INSTRUCTOR-SPLIT-VISIBILIDAD`.
+- **Límites de portales:** instructor 100 reservas, proveedor 500 espejos; historial truncado sin aviso. Deuda `B-PORTAL-LIMITS`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -83,8 +87,8 @@ graph LR
 - `08-reasignacion-horarios-d2.md`
 - `09-aula-virtual-sesiones.md`
 - `11-finanzas-movimientos.md`
+- `10-portales.md`
 
 ## Pendiente de documentar (prioridad)
-1. 10 Portales.
-2. 12 Teóricos.
-3. 13 Operación: deploy, backups, entornos.
+1. 12 Teóricos.
+2. 13 Operación: deploy, backups, entornos.

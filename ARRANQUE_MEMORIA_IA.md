@@ -2659,3 +2659,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 7 (19/11/2026):** Ficha 11 (finanzas y movimientos). Hallazgo CRITICO: las tarjetas gananciaNeta/deudas usan pagoInstructor/pagoProveedor que las reservas no escriben (deuda 0, ganancia = ingresos). saveMovimiento pisa userId con el admin; movimientos.create abierto a cualquier auth; montoTotal sin reconciliar con detalles; proveedor con doble ruta (legacy sin pagosStaff). Deudas: B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY, B-MOVIMIENTOS-ID, B-FINANZAS-PROVEEDOR-CONFIG, B-PAGOS-PROVEEDOR-OWNERSHIP.
 
+
+
+**Documentacion Fase 8 (19/11/2026):** Ficha 10 (portales estudiante/instructor/proveedor). Hallazgos CRITICOS: PerfilTab guarda en instructores pero la regla solo permite admin (perfil del instructor siempre falla); el portal del proveedor calcula cobrado/por cobrar/completadas desde el espejo, que no tiene pagadoProveedor ni estadoCurso (0 cobrado, todo por cobrar). Ademas el colaborador de split no aparece en resumen/historial y hay limites 100/500. Deudas: B-INSTRUCTOR-PERFIL-RULES, B-PROVEEDOR-MIRROR-PAGOS, B-INSTRUCTOR-SPLIT-VISIBILIDAD, B-PORTAL-LIMITS, B-ESTUDIANTE-CTX-RESERVAS, B-PROVEEDOR-MIRROR-STALE, B-PORTAL-EAGER, B-PROVEEDOR-BLOQUEOS.
+

@@ -2805,3 +2805,12 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-PAGOS-PROVEEDOR-LEGACY: ruta sin pagosStaff ni transaccion.
 - [DEUDA] B-MOVIMIENTOS-ID, B-FINANZAS-PROVEEDOR-CONFIG, B-PAGOS-PROVEEDOR-OWNERSHIP.
 
+
+
+**Documentacion Fase 8 (19/11/2026):**
+- [x] Ficha 10 (portales estudiante/instructor/proveedor) creada y enlazada.
+- [DEUDA CRITICA] B-INSTRUCTOR-PERFIL-RULES: PerfilTab escribe instructores, regla solo admin; guardar perfil falla.
+- [DEUDA CRITICA] B-PROVEEDOR-MIRROR-PAGOS: el espejo no tiene pagadoProveedor/estadoCurso; portal muestra 0 cobrado y todo por cobrar.
+- [DEUDA] B-INSTRUCTOR-SPLIT-VISIBILIDAD: colaborador solo visible en Finanzas.
+- [DEUDA] B-PORTAL-LIMITS, B-ESTUDIANTE-CTX-RESERVAS, B-PROVEEDOR-MIRROR-STALE, B-PORTAL-EAGER, B-PROVEEDOR-BLOQUEOS.
+
