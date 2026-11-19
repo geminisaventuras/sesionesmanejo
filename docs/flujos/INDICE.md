@@ -11,7 +11,7 @@
 | 04 | Reserva y espejo `ocupacionConfirmada` | 🟡 | 19/11/2026 (código + auditorías) | `ReservaService.js`, `solapamientoHelpers.js`, `ocupacionRepository.js`, `AdminReservaDetalle.jsx` | B-SLOTS-INSTRUCTOR, B-CROSSCHECK-ADMIN, B-ESPEJO-FANTASMA |
 | 05 | Compra de pack | ⚪ | — | `ReservaService.crearReservaPack`, `Paso2Pack.jsx` | — |
 | 06 | Agendamiento de pack | ⚪ | — | `AgendarPackView.jsx`, `useDisponibilidadPack.js`, `ReservaService.agendarSiguienteCursoPack` | — |
-| 07 | Aprobación / rechazo / corrección de pagos | ⚪ | — | `AdminReservaDetalle.jsx`, `ReservaService` (pack) | — |
+| 07 | Aprobación / rechazo / corrección de pagos | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `ReservaService.js`, `CorreccionPagoService.js`, `CorregirPagoView.jsx` | B-ESPEJO-FANTASMA, B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION |
 | 08 | Reasignación de tutor / cambio de horario / D2 | ⚪ | — (BUG-1 desplegado) | `AdminReservaDetalle.jsx` | cross-check admin |
 | 09 | Aula virtual y sesiones | ⚪ | — | `AulaVirtualView.jsx`, `useSessionTimer.js` | — |
 | 10 | Portales (estudiante / instructor / proveedor) | ⚪ | — | `modules/estudiante`, `InstructorPanel`, `ProveedorPanel` | — |
@@ -41,6 +41,10 @@ graph LR
 - **Contradicción de `instructoresPermitidos`:** el flujo individual es **fail-closed** (`InscripcionView.jsx:105-109`) y el de packs es **fail-open** (`useDisponibilidadPack.js:43-50`), aunque `BITACORA_EXPERIENCIAL.md` afirma que quedaron homologados. No se tocó; requiere dictamen FIRE/MAMBA.
 - **PIN mostrado:** la memoria dice “tras Paso 1”; el código demuestra que solo se muestra **después del pago** (`InscripcionView.jsx:1699-1710`). Documentado en FLUJO-01/02.
 - **Campo `reserva.pin`:** se escribe pero **no se lee**; es una segunda copia del PIN visible para instructores.
+- **Movimiento de ingreso no atómico:** en la aprobación individual se crea después del commit; si falla, el pago queda aprobado sin movimiento (`AdminReservaDetalle.jsx:171`). En packs no se crea movimiento. Deuda `B-MOVIMIENTOS-ATOMICOS`.
+- **Límite de 3 intentos solo UI:** `rechazarPago` no valida el tope; la regla tampoco. Deuda `B-INTENTOS-CORRECCION`.
+- **`estadoCurso: 'En Curso'` al aprobar:** el SSOT (`getEstadoLogico`) lo ignora y devuelve `asignada`; dato engañoso.
+- **`rechazadoEn`:** número en individual, `Timestamp` en packs.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -53,9 +57,9 @@ graph LR
 - `02-reinscripcion-recuperacion.md`
 - `03-disponibilidad-locks.md`
 - `04-reserva-y-espejo.md`
+- `07-aprobacion-rechazo-pagos.md`
 
 ## Pendiente de documentar (prioridad)
-1. 07 Aprobación / rechazo / corrección de pagos.
-2. 05/06 Packs (compra y agendamiento).
-3. 08 Reasignación de tutor / cambio de horario / D2.
-4. Resto.
+1. 05/06 Packs (compra y agendamiento).
+2. 08 Reasignación de tutor / cambio de horario / D2.
+3. Resto.

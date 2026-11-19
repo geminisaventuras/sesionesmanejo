@@ -2639,3 +2639,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 2 (19/11/2026):** Agregadas fichas 03 (disponibilidad y locks) y 04 (reserva y espejo). Hallazgos documentados: instructoresPermitidos NO esta homologado (individual fail-closed, packs fail-open); el PIN se muestra solo despues del pago; reserva.pin es campo muerto. Deuda nueva: B-ESPACIO-LIMITE-100.
 
+
+
+**Documentacion Fase 3 (19/11/2026):** Agregada ficha 07 (aprobacion/rechazo/correccion de pagos). Hallazgos: movimiento de ingreso post-commit no atomico y ausente en packs; limite de 3 intentos solo UI; estadoCurso 'En Curso' al aprobar no lo usa el SSOT; rechazadoEn numero vs Timestamp. Deudas nuevas: B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION.
+

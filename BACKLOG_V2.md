@@ -2751,3 +2751,11 @@ Deudas cerradas en esta sesión
 - [HALLAZGO] instructoresPermitidos no homologado: individual fail-closed (InscripcionView:105-109) vs packs fail-open (useDisponibilidadPack:43-50). Requiere dictamen FIRE+MAMBA.
 - [DEUDA] B-ESPACIO-LIMITE-100: useOcupacionConfirmada limita a 100 docs por query; evaluar subir/paginar y medir cuota.
 
+
+
+**Documentacion Fase 3 (19/11/2026):**
+- [x] Ficha 07 (aprobacion/rechazo/correccion de pagos) creada y enlazada.
+- [DEUDA] B-MOVIMIENTOS-ATOMICOS: el ingreso se registra despues del commit y no es atomico; pack no registra movimiento (por verificar).
+- [DEUDA] B-INTENTOS-CORRECCION: el tope de 3 intentos es solo UI; no hay validacion en servicio ni reglas.
+- [HALLAZGO] estadoCurso 'En Curso' al aprobar no lo usa getEstadoLogico; rechazadoEn es number en individual y Timestamp en packs.
+
