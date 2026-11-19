@@ -2772,3 +2772,14 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-PACK-CREATEDAT: claves createdAt duplicadas en maestra/child.
 - [HALLAZGO] auto-jump de packs desactivado (AgendarPackView.jsx:302).
 
+
+
+**Documentacion Fase 5 (19/11/2026):**
+- [x] Ficha 08 (reasignacion tutor, cambio moto, horario y D2) creada y enlazada.
+- [DEUDA] B-D2-CONFLICTO-REPOSICION: helpers comparan solo horaId, no horaIdReposicion.
+- [DEUDA] B-ESPEJO-AUDITORIA: reprogramaciones/motivos/split se copian a ocupacionConfirmada.
+- [DEUDA] B-CAMBIO-CANCELADO: boton/handler permiten cambiar horario de canceladas.
+- [DEUDA] B-REPROG-AUDIT-MUTABLE: auditoria en reserva, editable; sin log inmutable.
+- [DEUDA] B-D2-PROVEEDOR (por verificar): motoReposicionId no actualiza proveedor.
+- [DEUDA] B-REASSIGN-PAGO-PARCIAL (por verificar).
+

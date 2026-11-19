@@ -2647,3 +2647,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 4 (19/11/2026):** Fichas 05 (compra de pack) y 06 (agendamiento de pack) creadas. Hallazgo CRITICO: reservasPack.update permite al dueno actualizar cualquier campo (estadoPago/precio/vencimiento) y la child pack_sub puede nacer Aprobado sin maestra aprobada; ademas precios/comisiones se calculan desde cursoSnapshot del cliente. Deudas nuevas: B-PACK-RULES-OWNER, B-PACK-RULES-CHILD, B-PACK-PRECIOS-CLIENTE, B-PACK-PRECIO-TEORICOS, B-PACK-DOBLE-COMPRA, B-PACK-AVANCE-FIRE-AND-FORGET, B-PACK-CREATEDAT. Auto-jump de packs desactivado (AgendarPackView.jsx:302).
 
+
+
+**Documentacion Fase 5 (19/11/2026):** Ficha 08 (reasignacion tutor, cambio moto, horario y D2). Hallazgos: el modal solo bloquea admin/proveedor (instructor/moto son advertencias); helper D2 ignora horaIdReposicion; auditoria se copia al espejo (legible por auth); cambio de horario permitido en canceladas; auditoria mutable. Deudas: B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO, B-REPROG-AUDIT-MUTABLE, B-D2-PROVEEDOR, B-REASSIGN-PAGO-PARCIAL.
+

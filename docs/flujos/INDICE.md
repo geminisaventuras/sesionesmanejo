@@ -12,7 +12,7 @@
 | 05 | Compra de pack | 🟡 | 19/11/2026 (código) | `PacksPublicosView.jsx`, `VistaPacks.jsx`, `InscripcionView.jsx`, `ReservaService.crearReservaPack` | B-PACK-RULES-OWNER, B-PACK-RULES-CHILD, B-PACK-PRECIOS-CLIENTE, B-PACK-PRECIO-TEORICOS, B-PACK-DOBLE-COMPRA |
 | 06 | Agendamiento de pack | 🟡 | 19/11/2026 (código) | `AgendarPackView.jsx`, `useDisponibilidadPack.js`, `ReservaService.agendarSiguienteCursoPack`, `avanzarPackTrasCompletarCurso` | B-PACK-RULES-OWNER, B-PACK-RULES-CHILD, B-PACK-AVANCE-FIRE-AND-FORGET |
 | 07 | Aprobación / rechazo / corrección de pagos | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `ReservaService.js`, `CorreccionPagoService.js`, `CorregirPagoView.jsx` | B-ESPEJO-FANTASMA, B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION |
-| 08 | Reasignación de tutor / cambio de horario / D2 | ⚪ | — (BUG-1 desplegado) | `AdminReservaDetalle.jsx` | cross-check admin |
+| 08 | Reasignación de tutor / cambio de horario / D2 | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `CambiarHorarioModal.jsx`, `ModalReasignarInstructor.jsx`, `reservaHorarioHelpers.js` | B-CROSSCHECK-ADMIN, B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO |
 | 09 | Aula virtual y sesiones | ⚪ | — | `AulaVirtualView.jsx`, `useSessionTimer.js` | — |
 | 10 | Portales (estudiante / instructor / proveedor) | ⚪ | — | `modules/estudiante`, `InstructorPanel`, `ProveedorPanel` | — |
 | 11 | Finanzas y movimientos | ⚪ | — | `AdminFinanzas.jsx`, `FirestoreProvider.saveMovimiento` | regla `movimientos.create` |
@@ -51,6 +51,10 @@ graph LR
 - **Avance de pack fire-and-forget:** si falla, el pack queda en el curso actual sin reintento. Deuda `B-PACK-AVANCE-FIRE-AND-FORGET`.
 - **Doble compra de pack:** el chequeo de pack activo es previo a la transacción y fail-open. Deuda `B-PACK-DOBLE-COMPRA`.
 - **Auto-jump desactivado en packs:** `AgendarPackView.jsx:302` neutraliza el salto automático a la primera fecha libre.
+- **Conflictos D2 no detectados:** `verificarDisponibilidadInstructor/Moto` compara solo `horaId`, no `horaIdReposicion` (`reservaHorarioHelpers.js:41-78`). Deuda `B-D2-CONFLICTO-REPOSICION`.
+- **Auditoría copiada al espejo:** reasignación y cambio total escriben `reprogramaciones`, motivos y split en `ocupacionConfirmada`, legible por cualquier autenticado. Deuda `B-ESPEJO-AUDITORIA`.
+- **Cambio de horario en canceladas:** el botón y el handler no bloquean `estadoPago === 'Cancelado'`. Deuda `B-CAMBIO-CANCELADO`.
+- **Auditoría mutable:** `reprogramaciones` vive en la reserva y el admin puede reescribirla; no hay log inmutable. Deuda `B-REPROG-AUDIT-MUTABLE`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -66,9 +70,11 @@ graph LR
 - `05-compra-pack.md`
 - `06-agendamiento-pack.md`
 - `07-aprobacion-rechazo-pagos.md`
+- `08-reasignacion-horarios-d2.md`
 
 ## Pendiente de documentar (prioridad)
-1. 08 Reasignación de tutor / cambio de horario / D2.
-2. 09 Aula virtual y sesiones.
-3. 11 Finanzas y movimientos.
-4. Resto (10, 12, 13).
+1. 09 Aula virtual y sesiones.
+2. 11 Finanzas y movimientos.
+3. 10 Portales.
+4. 12 Teóricos.
+5. 13 Operación: deploy, backups, entornos.
