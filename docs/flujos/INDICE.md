@@ -16,7 +16,7 @@
 | 09 | Aula virtual y sesiones | 🟡 | 19/11/2026 (código) | `AulaVirtualView.jsx`, `useSessionTimer.js`, `RelojSesion`, `ModuloItem` | B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-TIMESTAMPS-CLIENTE |
 | 10 | Portales (estudiante / instructor / proveedor) | 🟡 | 19/11/2026 (código) | `EstudiantePanel.jsx`, `InstructorPanel.jsx`, `ProveedorPanel.jsx`, `PerfilTab.jsx` | B-INSTRUCTOR-PERFIL-RULES, B-PROVEEDOR-MIRROR-PAGOS, B-INSTRUCTOR-SPLIT-VISIBILIDAD |
 | 11 | Finanzas y movimientos | 🟡 | 19/11/2026 (código) | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx` | B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY |
-| 12 | Teóricos | ⚪ | — | `InscripcionTeoricoView.jsx`, `AdminAccesoTeoricoDetalle.jsx` | — |
+| 12 | Teóricos | 🟡 | 19/11/2026 (código) | `TeoricoCursoView.jsx`, `TeoricoModuloView.jsx`, `AccesoTeoricoService.js`, `ProgresoTeoricoService.js` | B-TEORICO-MODULO-BYPASS, B-TEORICO-PRECIO-CLIENTE, B-TEORICO-VENCIMIENTO, B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE |
 | 13 | Operación: deploy, backups, entornos | ⚪ | — | `firebase.json`, `scripts/`, `docs/MIGRACION_PRODUCCION.md` | paridad de config |
 
 ## Mapa de dependencias (resumen)
@@ -69,6 +69,11 @@ graph LR
 - **Portal del proveedor sin datos de pago (CRÍTICO):** el espejo no escribe `pagadoProveedor` ni `estadoCurso`; muestra cobrado 0, todo por cobrar y completadas 0. Deuda `B-PROVEEDOR-MIRROR-PAGOS`.
 - **Colaborador de split invisible:** el panel del instructor filtra por `instructorId`; el colaborador solo ve la clase en Finanzas. Deuda `B-INSTRUCTOR-SPLIT-VISIBILIDAD`.
 - **Límites de portales:** instructor 100 reservas, proveedor 500 espejos; historial truncado sin aviso. Deuda `B-PORTAL-LIMITS`.
+- **Bypass de módulos teóricos (CRÍTICO):** `TeoricoModuloView` no valida acceso; cualquier usuario autenticado abre el módulo por URL y lo completa. Deuda `B-TEORICO-MODULO-BYPASS`.
+- **Precio teórico desde el cliente (CRÍTICO):** `crearAcceso` acepta el `precio` enviado por el navegador; la regla solo exige `precio > 0`. Deuda `B-TEORICO-PRECIO-CLIENTE`.
+- **Vencimiento teórico ignorado:** `TeoricoCursoView` no revisa `vencimiento`; un acceso temporal vencido sigue abierto. Deuda `B-TEORICO-VENCIMIENTO`.
+- **Doble compra teórica:** el pre-check no es transaccional. Deuda `B-TEORICO-DOBLE-COMPRA`.
+- **Quiz calculado en cliente:** el puntaje se envía desde el navegador sin validación. Deuda `B-TEORICO-QUIZ-CLIENTE`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -88,7 +93,7 @@ graph LR
 - `09-aula-virtual-sesiones.md`
 - `11-finanzas-movimientos.md`
 - `10-portales.md`
+- `12-teoricos.md`
 
 ## Pendiente de documentar (prioridad)
-1. 12 Teóricos.
-2. 13 Operación: deploy, backups, entornos.
+1. 13 Operación: deploy, backups, entornos.

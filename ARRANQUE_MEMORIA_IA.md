@@ -2663,3 +2663,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 8 (19/11/2026):** Ficha 10 (portales estudiante/instructor/proveedor). Hallazgos CRITICOS: PerfilTab guarda en instructores pero la regla solo permite admin (perfil del instructor siempre falla); el portal del proveedor calcula cobrado/por cobrar/completadas desde el espejo, que no tiene pagadoProveedor ni estadoCurso (0 cobrado, todo por cobrar). Ademas el colaborador de split no aparece en resumen/historial y hay limites 100/500. Deudas: B-INSTRUCTOR-PERFIL-RULES, B-PROVEEDOR-MIRROR-PAGOS, B-INSTRUCTOR-SPLIT-VISIBILIDAD, B-PORTAL-LIMITS, B-ESTUDIANTE-CTX-RESERVAS, B-PROVEEDOR-MIRROR-STALE, B-PORTAL-EAGER, B-PROVEEDOR-BLOQUEOS.
 
+
+
+**Documentacion Fase 9 (19/11/2026):** Ficha 12 (teoricos). Hallazgos CRITICOS: TeoricoModuloView no valida acceso (bypass por URL); crearAcceso confia en el precio del cliente; el vencimiento no se valida; doble compra no transaccional; puntaje de quiz calculado en cliente. Deudas: B-TEORICO-MODULO-BYPASS, B-TEORICO-PRECIO-CLIENTE, B-TEORICO-VENCIMIENTO, B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE, B-TEORICO-MOV-ATOMICO, B-TEORICO-APROBACION-DOBLE, B-TEORICO-CAPACIDAD.
+

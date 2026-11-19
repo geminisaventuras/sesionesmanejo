@@ -2814,3 +2814,12 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-INSTRUCTOR-SPLIT-VISIBILIDAD: colaborador solo visible en Finanzas.
 - [DEUDA] B-PORTAL-LIMITS, B-ESTUDIANTE-CTX-RESERVAS, B-PROVEEDOR-MIRROR-STALE, B-PORTAL-EAGER, B-PROVEEDOR-BLOQUEOS.
 
+
+
+**Documentacion Fase 9 (19/11/2026):**
+- [x] Ficha 12 (teoricos) creada y enlazada.
+- [DEUDA CRITICA] B-TEORICO-MODULO-BYPASS: el modulo se abre por URL sin acceso aprobado.
+- [DEUDA CRITICA] B-TEORICO-PRECIO-CLIENTE: el precio lo envia el navegador; la regla solo exige >0.
+- [DEUDA] B-TEORICO-VENCIMIENTO: el acceso temporal vencido sigue abierto.
+- [DEUDA] B-TEORICO-DOBLE-COMPRA, B-TEORICO-QUIZ-CLIENTE, B-TEORICO-MOV-ATOMICO, B-TEORICO-APROBACION-DOBLE, B-TEORICO-CAPACIDAD.
+
