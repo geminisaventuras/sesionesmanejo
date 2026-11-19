@@ -2759,3 +2759,16 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-INTENTOS-CORRECCION: el tope de 3 intentos es solo UI; no hay validacion en servicio ni reglas.
 - [HALLAZGO] estadoCurso 'En Curso' al aprobar no lo usa getEstadoLogico; rechazadoEn es number en individual y Timestamp en packs.
 
+
+
+**Documentacion Fase 4 (19/11/2026):**
+- [x] Fichas 05 (compra) y 06 (agendamiento) creadas y enlazadas.
+- [DEUDA CRITICA] B-PACK-RULES-OWNER: reservasPack.update permite al dueno cambiar estadoPago/precio/vencimiento (firestore.rules:243-251).
+- [DEUDA CRITICA] B-PACK-RULES-CHILD: child pack_sub puede nacer Aprobado sin validar maestra aprobada (firestore.rules:107-133).
+- [DEUDA CRITICA] B-PACK-PRECIOS-CLIENTE: backend calcula precios/comisiones desde cursoSnapshot del cliente.
+- [DEUDA] B-PACK-PRECIO-TEORICOS: UI suma teoricos, backend no; pagoTotalMoneda vs pagoTotalVES divergen.
+- [DEUDA] B-PACK-DOBLE-COMPRA: chequeo de pack activo no transaccional y fail-open.
+- [DEUDA] B-PACK-AVANCE-FIRE-AND-FORGET: avance del pack sin reintento.
+- [DEUDA] B-PACK-CREATEDAT: claves createdAt duplicadas en maestra/child.
+- [HALLAZGO] auto-jump de packs desactivado (AgendarPackView.jsx:302).
+

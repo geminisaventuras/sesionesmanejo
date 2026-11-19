@@ -2643,3 +2643,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 3 (19/11/2026):** Agregada ficha 07 (aprobacion/rechazo/correccion de pagos). Hallazgos: movimiento de ingreso post-commit no atomico y ausente en packs; limite de 3 intentos solo UI; estadoCurso 'En Curso' al aprobar no lo usa el SSOT; rechazadoEn numero vs Timestamp. Deudas nuevas: B-MOVIMIENTOS-ATOMICOS, B-INTENTOS-CORRECCION.
 
+
+
+**Documentacion Fase 4 (19/11/2026):** Fichas 05 (compra de pack) y 06 (agendamiento de pack) creadas. Hallazgo CRITICO: reservasPack.update permite al dueno actualizar cualquier campo (estadoPago/precio/vencimiento) y la child pack_sub puede nacer Aprobado sin maestra aprobada; ademas precios/comisiones se calculan desde cursoSnapshot del cliente. Deudas nuevas: B-PACK-RULES-OWNER, B-PACK-RULES-CHILD, B-PACK-PRECIOS-CLIENTE, B-PACK-PRECIO-TEORICOS, B-PACK-DOBLE-COMPRA, B-PACK-AVANCE-FIRE-AND-FORGET, B-PACK-CREATEDAT. Auto-jump de packs desactivado (AgendarPackView.jsx:302).
+
