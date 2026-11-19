@@ -25,7 +25,7 @@ No cubre la lógica de negocio de cada flujo; esos están en las fichas 01-12.
 ## 3. Fuente de verdad y estado de Git
 - **Regla del proyecto:** se modifica primero en DEV; PROD recibe copia y es el repo que se commitea/pushea (`INSTRUCCIONES_A_LA_IA.md:33`, regla 11).
 - **DEV no está limpio:** `main` está `ahead 3, behind 8` y hay cientos de archivos modificados/untracked (incluidos `docs/`, `src/`, `firestore.rules`, `.firebaserc`). La fuente de verdad real es el **filesystem de DEV**, no su Git.
-- **PROD está limpio:** `main...origin/main`, HEAD `9d7638ad` al cierre de esta ficha.
+- **PROD está limpio:** `main...origin/main`; el hash exacto se consulta con `git log -1`.
 - Los backups (`backup/`), `.env`, `sa-dev.json`, `sa-prod.json` están ignorados por Git. Los `.mjs` de diagnóstico también se ignoran en PROD.
 - `firestore.rules` **sí está trackeado** en PROD, aunque `INSTRUCCIONES_A_LA_IA.md:57` diga que las reglas viven solo en la consola.
 
@@ -142,7 +142,7 @@ cp RUTA "backup/RUTA.backup-$(date +%Y%m%d-%H%M%S)"
 - [ ] Registrar release de Hosting y commit.
 
 ## 17. Riesgos, hallazgos y deudas
-- **`B-DEV-GIT-SUCIO` (CRÍTICO):** DEV tiene `main` ahead 3/behind 8 y cientos de archivos modificados/untracked; la fuente de verdad es el filesystem, no Git. Un fallo de disco o un `git clean` puede perder trabajo. PROD está limpio en `9d7638ad`.
+- **`B-DEV-GIT-SUCIO` (CRÍTICO):** DEV tiene `main` ahead 3/behind 8 y cientos de archivos modificados/untracked; la fuente de verdad es el filesystem, no Git. Un fallo de disco o un `git clean` puede perder trabajo. PROD está limpio (`main...origin/main`).
 - **`B-REGLAS-FUENTE-DUDOSA` (CRÍTICO):** `INSTRUCCIONES_A_LA_IA.md:57` dice que las reglas viven solo en la consola, pero `firestore.rules` está trackeado y `firebase.json` lo despliega. Si alguien edita la consola, el próximo deploy puede sobrescribir ese cambio (o viceversa). Verificar la fuente efectiva.
 - **`B-FIREBASE-JSON-PARIDAD`:** DEV no tiene `firestore.indexes` en `firebase.json`; PROD sí. Un deploy desde DEV no arrastraría índices.
 - **`B-PWA-CACHE-STALE`:** `registerType: autoUpdate` no garantiza que la pestaña abierta reciba el bundle nuevo; smoke test con recarga forzada.
