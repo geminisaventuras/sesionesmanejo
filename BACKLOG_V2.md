@@ -2794,3 +2794,14 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-AULA-TZ: fechas Caracas vs hora local del navegador.
 - [DEUDA] B-AULA-MANUAL-COMPLETE, B-AULA-OFFLINE, B-AULA-ADMIN-ROUTE, B-AULA-EMERGENCIA.
 
+
+
+**Documentacion Fase 7 (19/11/2026):**
+- [x] Ficha 11 (finanzas y movimientos) creada y enlazada.
+- [DEUDA CRITICA] B-FINANZAS-CAMPOS-LEGACY: tarjetas usan pagoInstructor/pagoProveedor no escritos; deuda 0 y ganancia = ingresos.
+- [DEUDA] B-MOVIMIENTOS-USERID: saveMovimiento sobrescribe userId con el admin.
+- [DEUDA] B-MOVIMIENTOS-RULE: movimientos.create abierto a cualquier auth.
+- [DEUDA] B-PAGOS-MONTO-LIBRE: montoTotal no se reconcilia con detalles.
+- [DEUDA] B-PAGOS-PROVEEDOR-LEGACY: ruta sin pagosStaff ni transaccion.
+- [DEUDA] B-MOVIMIENTOS-ID, B-FINANZAS-PROVEEDOR-CONFIG, B-PAGOS-PROVEEDOR-OWNERSHIP.
+

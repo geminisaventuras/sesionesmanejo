@@ -2655,3 +2655,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 6 (19/11/2026):** Ficha 09 (aula virtual y sesiones). Hallazgos: presencia sin heartbeat periodico (ventana 2 min); revertir modulo no baja estadoCurso ni revierte pack; pausa >60 min no registra/finaliza; timestamps de sesion en cliente; TZ local vs Caracas; admin soportado en la vista pero no en la ruta. Deudas: B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-MANUAL-COMPLETE, B-AULA-TIMESTAMPS-CLIENTE, B-AULA-OFFLINE, B-AULA-ADMIN-ROUTE, B-AULA-EMERGENCIA.
 
+
+
+**Documentacion Fase 7 (19/11/2026):** Ficha 11 (finanzas y movimientos). Hallazgo CRITICO: las tarjetas gananciaNeta/deudas usan pagoInstructor/pagoProveedor que las reservas no escriben (deuda 0, ganancia = ingresos). saveMovimiento pisa userId con el admin; movimientos.create abierto a cualquier auth; montoTotal sin reconciliar con detalles; proveedor con doble ruta (legacy sin pagosStaff). Deudas: B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY, B-MOVIMIENTOS-ID, B-FINANZAS-PROVEEDOR-CONFIG, B-PAGOS-PROVEEDOR-OWNERSHIP.
+

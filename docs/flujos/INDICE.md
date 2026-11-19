@@ -15,7 +15,7 @@
 | 08 | Reasignación de tutor / cambio de horario / D2 | 🟡 | 19/11/2026 (código) | `AdminReservaDetalle.jsx`, `CambiarHorarioModal.jsx`, `ModalReasignarInstructor.jsx`, `reservaHorarioHelpers.js` | B-CROSSCHECK-ADMIN, B-D2-CONFLICTO-REPOSICION, B-ESPEJO-AUDITORIA, B-CAMBIO-CANCELADO |
 | 09 | Aula virtual y sesiones | 🟡 | 19/11/2026 (código) | `AulaVirtualView.jsx`, `useSessionTimer.js`, `RelojSesion`, `ModuloItem` | B-AULA-PRESENCIA-HEARTBEAT, B-AULA-TZ, B-REVERTIR-MODULO, B-PAUSA-60, B-AULA-TIMESTAMPS-CLIENTE |
 | 10 | Portales (estudiante / instructor / proveedor) | ⚪ | — | `modules/estudiante`, `InstructorPanel`, `ProveedorPanel` | — |
-| 11 | Finanzas y movimientos | ⚪ | — | `AdminFinanzas.jsx`, `FirestoreProvider.saveMovimiento` | regla `movimientos.create` |
+| 11 | Finanzas y movimientos | 🟡 | 19/11/2026 (código) | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx` | B-FINANZAS-CAMPOS-LEGACY, B-MOVIMIENTOS-USERID, B-MOVIMIENTOS-RULE, B-PAGOS-MONTO-LIBRE, B-PAGOS-PROVEEDOR-LEGACY |
 | 12 | Teóricos | ⚪ | — | `InscripcionTeoricoView.jsx`, `AdminAccesoTeoricoDetalle.jsx` | — |
 | 13 | Operación: deploy, backups, entornos | ⚪ | — | `firebase.json`, `scripts/`, `docs/MIGRACION_PRODUCCION.md` | paridad de config |
 
@@ -60,6 +60,11 @@ graph LR
 - **Pausa >60 min inconsistente:** limpia `pausaActiva`/`moduloEnProgreso` sin registrar la pausa ni finalizar el curso. Deuda `B-PAUSA-60`.
 - **Timestamps de sesión en cliente:** `Date.now()` del navegador alimenta tiempos y finanzas; sin validación de servidor. Deuda `B-AULA-TIMESTAMPS-CLIENTE`.
 - **Zona horaria del aula:** fechas en Caracas vs hora de inicio en hora local del navegador. Deuda `B-AULA-TZ`.
+- **Tarjetas de Finanzas con campos legacy:** `gananciaNeta`/`deudas` usan `pagoInstructor`/`pagoProveedor`, que las reservas no escriben (`AdminFinanzas.jsx:48-49`); muestran deuda 0 y ganancia = ingresos. Deuda `B-FINANZAS-CAMPOS-LEGACY`.
+- **Movimientos atribuidos al admin:** `saveMovimiento` pisa el `userId` recibido con el uid del admin (`FirestoreProvider.js:154-157`). Deuda `B-MOVIMIENTOS-USERID`.
+- **`movimientos.create` abierto:** cualquier autenticado puede crear movimientos propios (`firestore.rules:191`). Deuda `B-MOVIMIENTOS-RULE`.
+- **Pago sin reconciliación:** `PagosStaffService.crearPago` acepta `montoTotal` sin compararlo con `detalles[].comision`. Deuda `B-PAGOS-MONTO-LIBRE`.
+- **Proveedor con doble ruta:** `AdminFinanzas` paga sin `pagosStaff` ni transacción; el modal sí. Deuda `B-PAGOS-PROVEEDOR-LEGACY`.
 
 ## Reglas de actualización
 1. Si cambia el código de un flujo → actualizar su ficha en el mismo release.
@@ -77,9 +82,9 @@ graph LR
 - `07-aprobacion-rechazo-pagos.md`
 - `08-reasignacion-horarios-d2.md`
 - `09-aula-virtual-sesiones.md`
+- `11-finanzas-movimientos.md`
 
 ## Pendiente de documentar (prioridad)
-1. 11 Finanzas y movimientos.
-2. 10 Portales.
-3. 12 Teóricos.
-4. 13 Operación: deploy, backups, entornos.
+1. 10 Portales.
+2. 12 Teóricos.
+3. 13 Operación: deploy, backups, entornos.
