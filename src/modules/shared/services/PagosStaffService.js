@@ -208,6 +208,16 @@ export const PagosStaffService = {
               [campoPagoId]: pagoId
             });
           }
+
+          // Espejo público: reflejar el pago para que el portal del proveedor
+          // no siga mostrando la reserva como pendiente.
+          if (tipoStaff === 'proveedor') {
+            transaction.set(
+              doc(db, 'ocupacionConfirmada', r.id),
+              { pagadoProveedor: true, pagoProveedorId: pagoId },
+              { merge: true }
+            );
+          }
         }
       });
 

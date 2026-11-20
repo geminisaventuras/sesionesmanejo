@@ -158,7 +158,9 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       instructorId: res.instructorId,
       motoAsignadaId: res.motoAsignadaId || null,
       traeMoto: res.traeMoto || 'No',
-      estadoPago: 'Aprobado'
+      estadoPago: 'Aprobado',
+      proveedorId: res.proveedorId || null,
+      comisionProveedor: Number(res.comisionProveedor) || 0
     }, { merge: true });
     
     // FIX-METRICAS-TRIGGER: invalidar caché del hook useMetricasUsuario
@@ -236,7 +238,9 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         instructorId: res.instructorId,
         motoAsignadaId: res.motoAsignadaId || null,
         traeMoto: res.traeMoto || 'No',
-        estadoPago: 'Pendiente'
+        estadoPago: 'Pendiente',
+        proveedorId: res.proveedorId || null,
+        comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
     }
     
@@ -421,7 +425,12 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       }
 
       batch.update(reservaRef, datosActualizacion);
-      batch.set(espejoRef, { ...datosActualizacion, estadoPago: res.estadoPago }, { merge: true });
+      batch.set(espejoRef, {
+        ...datosActualizacion,
+        estadoPago: res.estadoPago,
+        proveedorId: res.proveedorId || null,
+        comisionProveedor: Number(res.comisionProveedor) || 0
+      }, { merge: true });
 
       await batch.commit();
 
@@ -506,7 +515,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       batch.update(reservaRef, datosActualizacion);
       batch.set(espejoRef, {
         motoAsignadaId: motoDestinoId,
-        proveedorId: proveedorDestinoId || null
+        proveedorId: proveedorDestinoId || null,
+        comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
 
       await batch.commit();
@@ -602,7 +612,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           traeMoto: res.traeMoto,
           sedeId: res.sedeId,
           estadoPago: res.estadoPago,
-          proveedorId: res.proveedorId || null
+          proveedorId: res.proveedorId || null,
+          comisionProveedor: Number(res.comisionProveedor) || 0
         }, { merge: true });
 
         // Liberar locks asociados
@@ -710,7 +721,12 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       };
 
       batch.update(reservaRef, datosActualizacion);
-      batch.set(ocupacionRef, { ...datosActualizacion, estadoPago: res.estadoPago }, { merge: true });
+      batch.set(ocupacionRef, {
+        ...datosActualizacion,
+        estadoPago: res.estadoPago,
+        proveedorId: res.proveedorId || null,
+        comisionProveedor: Number(res.comisionProveedor) || 0
+      }, { merge: true });
 
       const locksOriginales = await obtenerLocksDeReserva(res);
       locksOriginales.forEach(lock => {

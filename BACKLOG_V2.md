@@ -2868,3 +2868,15 @@ Deudas cerradas en esta sesión
 - [PENDIENTE] ISS-36C rotacion de passwords staff.
 - [PENDIENTE] ISS-13/14 perfil de instructor (escritura owner).
 
+
+
+## Finanzas SSOT — 19/11/2026
+
+- [x] `finanzasHelpers.js`: comisión instructor/proveedor y `proveedorId` como SSOT.
+- [x] `AdminFinanzas`: deuda de proveedor por comisión congelada; tarjetas reales; badge de rol; pago de proveedor por `PagosStaffService`.
+- [x] `StaffFinanzasView` + `TabCuentaPorCobrar`: mismas fórmulas.
+- [x] Tab **Resumen** de staff implementado (pendiente/pagado por curso y últimos pagos).
+- [x] `ProveedorPanel`: `comisionProveedor` del espejo.
+- [x] Espejo: `comisionProveedor`/`proveedorId`/`pagadoProveedor` en escrituras y backfill DEV/PROD.
+- [ ] `B-MOVIMIENTOS-ID`, `B-MOVIMIENTOS-RULE`, `B-MOVIMIENTOS-USERID`, `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-OWNERSHIP` y conciliación de pagos legacy.
+

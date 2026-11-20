@@ -9,6 +9,13 @@ import DashboardFooter from '../../shared/components/DashboardFooter';
 import { PagosStaffService } from '../../../services/PagosStaffService';
 import TabCuentaPorCobrar from './TabCuentaPorCobrar';
 import ModalRegistrarPago from './ModalRegistrarPago';
+import StaffResumenTab from './StaffResumenTab';
+import {
+  comisionInstructorReserva,
+  comisionProveedorReserva,
+  esPendienteInstructor,
+  esPendienteProveedor
+} from '../../shared/utils/finanzasHelpers';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import {
@@ -57,7 +64,7 @@ const inicioMesVET = () => {
 const StaffFinanzasView = () => {
   const { staffId } = useParams();
   const navigate = useNavigate();
-  const { instructores, proveedores, reservas, cursos, notifications } = useContext(AppContext);
+  const { instructores, proveedores, reservas, cursos, config, notifications } = useContext(AppContext);
 
   const [tab, setTab] = useState('cobrar');
   const [pagos, setPagos] = useState([]);
@@ -151,30 +158,21 @@ const StaffFinanzasView = () => {
     });
 
     return Array.from(map.values()).filter(r => {
-      if (r.estadoPago !== 'Aprobado') return false;
       if (tipoStaff === 'instructor') {
-        if (r.esReservaCompartida === true) {
-          const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(staffId));
-          return inv && inv.pagado !== true;
-        }
-        return !r.pagadoInstructor;
+        return esPendienteInstructor(r, staffId, { permitirColaboracion: true });
       }
-      return !r.pagadoProveedor;
+      return esPendienteProveedor(r, staffId);
     }).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
   }, [reservas, colaboraciones, staffId, tipoStaff]);
 
    const totalPendiente = useMemo(() => {
     return reservasPendientes.reduce((acc, r) => {
-      const com = tipoStaff === 'instructor' ? r.comisionInstructor : r.comisionProveedor;
-      const base = typeof com === 'number' ? com : 0;
-      if (tipoStaff === 'instructor' && r.esReservaCompartida === true) {
-        const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(staffId));
-        const pct = typeof inv?.porcentaje === 'number' ? inv.porcentaje : 0;
-        return acc + (base * pct / 100);
+      if (tipoStaff === 'instructor') {
+        return acc + comisionInstructorReserva(r, staffId, { permitirColaboracion: true });
       }
-      return acc + base;
+      return acc + comisionProveedorReserva(r, config);
     }, 0);
-  }, [reservasPendientes, tipoStaff, staffId]);
+  }, [reservasPendientes, tipoStaff, staffId, config]);
 
   const totalPagado = useMemo(() => {
     return (pagos || []).reduce((acc, p) => acc + (Number(p.montoTotal) || 0), 0);
@@ -196,13 +194,9 @@ const StaffFinanzasView = () => {
           cursoId: null
         };
       }
-         const com = tipoStaff === 'instructor' ? r.comisionInstructor : r.comisionProveedor;
-      let base = typeof com === 'number' ? com : 0;
-      if (tipoStaff === 'instructor' && r.esReservaCompartida === true) {
-        const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(staffId));
-        const pct = typeof inv?.porcentaje === 'number' ? inv.porcentaje : 0;
-        base = base * pct / 100;
-      }
+      const base = tipoStaff === 'instructor'
+        ? comisionInstructorReserva(r, staffId, { permitirColaboracion: true })
+        : comisionProveedorReserva(r, config);
       return {
         reservaId: rid,
         fecha: r.fecha,
@@ -351,6 +345,7 @@ const StaffFinanzasView = () => {
             cursos={cursos}
             tipoStaff={tipoStaff}
             staffId={staffId}
+            config={config}
             onRegistrarPago={(ids, monto) => setModalPago({ reservaIds: ids, monto })}
           />
         )}
@@ -512,9 +507,16 @@ const StaffFinanzasView = () => {
 
         {/* TAB: Resumen */}
         {tab === 'resumen' && (
-          <div className="bg-white border border-gray-100 rounded-xl p-4">
-            <p className="text-sm text-gray-500">Próximamente: resumen histórico.</p>
-          </div>
+          <StaffResumenTab
+            staff={staff}
+            tipoStaff={tipoStaff}
+            staffId={staffId}
+            reservasPendientes={reservasPendientes}
+            pagos={pagos}
+            cursos={cursos}
+            config={config}
+            getDetallesPago={getDetallesPago}
+          />
         )}
       </div>
 

@@ -29,7 +29,7 @@ docs/
 └── MIGRACION_PRODUCCION.md        ← runbook existente (se mantiene aquí)
 ```
 
-**Estado:** 13/13 flujos documentados (01-13), todos en 🟡 (verificados por código; pendiente prueba DEV/PROD y revisión FIRE/MAMBA de los críticos). **Fase 0 de auditoría completada:** reglas vivas = repo, sin packs legacy, accesos teóricos no determinísticos y hallazgo crítico en `instructores` (`ISS-36`). **ISS-36A aplicado:** `password` eliminado de Firestore en DEV/PROD. **ISS-36B aplicado:** `instructoresPublicos` sin PII y perfiles privados solo admin/dueño; queda `ISS-36C` (rotación).
+**Estado:** 13/13 flujos documentados (01-13), todos en 🟡 (verificados por código; pendiente prueba DEV/PROD y revisión FIRE/MAMBA de los críticos). **Fase 0 de auditoría completada:** reglas vivas = repo, sin packs legacy, accesos teóricos no determinísticos y hallazgo crítico en `instructores` (`ISS-36`). **ISS-36A aplicado:** `password` eliminado de Firestore en DEV/PROD. **ISS-36B aplicado:** `instructoresPublicos` sin PII y perfiles privados solo admin/dueño; queda `ISS-36C` (rotación). **Finanzas 19/11:** comisión congelada como SSOT, deuda de proveedor por `proveedorId`, portal del proveedor alineado, backfill del espejo y tab Resumen implementado.
 
 ## Reglas de evidencia
 1. Toda afirmación de comportamiento cita `archivo:línea` o el símbolo exacto. Si no se verificó, se marca `[POR VERIFICAR]` o `[SUPUESTO]`.

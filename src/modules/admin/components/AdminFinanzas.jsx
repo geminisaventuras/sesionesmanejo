@@ -11,6 +11,13 @@ import {
 } from 'lucide-react';
 import { PagosStaffService } from '../../../services/PagosStaffService';
 import { auth } from '../../../firebase';
+import {
+  comisionInstructorReserva,
+  comisionInstructorTotal,
+  comisionProveedorReserva,
+  esPendienteInstructor,
+  esPendienteProveedor
+} from '../../shared/utils/finanzasHelpers';
 
 const DeudaItem = memo(({ item, moneda, onPagar, onVerDetalle }) => (
   <div
@@ -18,6 +25,9 @@ const DeudaItem = memo(({ item, moneda, onPagar, onVerDetalle }) => (
     className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center mb-2 cursor-pointer hover:border-blue-300 transition-colors"
   >
     <div className="flex-1 min-w-0">
+      <p className="text-[10px] font-black uppercase tracking-wide text-blue-600">
+        {item.tipo === 'instructor' ? 'Instructor' : 'Proveedor'}
+      </p>
       <p className="font-bold text-sm truncate">{item.nombre} {item.apellido || ''}</p>
       <p className="text-orange-600 font-black">{moneda} {item.deuda}</p>
     </div>
@@ -34,77 +44,63 @@ const DeudaItem = memo(({ item, moneda, onPagar, onVerDetalle }) => (
 ));
 
 const AdminFinanzas = memo(() => {
-  const { reservas, instructores, proveedores, motos, config, saveReserva, saveMovimiento, showToast, movimientos, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, proveedores, config, saveMovimiento, showToast, movimientos, user, logoutUser } = useContext(AppContext);
   const navigate = useNavigate();
   const res = reservas || [];
   const instrs = instructores || [];
   const provs = proveedores || [];
-  const motList = motos || [];
   const movs = movimientos || [];
 
   const { gananciaNeta, deudasPorPagar, deudasInst, deudasProv } = useMemo(() => {
     const aproved = res.filter(r => r.estadoPago === 'Aprobado');
     const ingresos = aproved.reduce((acc, r) => acc + Number(r.pagoTotalMoneda || 0), 0);
-    const deudas = aproved.reduce((acc, r) => acc + (!r.pagadoInstructor ? Number(r.pagoInstructor || 0) : 0) + (!r.pagadoProveedor ? Number(r.pagoProveedor || 0) : 0), 0);
-    const neta = ingresos - aproved.reduce((acc, r) => acc + Number(r.pagoInstructor || 0) + Number(r.pagoProveedor || 0), 0);
-         const dInst = instrs.map(i => {
-      const reservasPendientes = res.filter(r => {
-        if (r.estadoPago !== 'Aprobado') return false;
-        if (r.esReservaCompartida === true) {
-          // Reserva compartida: el instructor participa si está en instructoresInvolucrados
-          const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(i.id));
-          if (!inv) return false;
-          if (inv.pagado === true) return false;
-          return true;
-        }
-        // Reserva legacy / no compartida
-        if (String(r.instructorId) !== String(i.id)) return false;
-        if (r.pagadoInstructor) return false;
-        return true;
-      });
-      const deuda = reservasPendientes.reduce((acc, r) => {
-        const com = typeof r.comisionInstructor === 'number' ? r.comisionInstructor : 0;
-        if (r.esReservaCompartida === true) {
-          const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(i.id));
-          const pct = typeof inv?.porcentaje === 'number' ? inv.porcentaje : 0;
-          return acc + (com * pct / 100);
-        }
-        return acc + com;
-      }, 0);
+    const comisiones = aproved.reduce(
+      (acc, r) => acc + comisionInstructorTotal(r) + comisionProveedorReserva(r, config),
+      0
+    );
+    const neta = ingresos - comisiones;
+
+    const dInst = instrs.map(i => {
+      const reservasPendientes = res.filter(r => esPendienteInstructor(r, i.id));
+      const deuda = reservasPendientes.reduce(
+        (acc, r) => acc + comisionInstructorReserva(r, i.id),
+        0
+      );
       return { ...i, deuda, reservaIds: reservasPendientes.map(r => r.id), tipo: 'instructor' };
     }).filter(i => i.deuda > 0);
-    const dProv = provs.map(p => ({ ...p, deuda: res.filter(r => r.estadoPago === 'Aprobado' && !r.pagadoProveedor && motList.find(m => String(m.id) === String(r.motoAsignadaId))?.proveedorId === String(p.id)).reduce((acc) => acc + Number(config.pagoProveedor || 0), 0), tipo: 'proveedor' })).filter(p => p.deuda > 0);
-    return { gananciaNeta: neta, deudasPorPagar: deudas, deudasInst: dInst, deudasProv: dProv };
-  }, [res, instrs, provs, motList, config]);
 
-    const pagarStaff = useCallback(async (id, tipo, monto, nombre, reservaIds = []) => {
-    if (tipo === 'instructor') {
-      if (!Array.isArray(reservaIds) || reservaIds.length === 0) {
-        showToast('No hay reservas pendientes para este instructor', 'error');
-        return;
-      }
-      const resultado = await PagosStaffService.crearPago({
-        tipoStaff: 'instructor',
-        staffId: id,
-        staffNombre: nombre,
-        reservaIds,
-        montoTotal: monto,
-        moneda: config.monedaPagoStaff || 'USD',
-        metodoPago: 'efectivo',
-        notas: '',
-        pagadoPor: auth.currentUser?.uid || null
-      });
-      if (!resultado.success) {
-        showToast('Error al registrar pago: ' + (resultado.error?.message || ''), 'error');
-        return;
-      }
-    } else {
-      // Proveedores: flujo legacy hasta Fase 5
-      for (let r of res) {
-        if (r.estadoPago === 'Aprobado' && motList.find(m => String(m.id) === String(r.motoAsignadaId))?.proveedorId === String(id) && !r.pagadoProveedor) {
-          await saveReserva({ ...r, pagadoProveedor: true });
-        }
-      }
+    const dProv = provs.map(p => {
+      const reservasPendientes = res.filter(r => esPendienteProveedor(r, p.id));
+      const deuda = reservasPendientes.reduce(
+        (acc, r) => acc + comisionProveedorReserva(r, config),
+        0
+      );
+      return { ...p, deuda, reservaIds: reservasPendientes.map(r => r.id), tipo: 'proveedor' };
+    }).filter(p => p.deuda > 0);
+
+    const deudas = [...dInst, ...dProv].reduce((acc, item) => acc + item.deuda, 0);
+    return { gananciaNeta: neta, deudasPorPagar: deudas, deudasInst: dInst, deudasProv: dProv };
+  }, [res, instrs, provs, config]);
+
+  const pagarStaff = useCallback(async (id, tipo, monto, nombre, reservaIds = []) => {
+    if (!Array.isArray(reservaIds) || reservaIds.length === 0) {
+      showToast('No hay reservas pendientes para este staff', 'error');
+      return;
+    }
+    const resultado = await PagosStaffService.crearPago({
+      tipoStaff: tipo,
+      staffId: id,
+      staffNombre: nombre,
+      reservaIds,
+      montoTotal: monto,
+      moneda: config.monedaPagoStaff || 'USD',
+      metodoPago: 'efectivo',
+      notas: '',
+      pagadoPor: auth.currentUser?.uid || null
+    });
+    if (!resultado.success) {
+      showToast('Error al registrar pago: ' + (resultado.error?.message || ''), 'error');
+      return;
     }
     await saveMovimiento({
       id: Date.now().toString(),
@@ -114,7 +110,7 @@ const AdminFinanzas = memo(() => {
       fecha: new Date().toISOString().split('T')[0]
     });
     showToast('Pago registrado correctamente');
-  }, [res, motList, saveReserva, saveMovimiento, showToast, config]);
+  }, [saveMovimiento, showToast, config]);
 
   const pctDeudas = gananciaNeta > 0 ? Math.min(100, (deudasPorPagar / gananciaNeta) * 100) : 0;
   const ultimosMovimientos = useMemo(() => movs.slice().reverse().slice(0, 10), [movs]);

@@ -65,7 +65,7 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 - `misMotos` = motos del contexto con `proveedorId === uid` (`:59-63`).
 - `misReservas` = espejo filtrado por `proveedorId` (`:66-69`).
 - El perfil privado del proveedor se resuelve por UID en `AuthProvider`; `FirestoreProvider` ya no carga todos los `proveedores` para no-admin.
-- Ganancias: `pagadoProveedor === true` para cobrado y `!pagadoProveedor` para por cobrar, usando `config.pagoProveedor` (`:71-77`).
+- `ProveedorPanel` calcula cobrado/por cobrar con `comisionProveedor` del espejo (fallback legacy a `config.pagoProveedor`), no con la configuración global.
 - Tabs: `inicio`, `motos`, `calendario`, `actividad` (`:128-137`).
 - `ProveedorMotos` administra sus motos (regla permite create/update al proveedor dueño, `firestore.rules:87-95`).
 - `ProveedorCalendario` lee el espejo y crea/elimina `bloqueosGlobales` del proveedor (`ProveedorCalendario.jsx:25-36`, `:70-92`; regla `:391-404`).

@@ -8,6 +8,7 @@ import ProveedorCalendario from '../components/ProveedorCalendario';
 import ProveedorActividad from '../components/ProveedorActividad';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
 const ProveedorPanel = () => {
   const { user, motos, config, isReservaActiva, logoutUser } = useContext(AppContext);
 const [ocupacionConfirmada, setOcupacionConfirmada] = useState([]);
@@ -71,10 +72,10 @@ useEffect(() => {
   const { activas, completadas, gananciaCobrada, gananciaPorCobrar } = useMemo(() => {
     const act = misReservas.filter(r => isReservaActiva(r) && r.estadoCurso !== 'Aprobado');
     const comp = misReservas.filter(r => r.estadoCurso === 'Aprobado');
-    const cobrada = misReservas.filter(r => r.estadoPago === 'Aprobado' && r.pagadoProveedor === true).reduce((acc, r) => acc + Number(config.pagoProveedor || 0), 0);
-    const porCobrar = misReservas.filter(r => r.estadoPago === 'Aprobado' && !r.pagadoProveedor).reduce((acc, r) => acc + Number(config.pagoProveedor || 0), 0);
+    const cobrada = misReservas.filter(r => r.estadoPago === 'Aprobado' && r.pagadoProveedor === true).reduce((acc, r) => acc + comisionProveedorReserva(r, config), 0);
+    const porCobrar = misReservas.filter(r => r.estadoPago === 'Aprobado' && !r.pagadoProveedor).reduce((acc, r) => acc + comisionProveedorReserva(r, config), 0);
     return { activas: act, completadas: comp, gananciaCobrada: cobrada, gananciaPorCobrar: porCobrar };
-  }, [misReservas, isReservaActiva, config.pagoProveedor]);
+  }, [misReservas, isReservaActiva, config]);
 
   const usoPorMoto = useMemo(() => {
     return misMotos.map(moto => {

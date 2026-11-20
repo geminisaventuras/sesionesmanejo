@@ -362,7 +362,8 @@ export const ReservaService = {
           traeMoto: datosReserva.traeMoto,
           sedeId: datosReserva.sedeId,          
           estadoPago: 'Pendiente',
-          proveedorId: datosReserva.proveedorId || null
+          proveedorId: datosReserva.proveedorId || null,
+          comisionProveedor: Number(datosReserva.comisionProveedor) || 0
         });
 
         // ✅ Purga atómica de la colección viva (ocupacionTemporal)
@@ -655,7 +656,8 @@ export const ReservaService = {
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Pendiente',
-          proveedorId: datosChild.proveedorId || null
+          proveedorId: datosChild.proveedorId || null,
+          comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
 
         // 11. Purga de locks
@@ -924,7 +926,8 @@ export const ReservaService = {
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Aprobado',
-          proveedorId: datosChild.proveedorId || null
+          proveedorId: datosChild.proveedorId || null,
+          comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
 
         // 11. Purga de locks
@@ -999,7 +1002,8 @@ export const ReservaService = {
           traeMoto: childSnap.data().traeMoto,
           sedeId: childSnap.data().sedeId,
           estadoPago: 'Aprobado',
-          proveedorId: childSnap.data().proveedorId || null
+          proveedorId: childSnap.data().proveedorId || null,
+          comisionProveedor: Number(childSnap.data().comisionProveedor) || 0
         }, { merge: true });
 
         // FIX-METRICAS-TRIGGER: invalidar caché del estudiante

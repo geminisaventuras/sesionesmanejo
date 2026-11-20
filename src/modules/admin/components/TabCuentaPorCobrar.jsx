@@ -1,6 +1,7 @@
 // @build: 2026-09-16 | id: TAB-CUENTA-POR-COBRAR | desc: Tabla de reservas pendientes con filtros y checkboxes
 import { useMemo, useState } from 'react';
 import { Calendar } from 'lucide-react';
+import { comisionInstructorReserva, comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
 
 const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 
@@ -31,6 +32,7 @@ export default function TabCuentaPorCobrar({
   cursos,
   tipoStaff,
   staffId,
+  config = {},
   onRegistrarPago
 }) {
   const [filtro, setFiltro] = useState('todo');
@@ -61,21 +63,17 @@ export default function TabCuentaPorCobrar({
   }, [reservasPendientes, filtro, fechaDesde, fechaHasta, hoy]);
 
   const getComision = (r) => {
-    const com = tipoStaff === 'instructor' ? r.comisionInstructor : r.comisionProveedor;
-    const base = typeof com === 'number' ? com : 0;
-    if (tipoStaff === 'instructor' && r.esReservaCompartida === true) {
-      const inv = (r.instructoresInvolucrados || []).find(x => String(x.id) === String(staffId));
-      const pct = typeof inv?.porcentaje === 'number' ? inv.porcentaje : 0;
-      return base * pct / 100;
+    if (tipoStaff === 'instructor') {
+      return comisionInstructorReserva(r, staffId, { permitirColaboracion: true });
     }
-    return base;
+    return comisionProveedorReserva(r, config);
   };
 
   const totalSeleccionado = useMemo(() =>
     reservasFiltradas
       .filter(r => seleccionados.includes(r.id))
       .reduce((acc, r) => acc + getComision(r), 0),
-    [reservasFiltradas, seleccionados, tipoStaff]
+    [reservasFiltradas, seleccionados, tipoStaff, staffId, config]
   );
 
   const todosSeleccionados = reservasFiltradas.length > 0 &&

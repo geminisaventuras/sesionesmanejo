@@ -5,7 +5,7 @@
 | ID | FLUJO-11 |
 | Estado | 🟡 Verificado por código (19/11/2026); pendiente auditoría con datos reales |
 | Archivos clave | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx`, `ModalRegistrarPago.jsx`, `TabCuentaPorCobrar.jsx`, `FinanzasTab.jsx`, `firestore.rules` |
-| Deudas | `B-FINANZAS-CAMPOS-LEGACY` (CRÍTICO), `B-MOVIMIENTOS-USERID`, `B-MOVIMIENTOS-RULE`, `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-LEGACY` |
+| Deudas | `B-MOVIMIENTOS-USERID`, `B-MOVIMIENTOS-RULE`, `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-OWNERSHIP` (los tres primeros de finanzas de proveedor quedaron resueltos el 19/11/2026) |
 
 ## 1. Objetivo y alcance
 Registrar ingresos, calcular comisiones/deudas, pagar a instructores y proveedores, y mostrar el ledger al admin y al staff.
@@ -34,20 +34,25 @@ No cubre la validación del pago del estudiante (FLUJO-07) ni el cálculo de pre
 - Solo reservas `estadoPago === 'Aprobado'`.
 - **Split:** busca al instructor en `instructoresInvolucrados`; si no está o ya tiene `pagado: true`, no genera deuda; aplica `comisionInstructor * porcentaje / 100` (`:53-72`).
 - **Legacy:** exige `r.instructorId === instructor` y `!pagadoInstructor`; deuda = `comisionInstructor` (`:60-73`).
-### 4.2 Proveedor (`AdminFinanzas.jsx:76`)
-- Filtra reservas aprobadas, no pagadas, cuya moto (`motoAsignadaId`) pertenece al proveedor.
-- Deuda = `config.pagoProveedor` **por reserva**, no `comisionProveedor`.
+### 4.2 Proveedor (`AdminFinanzas.jsx`)
+- Filtra por `reserva.proveedorId` (SSOT), no por el dueño de la moto.
+- Deuda = `reserva.comisionProveedor`; `config.pagoProveedor` queda solo como fallback de reservas legacy sin comisión congelada.
+- `AdminFinanzas`, `StaffFinanzasView`, `TabCuentaPorCobrar` y `ProveedorPanel` comparten `finanzasHelpers.js`.
 ### 4.3 Tarjetas de resumen (`AdminFinanzas.jsx:45-49`)
-- `gananciaNeta = ingresos - (pagoInstructor + pagoProveedor)`.
-- `deudas = pagoInstructor + pagoProveedor` de reservas no pagadas.
-- **`pagoInstructor` y `pagoProveedor` no se escriben en las reservas** al crearlas (solo existen como configuración); las tarjetas quedan en 0/ingresos completos. Las listas detalladas sí usan `comisionInstructor`/`config.pagoProveedor`.
+- `gananciaNeta = ingresos - comisiones reales` (instructor + proveedor).
+- `deudasPorPagar = suma de deudas pendientes` de instructores y proveedores.
+- Ya no se usan `pagoInstructor`/`pagoProveedor` legacy para estas tarjetas.
 
-## 5. Pago a instructores (`PagosStaffService.crearPago`, `:30-221`)
+### 4.4 Resumen de staff
+- `StaffFinanzasView` muestra el tab **Resumen** con total pendiente, total pagado, reservas/pagos, pendiente y pagado por curso, y últimos pagos.
+- Reutiliza `reservasPendientes`, `pagos` y `finanzasHelpers.js`; no agrega listeners ni lecturas.
+- El portal del proveedor (`ProveedorPanel`) usa `comisionProveedor` del espejo (fallback a `config.pagoProveedor` solo legacy).
 1. Valida `tipoStaff`, `staffId` y `reservaIds` (`:46-57`).
 2. Transacción: lee cada reserva (`:71-81`).
 3. Valida ownership y que no esté pagada:
    - Split: el instructor debe estar en `instructoresInvolucrados` y no tener `pagado: true` (`:90-116`).
    - Legacy: `instructorId` debe coincidir y `pagadoInstructor` debe ser falso (`:98-121`).
+   - Proveedor: el pago desde `AdminFinanzas` también usa este servicio y crea `pagosStaff`; ya no usa el bucle legacy.
 4. Crea `pagosStaff/{id}` con `montoTotal`, método, referencia, banco, notas, `pagadoPor`, `detalles[]` (snapshot de cada reserva con comisión y porcentaje) (`:124-178`).
 5. Marca las reservas:
    - Split: actualiza el participante; si todos pagaron, escribe también `pagadoInstructor` (`:184-203`).
@@ -137,16 +142,17 @@ No cubre la validación del pago del estudiante (FLUJO-07) ni el cálculo de pre
 - Verificar que el staff solo ve sus propios pagos (`pagosStaff.read`).
 
 ## 17. Riesgos, hallazgos y deudas
-- **`B-FINANZAS-CAMPOS-LEGACY` (CRÍTICO):** `gananciaNeta` y `deudas` usan `pagoInstructor`/`pagoProveedor` (`AdminFinanzas.jsx:48-49`), campos que las reservas no escriben; las tarjetas muestran deuda 0 y ganancia = ingresos, mientras las listas usan `comisionInstructor`/`config.pagoProveedor`. Es una inconsistencia financiera visible.
+- **`B-FINANZAS-CAMPOS-LEGACY` (RESUELTO 19/11/2026):** las tarjetas ya usan comisiones reales y la suma de deudas pendientes.
 - **`B-MOVIMIENTOS-USERID`:** `saveMovimiento` sobrescribe el `userId` recibido con el uid del admin (`FirestoreProvider.js:154-157`); se pierde la atribución al estudiante/pack. Los `movimientos` quedan a nombre del admin.
 - **`B-MOVIMIENTOS-RULE`:** `movimientos.create` permite a cualquier autenticado crear movimientos propios (`firestore.rules:191`); no es admin-only. Puede contaminar el ledger.
 - **`B-PAGOS-MONTO-LIBRE`:** `crearPago` acepta `montoTotal` sin compararlo con la suma de `detalles[].comision` (`PagosStaffService.js:127-178`); un error de UI o un cliente manipulado puede pagar de más/menos.
-- **`B-PAGOS-PROVEEDOR-LEGACY`:** el pago a proveedores desde `AdminFinanzas` no usa `pagosStaff`, no es atómico y no deja snapshot (`AdminFinanzas.jsx:101-115`); el modal sí. Dos caminos con garantías distintas.
-- **`B-MOVIMIENTOS-ID`:** IDs `Date.now().toString()` en aprobaciones y pagos (`AdminReservaDetalle.jsx:171`, `AdminFinanzas.jsx:110`); colisión posible. El acceso teórico usa ID determinístico y es el patrón correcto.
-- **`B-FINANZAS-PROVEEDOR-CONFIG`:** la deuda de proveedor usa `config.pagoProveedor` por reserva (`AdminFinanzas.jsx:76`), pero `pagosStaff.detalles` usa `comisionProveedor` (`PagosStaffService.js:129`); si difieren, deuda y pago no cuadran.
+- **`B-PAGOS-PROVEEDOR-LEGACY` (RESUELTO 19/11/2026 en AdminFinanzas):** el pago de proveedor desde la lista general ya usa `PagosStaffService`, con ledger y snapshot. El flujo antiguo queda como deuda histórica.
 - **`B-PAGOS-PROVEEDOR-OWNERSHIP`:** si la reserva no tiene `proveedorId`, el servicio no valida ownership (`PagosStaffService.js:103-107`); cualquier proveedor podría cobrarla.
-- **`B-FINANZAS-PROVEEDOR-MOTO-PROPIA` [POR VERIFICAR]:** la deuda de proveedor se basa en `motoAsignadaId`; si hay datos inconsistentes con `traeMoto: 'Sí'`, podría pagarse una moto no usada.
+- **`B-FINANZAS-PROVEEDOR-MOTO-PROPIA` (RESUELTO):** la deuda ya no se infiere del dueño de la moto; usa `reserva.proveedorId`.
+- **`B-FINANZAS-PROVEEDOR-CONFIG` (RESUELTO 19/11/2026):** deuda y detalle usan `comisionProveedor` congelada; `config.pagoProveedor` es solo fallback legacy.
 - **`B-MOVIMIENTOS-ATOMICOS`:** ya registrado en FLUJO-07; aplica también a packs, teóricos y egresos.
+- **`B-MOVIMIENTOS-ID`:** IDs `Date.now().toString()` en aprobaciones y pagos; colisión posible.
+- **`B-PROVEEDOR-MIRROR-PAGOS` (PARCIAL 19/11/2026):** el espejo recibe `comisionProveedor`/`proveedorId` y se backfillearon `pagadoProveedor`; quedan 2 documentos huérfanos y la reconciliación de pagos legacy.
 
 ## 18. Supuestos / por verificar
 - [SUPUESTO] El admin paga exactamente la deuda calculada.
@@ -168,5 +174,6 @@ No cubre la validación del pago del estudiante (FLUJO-07) ni el cálculo de pre
 | Fecha | Cambio | Verificado por |
 |---|---|---|
 | 19/11/2026 | Creación (lectura de código) | Deek |
+| 19/11/2026 | Fix 10/15: comisión congelada como SSOT, `proveedorId` en deuda, tarjetas reales, pago de proveedor por `PagosStaffService`, tab Resumen y `comisionProveedor` en espejo | Deek + datos PROD |
 
 
