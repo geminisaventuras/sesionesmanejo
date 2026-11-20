@@ -105,3 +105,9 @@ graph LR
 1. Dictamen de reglas de packs/teóricos/portales.
 2. Plan de pruebas de regresión por flujo.
 3. Corrección por lotes con backup, build, smoke y deploy.
+
+## Fase 0 — auditoría (19/11/2026)
+- `docs/analisis/AUDITORIA-FASE0-20261119.md` — reglas vivas, packs, accesos, instructores y estados.
+- `docs/analisis/ISSUES-LOTE-A.md` — lista de issues para ejecutar uno por uno.
+- `docs/decisiones/ADR-002-alcance-adr-001.md` — ADR-001 solo cubre PIN/PII; lo demás queda pendiente.
+- **Hallazgo nuevo crítico:** `ISS-36`, credenciales/PII de instructores expuestas en `instructores`.

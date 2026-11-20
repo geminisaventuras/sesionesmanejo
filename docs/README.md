@@ -20,12 +20,16 @@ docs/
 │   ├── 01-inscripcion-individual.md
 │   ├── ...
 │   └── 13-operacion-deploy-backups.md
+├── analisis/
+│   ├── AUDITORIA-FASE0-20261119.md
+│   └── ISSUES-LOTE-A.md
 ├── decisiones/
-│   └── ADR-001-riesgo-pin-pii-aceptado.md
+│   ├── ADR-001-riesgo-pin-pii-aceptado.md
+│   └── ADR-002-alcance-adr-001.md
 └── MIGRACION_PRODUCCION.md        ← runbook existente (se mantiene aquí)
 ```
 
-**Estado:** 13/13 flujos documentados (01-13), todos en 🟡 (verificados por código; pendiente prueba DEV/PROD y revisión FIRE/MAMBA de los críticos).
+**Estado:** 13/13 flujos documentados (01-13), todos en 🟡 (verificados por código; pendiente prueba DEV/PROD y revisión FIRE/MAMBA de los críticos). **Fase 0 de auditoría completada:** reglas vivas = repo, sin packs legacy, accesos teóricos no determinísticos y hallazgo crítico en `instructores` (`ISS-36`).
 
 ## Reglas de evidencia
 1. Toda afirmación de comportamiento cita `archivo:línea` o el símbolo exacto. Si no se verificó, se marca `[POR VERIFICAR]` o `[SUPUESTO]`.

@@ -2834,3 +2834,16 @@ Deudas cerradas en esta sesión
 - [DEUDA] B-REMOTES-DISTINTOS, B-BACKUPS-LOCAL-ONLY, B-MIGRACION-DOC-OUTDATED, B-DEPLOY-RULES-SIN-EMULADOR, B-HOSTING-VS-COMMIT.
 - [SIGUIENTE] Analisis de criticos + plan de regresion antes de corregir.
 
+
+
+**Fase 0 auditoria (19/11/2026):**
+- [x] ISS-00 alcance ADR-001 aclarado en ADR-002 (solo PIN/PII).
+- [x] ISS-01 reglas vivas exportadas: DEV/PROD = repo, SHA256 9F1D26...F7D20; backups en backup/audit-rules-*.
+- [x] ISS-02 packs legacy: 0 sin packSnapshot; no requiere backfill.
+- [x] ISS-03 accesos teoricos: 0 IDs uid_curso; 8 random + 7 pack_*; ISS-16 bloqueante.
+- [x] ISS-04 instructores: docId = Auth UID; no existe userId; usar docId en regla.
+- [x] ISS-05 estados: bloqueado/activo/completado; avanzarPack tambien escribe vencido.
+- [CRITICO] ISS-36: instructores guarda password no vacio (2/2 DEV y PROD) y isAuth permite leer; PII/credenciales expuestas. Requiere contencion propia.
+- [BLOQUEANTE] ISS-16 (IDs teoricos) e ISS-36.
+- [SIGUIENTE] ISS-11 movimientos admin-only, luego ISS-13/14 perfil instructor.
+

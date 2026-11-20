@@ -2671,3 +2671,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **Documentacion Fase 10 - CIERRE (19/11/2026):** Ficha 13 (operacion/deploy/backups). Documentacion de flujos COMPLETA: 13/13 fichas. Hallazgos CRITICOS: DEV tiene git sucio (ahead 3/behind 8, cientos de archivos sin commit; la fuente real es el filesystem); la memoria dice que las reglas viven solo en consola pero el repo trackea firestore.rules y firebase.json lo despliega; DEV no declara firestore.indexes y PROD si; PWA autoUpdate puede servir bundles viejos; deploy manual sin script. Deudas: B-DEV-GIT-SUCIO, B-REGLAS-FUENTE-DUDOSA, B-FIREBASE-JSON-PARIDAD, B-PWA-CACHE-STALE, B-NO-DEPLOY-SCRIPT, B-REMOTES-DISTINTOS, B-BACKUPS-LOCAL-ONLY, B-MIGRACION-DOC-OUTDATED, B-DEPLOY-RULES-SIN-EMULADOR, B-HOSTING-VS-COMMIT. Siguiente fase: analisis de criticos con regresion antes de tocar codigo.
 
+
+
+**Fase 0 auditoria (19/11/2026):** ISS-00..05 completados en modo read-only. Reglas vivas DEV/PROD = repo (SHA256 9F1D26...F7D20); 0 packs legacy sin packSnapshot; accesos teoricos NO deterministicos (8 IDs random + 7 IDs pack_*); instructores con docId = Auth UID y sin campo userId; subReservas usa bloqueado/activo/completado y PROD tiene packs vencidos. Hallazgo CRITICO nuevo ISS-36: instructores guarda password con valor no vacio en 2/2 DEV y 2/2 PROD y la regla isAuth permite leer; tambien cedula y datos de pago. Docs: docs/analisis/AUDITORIA-FASE0-20261119.md, docs/analisis/ISSUES-LOTE-A.md, docs/decisiones/ADR-002-alcance-adr-001.md. Sin cambios de codigo ni reglas.
+
