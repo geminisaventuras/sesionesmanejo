@@ -71,20 +71,19 @@ Detalle: `docs/analisis/AUDITORIA-FASE0-20261119.md`.
 | ID | Issue | Estado |
 |---|---|---|
 | `ISS-36A` | `password` en Firestore: quitar escritura, prefill y purgar DEV/PROD | ✅ Hecho (19/11/2026) |
-| `ISS-36B` | PII de instructores/proveedores (cédula, pagos) legible por `isAuth()` | 🔴 Pendiente |
+| `ISS-36B` | PII de instructores/proveedores legible por `isAuth()` → directorio público + perfil privado | ✅ Hecho (19/11/2026) |
 | `ISS-36C` | Rotar contraseñas de staff que estuvieron expuestas | 🔴 Pendiente (usar “Restablecer contraseña”) |
 
-**36A aplicado:** 2 instructores + 4 proveedores en DEV y 2 instructores + 2 proveedores en PROD quedaron sin `password`; el código ya no lo escribe ni lo prellena al editar. Hosting PROD desplegado y smoke 200. **36B/36C siguen abiertos.**
+**36A/36B aplicados:** `password` eliminado de Firestore; `instructoresPublicos` contiene solo nombre/apellido/sedes/activo/esPrincipal; `instructores` y `proveedores` quedaron privados (admin o dueño). Backfill DEV/PROD: 2 instructores públicos; reglas DEV probadas y PROD verificada con usuario temporal (público allow, privado deny). Hosting PROD desplegado y smoke 200. **36C sigue abierto.** `PerfilTab` sigue bloqueado hasta `ISS-13/14`.
 
 ## Próximo orden propuesto
 
-1. `ISS-36B` — separar PII de instructores/proveedores de la lectura pública autenticada.
-2. `ISS-36C` — rotar contraseñas de staff expuestas.
-3. `ISS-11` — `movimientos.create` admin-only (bajo riesgo, ya aprobado por FIRE).
-4. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
-5. `ISS-15` — gate UI de teóricos.
-6. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
-7. `ISS-19` + `ISS-20` — reglas de packs.
-8. Resto (`ISS-22` a `ISS-35`).
+1. `ISS-36C` — rotar contraseñas de staff expuestas.
+2. `ISS-11` — `movimientos.create` admin-only (bajo riesgo, ya aprobado por FIRE).
+3. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
+4. `ISS-15` — gate UI de teóricos.
+5. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
+6. `ISS-19` + `ISS-20` — reglas de packs.
+7. Resto (`ISS-22` a `ISS-35`).
 
 No se inicia el siguiente issue sin backup, prueba en emulador/DEV y confirmación de FIRE/MAMBA cuando corresponda.

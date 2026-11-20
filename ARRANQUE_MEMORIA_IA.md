@@ -2679,3 +2679,7 @@ Fix: `const COLL = 'bloqueosAdmin';`.
 
 **ISS-36A contencion staff password (19/11/2026):** Se elimino la copia plana de `password` en Firestore para instructores/proveedores. Codigo: `StaffService.crearStaff` ya no persiste password; `FormPersonal` no la prellena/reenvia al editar; `saveInstructor` y `saveProveedorRaw` la eliminan antes de escribir. Datos: DEV 2 instructores + 4 proveedores purgados; PROD 2 instructores + 2 proveedores purgados; backup estructural sin valores en `backup/purge-staff-password-*`. Hosting PROD desplegado (`motoescuelapp.web.app`, smoke 200). Las cuentas Auth no se tocaron. PENDIENTE CRITICO: ISS-36B (PII de staff legible por isAuth) e ISS-36C (rotacion de passwords expuestas). No se copiaron valores de password a backups ni docs.
 
+
+
+**ISS-36B staff publico/privado (19/11/2026):** Se creo `instructoresPublicos` (id, nombre, apellido, esPrincipal, sedes, activo; sin PII) y se restrictaron `instructores`/`proveedores` a admin o dueno por docId. Backfill: 2 docs DEV y 2 PROD. Codigo: AuthProvider resuelve staff por UID (no email); FirestoreProvider carga instructoresPublicos para no-admin y deja de cargar proveedores; saveInstructor dual-write atomico privado+publico. Reglas DEV probadas con usuarios temporales y PROD verificada con usuario temporal (publico allow, privado deny). Hosting y reglas PROD desplegados; smoke 200; hashes DEV/PROD iguales. Backups: backup/backfill-instructores-publicos-* y firestore.rules.backup-36b-*. Pendiente ISS-36C (rotacion) e ISS-13/14 (perfil instructor).
+

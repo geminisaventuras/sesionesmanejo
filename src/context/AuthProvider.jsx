@@ -1,6 +1,6 @@
 // @build: 2026-06-22 | id: AUTH-PROVIDER-BLINDADO | desc: Admin reconocido por email sin depender de documento en Firestore
 import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AuthService } from '../services/AuthService';
 
@@ -34,10 +34,11 @@ export function useAuthProvider(showToast) {
         return;
       }
 
-      const instQuery = query(collection(db, basePath, 'instructores'), where('email', '==', email));
-      const instSnap = await getDocs(instQuery);
-      if (!instSnap.empty) {
-        const instData = instSnap.docs[0].data();
+      // Rol de staff por UID (docId = uid). No se consulta por email para
+      // evitar list/query sobre documentos privados con PII.
+      const instSnap = await getDoc(doc(db, basePath, 'instructores', currentUser.uid));
+      if (instSnap.exists()) {
+        const instData = { id: instSnap.id, ...instSnap.data() };
         if (!instData.activo) {
           setUser(null);
           showToast('Tu cuenta de instructor está inactiva', 'error');
@@ -47,10 +48,9 @@ export function useAuthProvider(showToast) {
         return;
       }
 
-      const provQuery = query(collection(db, basePath, 'proveedores'), where('email', '==', email));
-      const provSnap = await getDocs(provQuery);
-      if (!provSnap.empty) {
-        const provData = provSnap.docs[0].data();
+      const provSnap = await getDoc(doc(db, basePath, 'proveedores', currentUser.uid));
+      if (provSnap.exists()) {
+        const provData = { id: provSnap.id, ...provSnap.data() };
         if (!provData.activo) {
           setUser(null);
           showToast('Tu cuenta de proveedor está inactiva', 'error');

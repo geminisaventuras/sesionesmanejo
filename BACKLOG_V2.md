@@ -2858,3 +2858,13 @@ Deudas cerradas en esta sesión
 - [PENDIENTE CRITICO] ISS-36B: PII de instructores/proveedores (cedula, pagos) legible por cualquier auth.
 - [PENDIENTE] ISS-36C: rotar passwords de staff expuestas usando Restablecer contrasena.
 
+
+
+**ISS-36B staff publico/privado (19/11/2026):**
+- [x] `instructoresPublicos` creado; 2 docs DEV + 2 PROD; sin PII.
+- [x] Reglas: instructores/proveedores admin o dueno; instructoresPublicos auth/admin.
+- [x] AuthProvider por UID; FirestoreProvider condicional; saveInstructor dual-write.
+- [x] Pruebas DEV y PROD de lectura; hosting/reglas desplegados; smoke 200.
+- [PENDIENTE] ISS-36C rotacion de passwords staff.
+- [PENDIENTE] ISS-13/14 perfil de instructor (escritura owner).
+

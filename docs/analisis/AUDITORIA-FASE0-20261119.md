@@ -98,3 +98,15 @@
 - **Deploy:** `firebase deploy --only hosting --project motoescuelapp` exitoso; `https://motoescuelapp.web.app` y chunk nuevo responden 200.
 - **Backups:** `backup/purge-staff-password-2026-11-20T00-46-29-234Z` (DEV) y `backup/purge-staff-password-2026-11-20T00-52-19-807Z` (PROD). No se copiaron valores de `password`, solo metadatos.
 - **Pendiente:** `ISS-36B` (PII legible por cualquier autenticado) e `ISS-36C` (rotación de contraseñas staff). Las cuentas de Firebase Auth no se modificaron.
+
+## ISS-36B — Separación público/privado aplicada (19/11/2026)
+
+- **Nueva colección `instructoresPublicos`:** `id`, `nombre`, `apellido`, `esPrincipal`, `sedes`, `activo`; sin email, teléfono, cédula, pagos ni `password`.
+- **Backfill:** 2 documentos públicos en DEV y 2 en PROD; `instructores`/`proveedores` privados se mantienen.
+- **Código:** `AuthProvider` resuelve instructor/proveedor por UID (`getDoc`), no por email; `FirestoreProvider` carga `instructoresPublicos` para no-admin y deja de cargar `proveedores`; `saveInstructor` hace dual-write atómico privado + público.
+- **Reglas:** `instructores` y `proveedores` read admin/dueño; `instructoresPublicos` read auth/write admin.
+- **Pruebas DEV:** estudiante lee público y NO privados; instructor/proveedor leen su propio privado; instructor no lee a otro; proveedor no lee instructor.
+- **Prueba PROD:** usuario temporal leyó público y recibió `permission-denied` en `instructores` y `proveedores` privados.
+- **Deploy:** hosting y reglas PROD; smoke 200; hashes DEV/PROD iguales.
+- **Backups:** `backup/backfill-instructores-publicos-*` y `backup/firestore.rules.backup-36b-*`.
+- **Pendiente:** `ISS-36C` (rotación) e `ISS-13/14` (perfil de instructor).

@@ -82,8 +82,18 @@ service cloud.firestore {
       match /sedes/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
       match /horarios/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
       match /cursos/{docId} { allow read: if true; allow write: if isAdmin(); }
-      match /instructores/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
-      match /proveedores/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      match /instructores/{docId} {
+        allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
+        allow create, update, delete: if isAdmin();
+      }
+      match /instructoresPublicos/{docId} {
+        allow read: if isAuth();
+        allow create, update, delete: if isAdmin();
+      }
+      match /proveedores/{docId} {
+        allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
+        allow create, update, delete: if isAdmin();
+      }
       match /motos/{docId} {
         allow read: if isAuth();
         allow create: if isAuth() && (

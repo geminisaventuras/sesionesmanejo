@@ -56,14 +56,15 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 - Reglas: el instructor puede crear/actualizar sus propios bloqueos (`firestore.rules:406-420`).
 ### 4.4 Perfil
 - `PerfilTab` valida con Zod y guarda con `saveInstructor({ ...user.data, ...perfil })` (`PerfilTab.jsx:16-47`).
-- `saveInstructor` escribe en `instructores/{id}` (`FirestoreProvider.js:89`).
-- **Regla actual:** `instructores` solo permite escritura a admin (`firestore.rules:85`); el guardado del instructor falla con `permission-denied`.
+- `saveInstructor` hace **dual-write atómico**: `instructores/{uid}` (privado) + `instructoresPublicos/{uid}` (público sin PII).
+- **Regla actual:** `instructores` solo permite escritura a admin (`firestore.rules:85`); el guardado del instructor sigue fallando con `permission-denied` hasta `ISS-13/14`.
 ### 4.5 Finanzas
 - `FinanzasTab` carga `pagosStaff` por `staffId` y muestra comisiones/pagos (`FinanzasTab.jsx:96-111`).
 ## 5. Portal del proveedor (`ProveedorPanel.jsx`)
 - `onSnapshot` de `ocupacionConfirmada` por `proveedorId`, límite 500 (`:16-56`).
 - `misMotos` = motos del contexto con `proveedorId === uid` (`:59-63`).
 - `misReservas` = espejo filtrado por `proveedorId` (`:66-69`).
+- El perfil privado del proveedor se resuelve por UID en `AuthProvider`; `FirestoreProvider` ya no carga todos los `proveedores` para no-admin.
 - Ganancias: `pagadoProveedor === true` para cobrado y `!pagadoProveedor` para por cobrar, usando `config.pagoProveedor` (`:71-77`).
 - Tabs: `inicio`, `motos`, `calendario`, `actividad` (`:128-137`).
 - `ProveedorMotos` administra sus motos (regla permite create/update al proveedor dueño, `firestore.rules:87-95`).
@@ -73,13 +74,13 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 ## 6. Fuentes de datos por rol
 | Rol | Fuente | Límite |
 |---|---|---|
-| Estudiante | `reservas` propias (`onSnapshot`), `reservasPack` propias (`getDocs`) | Sin límite explícito |
-| Instructor | `reservas` por `instructorId` (`onSnapshot`) | 100 |
+| Estudiante | `reservas` propias (`onSnapshot`), `reservasPack` propias (`getDocs`), `instructoresPublicos` | Sin límite explícito |
+| Instructor | `reservas` por `instructorId` (`onSnapshot`), su propio `instructores/{uid}` | 100 |
 | Instructor | `pagosStaff` por `staffId` | 100 |
 | Instructor | `bloqueosInstructores` propios | Sin límite |
-| Proveedor | `ocupacionConfirmada` por `proveedorId` | 500 |
+| Proveedor | `ocupacionConfirmada` por `proveedorId`, su propio `proveedores/{uid}` | 500 |
 | Proveedor | `bloqueosGlobales` propios | Sin límite |
-| Admin | `reservas` globales | 100 |
+| Admin | `reservas`, `instructores`, `proveedores` completos | 100 reservas |
 
 ## 7. Reglas de Firestore
 | Operación | Regla |
@@ -87,8 +88,9 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 | `reservas.read` | dueño, instructor asignado, `implicadosIds` o admin (`firestore.rules:100-105`) |
 | `reservasPack.read` | dueño, admin o instructor de la child actual (`:227-235`) |
 | `pagosStaff.read` | admin o `staffId` propio (`:216-219`) |
-| `instructores` | lectura auth; **escritura solo admin** (`:85`) |
-| `proveedores` | lectura auth; escritura admin (`:85`) |
+| `instructores` | lectura admin o dueño (`docId == uid`); **escritura solo admin** |
+| `instructoresPublicos` | lectura auth; escritura admin |
+| `proveedores` | lectura admin o dueño (`docId == uid`); escritura admin |
 | `motos` | proveedor dueño puede create/update; delete admin (`:87-95`) |
 | `bloqueosInstructores` | instructor dueño create/update; delete admin (`:406-420`) |
 | `bloqueosGlobales` | proveedor dueño create/update/delete (`:391-404`) |
@@ -145,7 +147,7 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 - Verificar límites 100/500 con datos históricos.
 
 ## 15. Riesgos, hallazgos y deudas
-- **`B-INSTRUCTOR-PERFIL-RULES` (CRÍTICO):** `PerfilTab` guarda en `instructores` (`FirestoreProvider.js:89`), pero la regla solo permite escritura a admin (`firestore.rules:85`). El instructor no puede editar su perfil; el botón siempre falla.
+- **`B-INSTRUCTOR-PERFIL-RULES` (CRÍTICO):** `PerfilTab` guarda en `instructores` y `saveInstructor` hace dual-write privado + `instructoresPublicos`; la regla de escritura sigue siendo admin-only, así que el instructor no puede editar su perfil hasta `ISS-13/14`.
 - **`B-PROVEEDOR-MIRROR-PAGOS` (CRÍTICO):** `ProveedorPanel` calcula cobrado/por cobrar y completadas desde `ocupacionConfirmada` (`:71-77`), pero el espejo no escribe `pagadoProveedor` ni `estadoCurso` (ver FLUJO-04). Resultado: cobrado 0, todo “por cobrar” y completadas 0.
 - **`B-INSTRUCTOR-SPLIT-VISIBILIDAD`:** `useReservasInstructor` filtra por `instructorId` (`:31-37`), así que el colaborador de un split no ve la clase en resumen/pendientes/historial; solo `FinanzasTab` consulta `implicadosIds` (`FinanzasTab.jsx:113-120`).
 - **`B-PORTAL-LIMITS`:** instructor 100 reservas, proveedor 500 espejos; el historial se trunca sin aviso.

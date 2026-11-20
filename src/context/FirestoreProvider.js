@@ -1,6 +1,6 @@
 // @build: 2026-10-01 | id: FIX-NOTIF-DUPLICADOS-V1 | backup: FirestoreProvider.js.backup-<timestamp> | desc: saveNotificacion memoizada + idempotencia de setNotifications
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
@@ -30,6 +30,17 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [notifications, setNotifications] = useState([]);
   const [reservas, setReservas] = useState([]);
 
+  const pickInstructorPublic = (data, id) => {
+    const out = { id: String(id) };
+    ['nombre', 'apellido', 'esPrincipal', 'sedes', 'activo', 'especialidad', 'bio'].forEach((k) => {
+      if (data[k] !== undefined) out[k] = data[k];
+    });
+    if (!Array.isArray(out.sedes)) out.sedes = [];
+    if (typeof out.esPrincipal !== 'boolean') out.esPrincipal = false;
+    if (typeof out.activo !== 'boolean') out.activo = true;
+    return out;
+  };
+
   const cargarCatalogos = useCallback(async () => {
     if (!fbUser || !authReady) return;
     try {
@@ -41,8 +52,12 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
         getDocs(collection(db, buildPath('cursosTeoricos'))),
         getDocs(collection(db, buildPath('recursos'))),
         getDocs(collection(db, buildPath('packs'))),
-        getDocs(collection(db, buildPath('instructores'))),
-        getDocs(collection(db, buildPath('proveedores'))),
+        isAdmin
+          ? getDocs(collection(db, buildPath('instructores')))
+          : getDocs(collection(db, buildPath('instructoresPublicos'))),
+        isAdmin
+          ? getDocs(collection(db, buildPath('proveedores')))
+          : Promise.resolve({ docs: [] }),
         getDocs(collection(db, buildPath('motos'))),
         isAdmin ? getDocs(collection(db, buildPath('admins'))) : Promise.resolve({ docs: [] }),
         isAdmin ? getDocs(collection(db, buildPath('movimientos'))) : Promise.resolve({ docs: [] })
@@ -86,12 +101,21 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const savePack = saveCatalogo(setPacks);  const saveCurso = saveCatalogo(setCursos);
   const saveCursoTeorico = saveCatalogo(setCursosTeoricos);
   const saveRecurso = saveCatalogo(setRecursos);
-  const saveInstructorRaw = saveCatalogo(setInstructores);
   const saveInstructor = useCallback(async (datos) => {
     const safe = { ...(datos || {}) };
     delete safe.password;
-    return saveInstructorRaw(safe);
-  }, [saveInstructorRaw]);
+    if (!safe.id) throw new Error('No se puede guardar un instructor sin id');
+    const id = String(safe.id);
+    const publico = pickInstructorPublic(safe, id);
+    const batch = writeBatch(db);
+    batch.set(doc(db, buildPath('instructores'), id), safe);
+    batch.set(doc(db, buildPath('instructoresPublicos'), id), publico);
+    await batch.commit();
+    setInstructores(prev => prev.find(i => String(i.id) === id)
+      ? prev.map(i => String(i.id) === id ? safe : i)
+      : [...prev, safe]);
+    return safe;
+  }, [buildPath]);
   const saveProveedorRawBase = saveCatalogo(setProveedores);
   const saveProveedorRaw = useCallback(async (datos) => {
     const safe = { ...(datos || {}) };
