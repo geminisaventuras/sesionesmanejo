@@ -2880,3 +2880,19 @@ Deudas cerradas en esta sesión
 - [x] Espejo: `comisionProveedor`/`proveedorId`/`pagadoProveedor` en escrituras y backfill DEV/PROD.
 - [ ] `B-MOVIMIENTOS-ID`, `B-MOVIMIENTOS-RULE`, `B-MOVIMIENTOS-USERID`, `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-OWNERSHIP` y conciliación de pagos legacy.
 
+
+
+## Finanzas enterprise — 19/11/2026
+
+- [x] Menú propio `FinanceLayout` con 8 secciones responsive.
+- [x] Refresco visual slate/emerald/rose/amber/indigo y tarjetas KPI sin overflow.
+- [x] `formatearMonto()` robusto (2 decimales, USDT) y uso en finanzas.
+- [x] Deudas a personal con búsqueda, filtros, orden y límite.
+- [x] Ledger extendido y formularios de ingreso extra, gasto, pago extra e impuesto.
+- [x] Reportes y exportación CSV.
+- [x] IVA en modo preparación: RIF/tasa configurables, `cobrarEnCheckout:false`, sin cambio de precios.
+- [x] `movimientos` admin-only + `createdBy`; admin/estudiante probados en DEV/PROD.
+- [ ] Smoke UI manual de las 8 secciones.
+- [ ] Conciliación histórica `pagosStaff` vs `movimientos`.
+- [ ] Activar cobro de IVA cuando exista RIF.
+

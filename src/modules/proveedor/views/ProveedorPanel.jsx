@@ -9,6 +9,7 @@ import ProveedorActividad from '../components/ProveedorActividad';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { formatearMonto } from '../../shared/utils/currency';
 const ProveedorPanel = () => {
   const { user, motos, config, isReservaActiva, logoutUser } = useContext(AppContext);
 const [ocupacionConfirmada, setOcupacionConfirmada] = useState([]);
@@ -102,8 +103,8 @@ useEffect(() => {
       <div className="flex-1 p-6 overflow-y-auto pb-6 space-y-6">
         {tab === 'inicio' && (
           <>
-            <div className="bg-green-600 text-white p-5 rounded-3xl shadow-xl"><p className="text-green-200 text-[10px] font-bold uppercase">Ingresos Cobrados</p><h2 className="text-3xl font-black">{config.monedaPagoStaff} {gananciaCobrada}</h2></div>
-            {gananciaPorCobrar > 0 && (<div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3"><Clock size={20} className="text-orange-500" /><div><p className="text-sm font-bold text-orange-800">Por Cobrar</p><p className="text-lg font-black text-orange-600">{config.monedaPagoStaff} {gananciaPorCobrar}</p></div></div>)}
+            <div className="bg-green-600 text-white p-5 rounded-3xl shadow-xl"><p className="text-green-200 text-[10px] font-bold uppercase">Ingresos Cobrados</p><h2 className="text-3xl font-black break-words tabular-nums">{formatearMonto(gananciaCobrada, config.monedaPagoStaff)}</h2></div>
+            {gananciaPorCobrar > 0 && (<div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3"><Clock size={20} className="text-orange-500" /><div><p className="text-sm font-bold text-orange-800">Por Cobrar</p><p className="text-lg font-black text-orange-600 break-words tabular-nums">{formatearMonto(gananciaPorCobrar, config.monedaPagoStaff)}</p></div></div>)}
             <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest">Motos en Uso</h2>
             {usoPorMoto.length === 0 && <p className="text-gray-500 text-sm text-center py-4">No tienes motos registradas.</p>}
             {usoPorMoto.map(moto => (

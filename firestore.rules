@@ -197,8 +197,14 @@ service cloud.firestore {
       }
 
       match /movimientos/{docId} {
-        allow read: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
-        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow read: if isAdmin();
+        allow create: if isAdmin() &&
+          request.resource.data.tipo in ['ingreso', 'egreso'] &&
+          request.resource.data.monto is number &&
+          request.resource.data.monto > 0 &&
+          request.resource.data.categoria is string &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.estado == 'confirmado';
         allow update, delete: if false;
       }
 

@@ -119,8 +119,11 @@ const AdminPackDetalle = () => {
         const montoRealContable = Math.max(0, (pack.precioBaseCongelado || 0) - (pack.descuentoCongelado?.monto || 0)) || (Number(pack.precioTotalCongelado) || 0);
         
         await saveMovimiento({
-          id: Date.now().toString(),
+          id: `mov_pack_${pack.id}`,
           tipo: 'ingreso',
+          categoria: 'ingreso_reserva',
+          origen: 'reserva',
+          origenId: pack.id,
           monto: Number(montoRealContable.toFixed(2)),
           desc: `Pack ${pack.packNombre || ''} - C-${String(pack.id).slice(-4)}`,
           fecha: new Date().toISOString().split('T')[0],

@@ -33,7 +33,15 @@ const AdminMotoDetalle = React.lazy(() => import('./modules/admin/components/Adm
 const ProgresoAcademicoView = React.lazy(() => import('./modules/shared/views/ProgresoAcademicoView'));
 
 const AdminOcupacion = React.lazy(() => import('./modules/admin/components/AdminOcupacion'));
-const AdminFinanzas = React.lazy(() => import('./modules/admin/components/AdminFinanzas'));
+const FinanceLayout = React.lazy(() => import('./modules/admin/finance/FinanceLayout'));
+const FinanceResumen = React.lazy(() => import('./modules/admin/finance/FinanceResumen'));
+const FinanceIngresos = React.lazy(() => import('./modules/admin/finance/FinanceIngresos'));
+const FinanceComisiones = React.lazy(() => import('./modules/admin/finance/FinanceComisiones'));
+const FinanceGastos = React.lazy(() => import('./modules/admin/finance/FinanceGastos'));
+const FinanceImpuestos = React.lazy(() => import('./modules/admin/finance/FinanceImpuestos'));
+const FinanceMovimientos = React.lazy(() => import('./modules/admin/finance/FinanceMovimientos'));
+const FinanceReportes = React.lazy(() => import('./modules/admin/finance/FinanceReportes'));
+const FinanceConfiguracion = React.lazy(() => import('./modules/admin/finance/FinanceConfiguracion'));
 const StaffFinanzasView = React.lazy(() => import('./modules/admin/components/StaffFinanzasView'));
 const AdminConfigHub = React.lazy(() => import('./modules/admin/components/AdminConfigHub'));
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
@@ -208,12 +216,22 @@ function App() {
             </ProtectedRoute>
           } />
 
-                   {/* Finanzas (admin) */}
+          {/* Finanzas (admin) */}
           <Route path="/admin/finanzas" element={
             <ProtectedRoute allowedRoles={['admin']}>
-              <AdminFinanzas />
+              <FinanceLayout />
             </ProtectedRoute>
-          } />
+          }>
+            <Route index element={<Navigate to="resumen" replace />} />
+            <Route path="resumen" element={<FinanceResumen />} />
+            <Route path="ingresos" element={<FinanceIngresos />} />
+            <Route path="comisiones" element={<FinanceComisiones />} />
+            <Route path="gastos" element={<FinanceGastos />} />
+            <Route path="impuestos" element={<FinanceImpuestos />} />
+            <Route path="movimientos" element={<FinanceMovimientos />} />
+            <Route path="reportes" element={<FinanceReportes />} />
+            <Route path="configuracion" element={<FinanceConfiguracion />} />
+          </Route>
           <Route path="/admin/finanzas/staff/:staffId" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <StaffFinanzasView />

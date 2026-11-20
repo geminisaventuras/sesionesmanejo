@@ -30,8 +30,8 @@ Detalle: `docs/analisis/AUDITORIA-FASE0-20261119.md`.
 
 | ID | Issue | Depende de | Estado |
 |---|---|---|---|
-| `ISS-11` | `movimientos.create` solo admin; update/delete denegado | ISS-01 | 🟡 Listo para diseño |
-| `ISS-12` | `saveMovimiento` no debe pisar `userId` | ISS-11 | ⚪ Pendiente |
+| `ISS-11` | `movimientos.create` solo admin; update/delete denegado | ISS-01 | ✅ Hecho 19/11/2026 |
+| `ISS-12` | `saveMovimiento` no debe pisar `userId`; agrega `createdBy` | ISS-11 | ✅ Hecho 19/11/2026 |
 | `ISS-13` | `instructores.update` allowlist con `docId == auth.uid`; create/delete admin | ISS-04 | 🟡 Listo para diseño |
 | `ISS-14` | `PerfilTab` con `updateDoc` solo allowlist | ISS-04 | 🟡 Listo para diseño |
 | `ISS-15` | Gate UI de `TeoricoModuloView` + vencimiento | ISS-03 | 🟡 Listo para diseño |
@@ -79,11 +79,10 @@ Detalle: `docs/analisis/AUDITORIA-FASE0-20261119.md`.
 ## Próximo orden propuesto
 
 1. `ISS-36C` — rotar contraseñas de staff expuestas.
-2. `ISS-11` — `movimientos.create` admin-only (bajo riesgo, ya aprobado por FIRE).
-3. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
-4. `ISS-15` — gate UI de teóricos.
-5. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
-6. `ISS-19` + `ISS-20` — reglas de packs.
-7. Resto (`ISS-22` a `ISS-35`).
+2. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
+3. `ISS-15` — gate UI de teóricos.
+4. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
+5. `ISS-19` + `ISS-20` — reglas de packs.
+6. Resto (`ISS-22` a `ISS-35`).
 
 No se inicia el siguiente issue sin backup, prueba en emulador/DEV y confirmación de FIRE/MAMBA cuando corresponda.

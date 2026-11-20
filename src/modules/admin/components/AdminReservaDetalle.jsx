@@ -170,7 +170,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     
     try {
       await batch.commit();
-      await saveMovimiento({ id: Date.now().toString(), tipo: 'ingreso', monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
+      await saveMovimiento({ id: `mov_reserva_${res.id}`, tipo: 'ingreso', categoria: 'ingreso_reserva', origen: 'reserva', origenId: res.id, monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
             showToast('Pago aprobado. Ahora puedes enviar la confirmación por WhatsApp.', 'success');
             
     } catch (error) {

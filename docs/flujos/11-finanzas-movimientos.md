@@ -3,18 +3,18 @@
 | Campo | Valor |
 |---|---|
 | ID | FLUJO-11 |
-| Estado | 🟡 Verificado por código (19/11/2026); pendiente auditoría con datos reales |
-| Archivos clave | `AdminFinanzas.jsx`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx`, `ModalRegistrarPago.jsx`, `TabCuentaPorCobrar.jsx`, `FinanzasTab.jsx`, `firestore.rules` |
-| Deudas | `B-MOVIMIENTOS-USERID`, `B-MOVIMIENTOS-RULE`, `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-OWNERSHIP` (los tres primeros de finanzas de proveedor quedaron resueltos el 19/11/2026) |
+| Estado | ✅ Implementado 19/11/2026; pendiente smoke UI manual |
+| Archivos clave | `FinanceLayout.jsx`, `FinanceResumen.jsx`, `FinanceIngresos.jsx`, `FinanceComisiones.jsx`, `FinanceGastos.jsx`, `FinanceImpuestos.jsx`, `FinanceMovimientos.jsx`, `FinanceReportes.jsx`, `FinanceConfiguracion.jsx`, `FinanceMovementModal.jsx`, `financeUtils.js`, `financeConstants.js`, `PagosStaffService.js`, `FirestoreProvider.js`, `StaffFinanzasView.jsx`, `firestore.rules` |
+| Deudas | `B-PAGOS-MONTO-LIBRE`, `B-PAGOS-PROVEEDOR-OWNERSHIP`, `B-MOVIMIENTOS-ATOMICOS`; `B-MOVIMIENTOS-USERID`, `B-MOVIMIENTOS-RULE`, `B-FINANZAS-PROVEEDOR-CONFIG` y `B-PAGOS-PROVEEDOR-LEGACY` resueltos el 19/11/2026 |
 
 ## 1. Objetivo y alcance
 Registrar ingresos, calcular comisiones/deudas, pagar a instructores y proveedores, y mostrar el ledger al admin y al staff.
 No cubre la validación del pago del estudiante (FLUJO-07) ni el cálculo de precios (FLUJO-01/05).
 
 ## 2. Actores y rutas
-- **Admin:** `/admin/finanzas` (`AdminFinanzas`) y `/admin/finanzas/staff/:id` (`StaffFinanzasView`).
+- **Admin:** `/admin/finanzas/resumen`, `/ingresos`, `/comisiones`, `/gastos`, `/impuestos`, `/movimientos`, `/reportes`, `/configuracion` (`FinanceLayout` + páginas); `/admin/finanzas/staff/:id` (`StaffFinanzasView`).
 - **Instructor:** pestaña Finanzas de su panel (`FinanzasTab`).
-- **Proveedor:** panel de proveedor (`ProveedorPanel`), deuda por `config.pagoProveedor`.
+- **Proveedor:** panel de proveedor (`ProveedorPanel`), deuda por `comisionProveedor` del espejo (fallback legacy a `config.pagoProveedor`).
 
 ## 3. Ingresos y movimientos
 | Fuente | Dónde se registra | Tipo |
@@ -176,4 +176,19 @@ No cubre la validación del pago del estudiante (FLUJO-07) ni el cálculo de pre
 | 19/11/2026 | Creación (lectura de código) | Deek |
 | 19/11/2026 | Fix 10/15: comisión congelada como SSOT, `proveedorId` en deuda, tarjetas reales, pago de proveedor por `PagosStaffService`, tab Resumen y `comisionProveedor` en espejo | Deek + datos PROD |
 
+
+
+
+## 22. Módulo Finanzas Enterprise (19/11/2026)
+
+- **Navegación:** `FinanceLayout` con menú responsive y rutas `/admin/finanzas/{resumen,ingresos,comisiones,gastos,impuestos,movimientos,reportes,configuracion}`.
+- **Visual:** paleta `slate`/`emerald`/`rose`/`amber`/`indigo`, tarjetas KPI, formato `formatearMonto()` con máximo 2 decimales y soporte `USDT`.
+- **Deudas a personal:** búsqueda, filtro por rol, orden, límite inicial y “Ver todas”.
+- **Ledger:** `movimientos` extendido con `categoria`, `origen`, `origenId`, `createdBy`, `createdAt`, `estado`, moneda, método y referencia.
+- **Formularios:** ingreso extra, gasto operativo, pago extra a personal e impuesto manual mediante `FinanceMovementModal`.
+- **Reportes:** caja, devengado, comisiones, categorías y exportación CSV.
+- **IVA:** modo preparación (`cobrarEnCheckout: false`); no modifica precios del estudiante. Campos RIF/razón social/tasa disponibles para activación futura.
+- **Reglas:** `movimientos` admin-only; update/delete denegados; create valida tipo, monto, categoría, `createdBy` y `estado`.
+- **Pruebas:** admin puede crear y estudiante no puede crear/leer (DEV y PROD); build y smoke de hosting.
+- **Pendiente:** smoke UI manual, conciliación histórica de `pagosStaff` vs `movimientos`, y activación legal del IVA cuando exista RIF.
 

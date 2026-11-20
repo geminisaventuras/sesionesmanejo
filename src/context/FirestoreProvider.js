@@ -1,6 +1,6 @@
 // @build: 2026-10-01 | id: FIX-NOTIF-DUPLICADOS-V1 | backup: FirestoreProvider.js.backup-<timestamp> | desc: saveNotificacion memoizada + idempotencia de setNotifications
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, getDocs, limit, writeBatch, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
@@ -186,8 +186,27 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   }, [fbUser, buildPath]);
 
   const saveMovimiento = useCallback(async (item) => {
-    const itemConUsuario = { ...item, userId: fbUser?.uid || user?.uid || '' };
+    const tipo = item?.tipo === 'ingreso' ? 'ingreso' : 'egreso';
+    const categoria = item?.categoria || (tipo === 'ingreso' ? 'ingreso_reserva' : 'gasto_operativo');
+    const id = item?.id
+      ? String(item.id)
+      : (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `mov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const itemConUsuario = {
+      ...item,
+      id,
+      tipo,
+      categoria,
+      userId: item?.userId || fbUser?.uid || user?.uid || '',
+      createdBy: fbUser?.uid || user?.uid || '',
+      createdAt: item?.createdAt || Timestamp.now(),
+      estado: item?.estado || 'confirmado',
+      moneda: item?.moneda || 'USD',
+      desc: item?.desc || categoria
+    };
     await saveMovimientoRaw(itemConUsuario);
+    return itemConUsuario;
   }, [fbUser, user, saveMovimientoRaw]);
 
   const getTodayStr = useCallback(() => {

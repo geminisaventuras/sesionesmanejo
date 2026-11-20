@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { comisionInstructorReserva, comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { formatearMonto } from '../../shared/utils/currency';
 
 const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 
@@ -175,7 +176,7 @@ export default function TabCuentaPorCobrar({
                       <p className="text-[11px] text-gray-500 truncate">{r.nombre} {r.apellido || ''}</p>
                       <p className="text-[10px] text-gray-400">{r.fecha}</p>
                     </div>
-                    <span className="text-sm font-black text-gray-900 shrink-0">${getComision(r)}</span>
+                    <span className="text-sm font-black text-gray-900 shrink-0">{formatearMonto(getComision(r), config?.monedaPagoStaff || 'USD')}</span>
                   </label>
                 );
               })}
@@ -189,7 +190,7 @@ export default function TabCuentaPorCobrar({
         <div className="bg-white border border-gray-100 rounded-xl p-3 space-y-2">
           <div className="flex justify-between items-center text-xs">
             <span className="text-gray-600">{seleccionados.length} seleccionadas</span>
-            <span className="font-black text-gray-900 text-lg">${totalSeleccionado}</span>
+            <span className="font-black text-gray-900 text-lg">{formatearMonto(totalSeleccionado, config?.monedaPagoStaff || 'USD')}</span>
           </div>
           <button
             type="button"

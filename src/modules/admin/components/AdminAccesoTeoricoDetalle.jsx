@@ -87,6 +87,9 @@ export default function AdminAccesoTeoricoDetalle() {
         await saveMovimiento({
           id: `mov_acc_${acceso.id}`,
           tipo: 'ingreso',
+          categoria: 'ingreso_reserva',
+          origen: 'sistema',
+          origenId: acceso.id,
           monto: Number(acceso.precio) || 0,
           desc: `Módulo formativo - ${cursoNombre} - A-${String(acceso.id).slice(-4)}`,
           fecha: new Date().toISOString().split('T')[0],

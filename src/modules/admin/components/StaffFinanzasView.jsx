@@ -17,6 +17,7 @@ import {
   esPendienteProveedor
 } from '../../shared/utils/finanzasHelpers';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { formatearMonto } from '../../shared/utils/currency';
 import { db } from '../../../firebase';
 import {
   Activity, BookOpen, Calendar, Wallet, Settings,
@@ -303,12 +304,12 @@ const StaffFinanzasView = () => {
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
             <p className="text-[10px] font-black text-orange-600 uppercase tracking-wide">Por Cobrar</p>
-            <p className="text-2xl font-black text-orange-900 mt-1">${totalPendiente}</p>
+            <p className="text-2xl font-black text-orange-900 mt-1">{formatearMonto(totalPendiente, config?.monedaPagoStaff || 'USD')}</p>
             <p className="text-xs text-orange-600 mt-1">{reservasPendientes.length} reservas</p>
           </div>
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
             <p className="text-[10px] font-black text-green-600 uppercase tracking-wide">Histórico Pagado</p>
-            <p className="text-2xl font-black text-green-900 mt-1">${totalPagado}</p>
+            <p className="text-2xl font-black text-green-900 mt-1">{formatearMonto(totalPagado, config?.monedaPagoStaff || 'USD')}</p>
             <p className="text-xs text-green-600 mt-1">{pagos.length} pagos</p>
           </div>
         </div>
@@ -453,7 +454,7 @@ const StaffFinanzasView = () => {
                         >
                           <div className="flex justify-between items-center">
                                                     <div className="flex-1 min-w-0">
-                            <p className="text-sm font-black text-gray-900">${p.montoTotal}</p>
+                            <p className="text-sm font-black text-gray-900">{formatearMonto(p.montoTotal, p.moneda || config?.monedaPagoStaff || 'USD')}</p>
                                                        {p.montoTotalVES != null && (
                               <p className="text-[11px] font-bold text-blue-700">
                                 Bs. {Number(p.montoTotalVES).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -490,7 +491,7 @@ const StaffFinanzasView = () => {
                                     </p>
                                     <p className="text-gray-500 truncate">{d.estudiante || '—'}</p>
                                   </div>
-                                  <span className="font-black text-gray-800 shrink-0">${d.comision}</span>
+                                  <span className="font-black text-gray-800 shrink-0">{formatearMonto(d.comision, config?.monedaPagoStaff || 'USD')}</span>
                                 </div>
                               ))
                             )}

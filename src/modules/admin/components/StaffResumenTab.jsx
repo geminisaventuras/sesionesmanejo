@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { BookOpen, CheckCircle, Clock, DollarSign } from 'lucide-react';
 import { comisionInstructorReserva, comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { formatearMonto } from '../../shared/utils/currency';
 
 const StaffResumenTab = ({
   staff,
@@ -81,13 +82,13 @@ const StaffResumenTab = ({
         <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
           <Clock size={18} className="text-orange-500 mb-1" />
           <p className="text-[10px] font-black uppercase text-orange-600">Por Cobrar</p>
-          <p className="text-2xl font-black text-orange-900">{moneda} {resumen.totalPendiente}</p>
+          <p className="text-2xl font-black text-orange-900">{formatearMonto(resumen.totalPendiente, moneda)}</p>
           <p className="text-xs text-orange-600">{resumen.pendientes} reservas</p>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
           <CheckCircle size={18} className="text-green-500 mb-1" />
           <p className="text-[10px] font-black uppercase text-green-600">Pagado</p>
-          <p className="text-2xl font-black text-green-900">{moneda} {resumen.totalPagado}</p>
+          <p className="text-2xl font-black text-green-900">{formatearMonto(resumen.totalPagado, moneda)}</p>
           <p className="text-xs text-green-600">{resumen.pagos} pagos</p>
         </div>
       </div>
@@ -117,7 +118,7 @@ const StaffResumenTab = ({
                   <p className="font-bold text-gray-800">{item.curso}</p>
                   <p className="text-gray-500">{item.cantidad} reservas</p>
                 </div>
-                <p className="font-black text-orange-700">{moneda} {item.monto}</p>
+                <p className="font-black text-orange-700">{formatearMonto(item.monto, moneda)}</p>
               </div>
             ))}
           </div>
@@ -136,7 +137,7 @@ const StaffResumenTab = ({
                   <p className="font-bold text-gray-800">{item.curso}</p>
                   <p className="text-gray-500">{item.cantidad} reservas</p>
                 </div>
-                <p className="font-black text-green-700">{moneda} {item.monto}</p>
+                <p className="font-black text-green-700">{formatearMonto(item.monto, moneda)}</p>
               </div>
             ))}
           </div>
@@ -157,7 +158,7 @@ const StaffResumenTab = ({
                     <p className="font-bold text-gray-800">{p.fecha || '—'}</p>
                     <p className="text-gray-500">{detalles.length || (p.reservaIds || []).length} reservas · {p.metodoPago || 'efectivo'}</p>
                   </div>
-                  <p className="font-black text-gray-900">{moneda} {p.montoTotal}</p>
+                  <p className="font-black text-gray-900">{formatearMonto(p.montoTotal, moneda)}</p>
                 </div>
               );
             })}
