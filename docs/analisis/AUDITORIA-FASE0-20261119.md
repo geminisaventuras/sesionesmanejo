@@ -89,3 +89,12 @@
 - Reglas vivas: `backup/audit-rules-2026-11-20T00-23-02-743Z/firestore.rules.live`.
 - Resumen agregado: `backup/audit-fase0-2026-11-20T00-23-02-743Z/summary.json`.
 - No se incluyeron valores de PII ni credenciales en este informe.
+
+## ISS-36A — Contención de credencial aplicada (19/11/2026)
+
+- **Código:** `StaffService.crearStaff` ya no persiste `password`; `FormPersonal` no prellena ni reenvía la clave al editar; `saveInstructor` y `saveProveedorRaw` eliminan `password` antes de escribir.
+- **Datos DEV:** 2 instructores y 4 proveedores sin `password` después de la purga.
+- **Datos PROD:** 2 instructores y 2 proveedores sin `password` después de la purga.
+- **Deploy:** `firebase deploy --only hosting --project motoescuelapp` exitoso; `https://motoescuelapp.web.app` y chunk nuevo responden 200.
+- **Backups:** `backup/purge-staff-password-2026-11-20T00-46-29-234Z` (DEV) y `backup/purge-staff-password-2026-11-20T00-52-19-807Z` (PROD). No se copiaron valores de `password`, solo metadatos.
+- **Pendiente:** `ISS-36B` (PII legible por cualquier autenticado) e `ISS-36C` (rotación de contraseñas staff). Las cuentas de Firebase Auth no se modificaron.

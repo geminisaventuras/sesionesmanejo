@@ -7,7 +7,11 @@ import { ChevronLeft } from 'lucide-react';
 const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
   const { sedes } = useContext(AppContext);
   const isInst = rol === 'instructor';
-  const [form, setForm] = useState(item.id ? item : { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false, activo: true });
+  const [form, setForm] = useState(() => {
+    const base = { nombre: '', apellido: '', cedula: '', email: '', password: '', telefono: '', pagoBanco: '', pagoTelefono: '', pagoCedula: '', sedes: [], esPrincipal: false, activo: true };
+    // Edición: nunca heredar la contraseña almacenada en Firestore.
+    return item.id ? { ...item, password: '' } : base;
+  });
   return (
     <div className="space-y-4">
       <div className="flex gap-2 items-center mb-4">
@@ -21,7 +25,14 @@ const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <h4 className="text-sm font-bold text-gray-700 mb-2">Acceso Sistema</h4>
         <Input label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-        <Input label="Contraseña (mín. 6 caracteres)" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} minLength={6} />
+        {!form.id && (
+          <Input label="Contraseña (mín. 6 caracteres)" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} minLength={6} />
+        )}
+        {form.id && (
+          <p className="text-[11px] text-gray-500">
+            La contraseña no se guarda ni se muestra. Usa “Restablecer contraseña” para cambiarla.
+          </p>
+        )}
       </div>
       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
         <h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4>
@@ -51,7 +62,11 @@ const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
           alert('La contraseña debe tener al menos 6 caracteres.');
           return;
         }
-        console.log('[DEBUG] FormPersonal llamando a onSave con:', form);
+        if (form.id) {
+          const { password, ...sinPassword } = form;
+          onSave(sinPassword);
+          return;
+        }
         onSave(form);
       }} variant="dark">Guardar</Button>
     </div>

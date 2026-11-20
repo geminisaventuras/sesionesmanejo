@@ -70,16 +70,21 @@ Detalle: `docs/analisis/AUDITORIA-FASE0-20261119.md`.
 
 | ID | Issue | Estado |
 |---|---|---|
-| `ISS-36` | **CRÍTICO:** `instructores` guarda `password` con valor no vacío en 2/2 DEV y 2/2 PROD; `isAuth()` permite leerlo. También cédula y datos de pago con valor. Requiere purga, rotación y restricción de lectura/escritura. | 🔴 Bloqueante de seguridad |
+| `ISS-36A` | `password` en Firestore: quitar escritura, prefill y purgar DEV/PROD | ✅ Hecho (19/11/2026) |
+| `ISS-36B` | PII de instructores/proveedores (cédula, pagos) legible por `isAuth()` | 🔴 Pendiente |
+| `ISS-36C` | Rotar contraseñas de staff que estuvieron expuestas | 🔴 Pendiente (usar “Restablecer contraseña”) |
+
+**36A aplicado:** 2 instructores + 4 proveedores en DEV y 2 instructores + 2 proveedores en PROD quedaron sin `password`; el código ya no lo escribe ni lo prellena al editar. Hosting PROD desplegado y smoke 200. **36B/36C siguen abiertos.**
 
 ## Próximo orden propuesto
 
-1. `ISS-11` — `movimientos.create` admin-only (bajo riesgo, ya aprobado por FIRE).
-2. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
-3. `ISS-15` — gate UI de teóricos.
-4. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
-5. `ISS-19` + `ISS-20` — reglas de packs.
-6. `ISS-36` — contención de credenciales/PII de instructores.
-7. Resto (`ISS-22` a `ISS-35`).
+1. `ISS-36B` — separar PII de instructores/proveedores de la lectura pública autenticada.
+2. `ISS-36C` — rotar contraseñas de staff expuestas.
+3. `ISS-11` — `movimientos.create` admin-only (bajo riesgo, ya aprobado por FIRE).
+4. `ISS-13` + `ISS-14` — perfil de instructor (docId = uid + allowlist).
+5. `ISS-15` — gate UI de teóricos.
+6. `ISS-16` + `ISS-17` + `ISS-18` — migración y reglas de teóricos.
+7. `ISS-19` + `ISS-20` — reglas de packs.
+8. Resto (`ISS-22` a `ISS-35`).
 
 No se inicia el siguiente issue sin backup, prueba en emulador/DEV y confirmación de FIRE/MAMBA cuando corresponda.

@@ -14,7 +14,6 @@ const buildPath = (colName) => {
 
 export const StaffService = {
   async crearStaff(email, password, role, data) {
-    console.log('[DEBUG] StaffService.crearStaff llamado:', email, role);
     if (!email || !password || !role) {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del staff' } };
     }
@@ -31,10 +30,13 @@ export const StaffService = {
       // Cerrar sesión en la app secundaria
       await signOut(secondaryAuth);
 
-      // Guardar documento con la sesión del admin intacta
+      // Guardar documento con la sesión del admin intacta.
+      // Nunca persistir la contraseña en Firestore: vive solo en Firebase Auth.
+      const dataSinPassword = { ...(data || {}) };
+      delete dataSinPassword.password;
       const collectionName = role === 'instructor' ? 'instructores' : 'proveedores';
       const ref = doc(db, buildPath(collectionName), uid);
-      await setDoc(ref, { ...data, email, uid, createdAt: Timestamp.now() });
+      await setDoc(ref, { ...dataSinPassword, email, uid, createdAt: Timestamp.now() });
 
       return { success: true, data: { uid } };
     } catch (error) {

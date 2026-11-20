@@ -86,8 +86,18 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const savePack = saveCatalogo(setPacks);  const saveCurso = saveCatalogo(setCursos);
   const saveCursoTeorico = saveCatalogo(setCursosTeoricos);
   const saveRecurso = saveCatalogo(setRecursos);
-  const saveInstructor = saveCatalogo(setInstructores);
-  const saveProveedorRaw = saveCatalogo(setProveedores);
+  const saveInstructorRaw = saveCatalogo(setInstructores);
+  const saveInstructor = useCallback(async (datos) => {
+    const safe = { ...(datos || {}) };
+    delete safe.password;
+    return saveInstructorRaw(safe);
+  }, [saveInstructorRaw]);
+  const saveProveedorRawBase = saveCatalogo(setProveedores);
+  const saveProveedorRaw = useCallback(async (datos) => {
+    const safe = { ...(datos || {}) };
+    delete safe.password;
+    return saveProveedorRawBase(safe);
+  }, [saveProveedorRawBase]);
   const saveMoto = saveCatalogo(setMotos);
   const saveAdmin = saveCatalogo(setAdmins);
   const saveMovimientoRaw = saveCatalogo(setMovimientos);

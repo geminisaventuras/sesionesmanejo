@@ -2847,3 +2847,14 @@ Deudas cerradas en esta sesión
 - [BLOQUEANTE] ISS-16 (IDs teoricos) e ISS-36.
 - [SIGUIENTE] ISS-11 movimientos admin-only, luego ISS-13/14 perfil instructor.
 
+
+
+**ISS-36A contencion staff password (19/11/2026):**
+- [x] Codigo: no se escribe/persiste `password` en Firestore; edicion no la prellena; wrappers la eliminan.
+- [x] Datos DEV: 2 instructores + 4 proveedores sin password.
+- [x] Datos PROD: 2 instructores + 2 proveedores sin password.
+- [x] Build DEV/PROD y deploy hosting PROD; smoke 200.
+- [x] Backups estructurales sin valores: backup/purge-staff-password-*.
+- [PENDIENTE CRITICO] ISS-36B: PII de instructores/proveedores (cedula, pagos) legible por cualquier auth.
+- [PENDIENTE] ISS-36C: rotar passwords de staff expuestas usando Restablecer contrasena.
+
