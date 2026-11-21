@@ -1,6 +1,5 @@
 // Archivo: src/modules/inscripcion/services/ReservaService.js
-// @build: 2026-11-21.14-10-52 | id: PACK-CHILD-C-DETERMINISTIC | backup: backup/packchild-c-20261121-141052/src/modules/inscripcion/services/ReservaService.js | desc: IDs deterministas de child pack_sub y verificación de existencia para unicidad estructural.
-
+// @build: 2026-11-21.A+ | id: PACK-PRECIOS-SNAPSHOT | backup: backup/pack-precios-a-20261121-150045/src/modules/inscripcion/services/ReservaService.js | desc: Compra/agendamiento usan precios congelados A+ del pack y la maestra; no confían en cursoSnapshot para dinero.
 import { db, auth } from '../../shared/firebase/firebase';
 import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, serverTimestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
@@ -8,6 +7,7 @@ import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { LockService } from './LockService';
 import { construirSlotsObjetivo, construirLockIds, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
 import { consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
+import { resolverTraeMoto, seleccionarValoresCurso } from '../utils/packPricing.js';
 
 const appId = 'motoescuela-pro-v1';
 
@@ -530,37 +530,31 @@ export const ReservaService = {
           throw new Error('La sesión inicial de este pack ya fue creada');
         }
 
-        // 3. Resolver cursos del pack
-        const cursosPack = (pack.cursoIds || []).map(cid => {
-          // Los cursos no se leen dentro de la transacción (sería costoso).
-          // El cliente ya los tiene en packData.cursoSnapshot.
-          return packData.cursoSnapshot?.find(c => String(c.id) === String(cid)) || null;
-        }).filter(Boolean);
-
-        if (cursosPack.length === 0) {
-          throw new Error('Pack sin cursos válidos');
+        // 3. Resolver cursos y precios congelados del pack (SSOT admin)
+        const preciosPack = pack.precios;
+        if (!preciosPack || !Array.isArray(preciosPack.cursoIds) || preciosPack.cursoIds.length === 0) {
+          throw new Error('El pack no tiene snapshot de precios. Contacta al administrador.');
+        }
+        const cursosPack = preciosPack.cursoIds.map(cid =>
+          packData.cursoSnapshot?.find(c => String(c.id) === String(cid)) || null
+        ).filter(Boolean);
+        if (
+          cursosPack.length !== preciosPack.cursoIds.length ||
+          !Array.isArray(preciosPack.preciosProrrateados) ||
+          preciosPack.preciosProrrateados.length !== cursosPack.length
+        ) {
+          throw new Error('El snapshot de cursos o precios del pack está incompleto. Recarga e intenta de nuevo.');
         }
 
         const cursoEq = cursosPack[0];
-        const sumaBase = cursosPack.reduce((acc, c) => acc + (Number(c.precioBase) || 0), 0);
-        const descuentoMonto = Number(pack.descuentoTipo === 'porcentaje'
-          ? (sumaBase * (Number(pack.descuentoValor) || 0)) / 100
-          : (Number(pack.descuentoValor) || 0));
-        // FIX-FINANCIERO: El backend calcula el precio, no confía en el frontend.
-        const precioPack = Math.max(0, sumaBase - descuentoMonto);
-
-        // 4. Prorrateo del primer curso (Equilibrio)
-        const precioEqBase = Number(cursoEq.precioBase) || 0;
-        const precioEqProrrateado = sumaBase > 0
-          ? Number(((precioEqBase / sumaBase) * precioPack).toFixed(2))
-          : 0;
+        const precioEqBase = Number(preciosPack.preciosBase?.[0] ?? 0);
+        const precioEqProrrateado = Number(preciosPack.preciosProrrateados?.[0] ?? 0);
         const descuentoEqAplicado = Number((precioEqBase - precioEqProrrateado).toFixed(2));
-
-        // 5. Comisiones híbridas (completas del curso, negocio absorbe déficit)
-        const comisionInstructorEq = Number(cursoEq.comisionInstructor) || 0;
-        const comisionProveedorEq = Number(cursoEq.comisionProveedor) || 0;
-        const totalComisionesEq = comisionInstructorEq + comisionProveedorEq;
-        const deficitEq = Number((totalComisionesEq - precioEqProrrateado).toFixed(2));
+        const traeMotoEq = resolverTraeMoto(preciosPack, 0, cursoEq.id, packData.traeMotoPorCurso);
+        const valoresEq = seleccionarValoresCurso(preciosPack, 0, traeMotoEq, {
+          motoAsignadaId: packData.motoAsignadaId,
+          proveedorId: packData.proveedorId
+        });
 
         // 6. Vencimiento congelado
         const vencimientoDias = Number(pack.vencimientoDias) || 60;
@@ -581,13 +575,14 @@ export const ReservaService = {
           packId: String(pack.id),
           packNombre: pack.nombre || 'Pack',
           packSnapshot: {
-            cursoIds: pack.cursoIds || [],
+            cursoIds: preciosPack.cursoIds,
             sedesPermitidas: pack.sedesPermitidas || [],
-            cursosTeoricosIncluidos: pack.cursosTeoricosIncluidos || [],
-            descuentoTipo: pack.descuentoTipo || 'porcentaje',
-            descuentoValor: Number(pack.descuentoValor) || 0,
+            cursosTeoricosIncluidos: preciosPack.teoricosIds || [],
+            descuentoTipo: preciosPack.descuentoTipo,
+            descuentoValor: Number(preciosPack.descuentoValor) || 0,
             vencimientoDias
           },
+          preciosCongelados: { ...preciosPack },
           // FIX-PACK-SEDE-POR-SESION: mapa de cursoId → sedesPermitidas del curso.
           // Se congela al comprar el pack (maestra inmutable post-compra).
           // Permite validar intersección curso ∩ pack en reglas Firestore sin joins.
@@ -598,13 +593,13 @@ export const ReservaService = {
             });
             return mapa;
           })(),
-          precioBaseCongelado: sumaBase,
+          precioBaseCongelado: Number(preciosPack.precioBaseTotal) || 0,
           descuentoCongelado: {
-            tipo: pack.descuentoTipo || 'porcentaje',
-            valor: Number(pack.descuentoValor) || 0,
-            monto: Number(descuentoMonto.toFixed(2))
+            tipo: preciosPack.descuentoTipo,
+            valor: Number(preciosPack.descuentoValor) || 0,
+            monto: Number(preciosPack.descuentoMonto) || 0
           },
-          precioTotalCongelado: Number(precioPack.toFixed(2)),
+          precioTotalCongelado: Number(preciosPack.precioTotal) || 0,
           fechaCompra: Timestamp.now(),
           vencimiento: Timestamp.fromMillis(vencimientoMs),
           estado: 'activo',
@@ -614,7 +609,7 @@ export const ReservaService = {
           sedeId: packData.sedeId || null,
           tipoMoto: packData.tipoMoto || null,
           traeMotoPorCurso: packData.traeMotoPorCurso || {},
-          pagoTotalMoneda: Number(precioPack.toFixed(2)),
+          pagoTotalMoneda: Number(preciosPack.precioTotal) || 0,
           pagoTotalVES: Number(packData.pagoTotalVES) || 0,
           pagoBanco: packData.pagoBanco || null,
           pagoTelefono: packData.pagoTelefono || null,
@@ -665,15 +660,12 @@ export const ReservaService = {
           fecha2: packData.fecha2 || null,
           horaId: packData.horaId || null,
           instructorId: packData.instructorId || null,
-          motoAsignadaId: packData.motoAsignadaId || null,
-          // FIX-PERMITE-TRAER-MOTO-PACK-CREATE: reemplaza hardcode por 3 casos.
-          // Mismo criterio que agendarSiguienteCursoPack y crearReserva individual.
-          traeMoto: (cursoEq?.motoIncluida === false) ? 'Sí'
-                   : (cursoEq?.permiteTraerMotoPropia === false) ? 'No'
-                   : (packData.traeMotoPorCurso?.[String(cursoEq.id)] || 'No'),
+          motoAsignadaId: valoresEq.motoAsignadaId,
+          // A+: la configuración de moto y la comisión vienen del snapshot del pack.
+          traeMoto: traeMotoEq,
           sabeBicicleta: 'No', // implícito por pack
-          proveedorId: packData.proveedorId || null,
-          pagoTotalMoneda: precioEqProrrateado,
+          proveedorId: valoresEq.proveedorId,
+          pagoTotalMoneda: valoresEq.precio,
           pagoTotalVES: Number(packData.pagoTotalVES) || 0,
           pagoBanco: packData.pagoBanco || null,
           pagoTelefono: packData.pagoTelefono || null,
@@ -683,13 +675,13 @@ export const ReservaService = {
           createdAt: Timestamp.now(),
           estadoPago: 'Pendiente',
           estadoCurso: 'Pendiente',
-          precio: precioEqProrrateado,
-          precioBaseOriginal: precioEqBase,
+          precio: valoresEq.precio,
+          precioBaseOriginal: valoresEq.precioBaseOriginal,
           descuentoAplicado: descuentoEqAplicado,
-          comisionInstructor: comisionInstructorEq,
-          comisionProveedor: comisionProveedorEq,
-          deficitComision: deficitEq,
-          comisionAbsorbidaPorNegocio: deficitEq,
+          comisionInstructor: valoresEq.comisionInstructor,
+          comisionProveedor: valoresEq.comisionProveedor,
+          deficitComision: valoresEq.deficitComision,
+          comisionAbsorbidaPorNegocio: valoresEq.deficitComision,
           pin: packData.pin || null,
           terminosAceptados: packData.terminosAceptados === true,
           fechaAceptacionTerminos: packData.fechaAceptacionTerminos || null,
@@ -863,29 +855,26 @@ export const ReservaService = {
           throw new Error('Esta sesión del pack ya fue agendada');
         }
 
-        // 5. Prorrateo del curso actual
-        const sumaBase = Number(maestra.precioBaseCongelado) || 0;
-        const precioPack = Number(maestra.precioTotalCongelado) || 0;
-        const precioBaseCurso = Number(cursoData.precioBase) || 0;
-        const precioProrrateado = sumaBase > 0
-          ? Number(((precioBaseCurso / sumaBase) * precioPack).toFixed(2))
-          : 0;
+        // 5. Precios congelados de la maestra (SSOT inmutable de la compra)
+        const preciosCongelados = maestra.preciosCongelados;
+        if (
+          !preciosCongelados ||
+          !Array.isArray(preciosCongelados.preciosProrrateados) ||
+          preciosCongelados.preciosProrrateados.length !== (maestra.packSnapshot?.cursoIds || []).length ||
+          String(preciosCongelados.cursoIds?.[cursoActual]) !== String(subActual.cursoId)
+        ) {
+          throw new Error('El pack no tiene precios congelados válidos. Contacta al administrador.');
+        }
+        const precioBaseCurso = Number(preciosCongelados.preciosBase?.[cursoActual] ?? 0);
+        const precioProrrateado = Number(preciosCongelados.preciosProrrateados?.[cursoActual] ?? 0);
         const descuentoAplicado = Number((precioBaseCurso - precioProrrateado).toFixed(2));
 
-        // 6. Comisiones híbridas (completas, negocio absorbe déficit)
-        const comisionInstructor = Number(cursoData.comisionInstructor) || 0;
-        const comisionProveedor = Number(cursoData.comisionProveedor) || 0;
-        const totalComisiones = comisionInstructor + comisionProveedor;
-        const deficit = Number((totalComisiones - precioProrrateado).toFixed(2));
-
-        // 7. traeMoto con SSOT del curso (FIX-PERMITE-TRAER-MOTO-PACK-BACKEND).
-        // Jerarquía: mismo criterio que crearReserva (individual) y Paso2Pack (cliente).
-        //   1. Sin moto app (motoIncluida: false) → 'Sí' obligatorio.
-        //   2. Con moto app pero NO permite propia (Equilibrio) → 'No' obligatorio.
-        //   3. Con moto app y permite propia → respetar el mapa traeMotoPorCurso.
-        const traeMoto = (cursoData?.motoIncluida === false) ? 'Sí'
-                       : (cursoData?.permiteTraerMotoPropia === false) ? 'No'
-                       : ((maestra.traeMotoPorCurso || {})[String(cursoData.id)] || 'No');
+        // 6. Configuración de moto y comisiones desde el snapshot congelado.
+        const traeMoto = resolverTraeMoto(preciosCongelados, cursoActual, cursoData.id, packData.traeMotoPorCurso);
+        const valores = seleccionarValoresCurso(preciosCongelados, cursoActual, traeMoto, {
+          motoAsignadaId: packData.motoAsignadaId,
+          proveedorId: packData.proveedorId
+        });
 
         // 7-bis. FIX-PACK-SEDE-POR-SESION: validar intersección curso ∩ pack.
         // Sedes del pack (fallback legacy: solo sedeId).
@@ -946,12 +935,12 @@ export const ReservaService = {
           fecha2: packData.fecha2 || null,
           horaId: packData.horaId || null,
           instructorId: packData.instructorId || null,
-          motoAsignadaId: packData.motoAsignadaId || null,
+          motoAsignadaId: valores.motoAsignadaId,
           traeMoto,
           sabeBicicleta: 'Sí', // implícito por pack (ya completó Equilibrio)
-          proveedorId: packData.proveedorId || null,
+          proveedorId: valores.proveedorId,
           createdAt: serverTimestamp(),
-          pagoTotalMoneda: precioProrrateado,
+          pagoTotalMoneda: valores.precio,
           pagoTotalVES: Number(maestra.pagoTotalVES) || 0,
           pagoBanco: maestra.pagoBanco || null,
           pagoTelefono: maestra.pagoTelefono || null,
@@ -961,13 +950,13 @@ export const ReservaService = {
           createdAt: Timestamp.now(),
           estadoPago: 'Aprobado', // ya pagó el pack
           estadoCurso: 'Pendiente',
-          precio: precioProrrateado,
-          precioBaseOriginal: precioBaseCurso,
+          precio: valores.precio,
+          precioBaseOriginal: valores.precioBaseOriginal,
           descuentoAplicado,
-          comisionInstructor,
-          comisionProveedor,
-          deficitComision: deficit,
-          comisionAbsorbidaPorNegocio: deficit,
+          comisionInstructor: valores.comisionInstructor,
+          comisionProveedor: valores.comisionProveedor,
+          deficitComision: valores.deficitComision,
+          comisionAbsorbidaPorNegocio: valores.deficitComision,
           pin: null,
           terminosAceptados: true,
           fechaAceptacionTerminos: new Date().toISOString(),

@@ -1246,6 +1246,7 @@ const disponibilidad = useMemo(() => {
   // Fase 3 Pack: cuando es pack, el precio total se calcula desde packActivo
   const packPrecioBase = useMemo(() => {
     if (!esPack || !packActivo) return 0;
+    if (packActivo.precios?.precioBaseTotal != null) return Number(packActivo.precios.precioBaseTotal);
     const baseCursos = (packActivo.cursoIds || []).reduce((acc, cid) => {
       const c = (ctx.cursos || []).find(x => String(x.id) === String(cid));
       return acc + (Number(c?.precioBase) || 0);
@@ -1261,12 +1262,15 @@ const disponibilidad = useMemo(() => {
 
   const packDescuentoMonto = useMemo(() => {
     if (!esPack || !packActivo) return 0;
+    if (packActivo.precios?.descuentoMonto != null) return Number(packActivo.precios.descuentoMonto);
     return packActivo.descuentoTipo === 'porcentaje'
       ? (packPrecioBase * (Number(packActivo.descuentoValor) || 0)) / 100
       : (Number(packActivo.descuentoValor) || 0);
   }, [esPack, packActivo, packPrecioBase]);
 
-  const packPrecioFinal = Math.max(0, packPrecioBase - packDescuentoMonto);
+  const packPrecioFinal = packActivo?.precios?.precioTotal != null
+    ? Number(packActivo.precios.precioTotal)
+    : Math.max(0, packPrecioBase - packDescuentoMonto);
 
   // Precio efectivo a cobrar (pack o curso individual)
   const baseUSDFinal = esPack ? packPrecioFinal : baseUSD;
@@ -2084,24 +2088,27 @@ if (necesitaMoto) {
         {step === '4' && <Paso4Pago form={form} updateForm={updateForm} precioFinalVES={precioFinalVES} baseUSD={baseUSDFinal} precioCurso={precioBaseMostrar} tasaCobro={tasaCobro} monedaCobroClientes={ctx.config.monedaCobroClientes} config={ctx.config} 
  desglosePrecio={() => {
   if (esPack && packActivo) {
-    const baseSesionesPack = (packActivo.cursoIds || []).reduce((acc, cid) => {
+    const preciosSnapshot = packActivo.precios;
+    const baseSesionesPack = preciosSnapshot?.baseSesiones ?? (packActivo.cursoIds || []).reduce((acc, cid) => {
       const c = (ctx.cursos || []).find(x => String(x.id) === String(cid));
       return acc + (Number(c?.precioBase) || 0);
     }, 0);
-    const baseTeoricosPack = packActivo.sumarTeoricosAlPrecio
+    const baseTeoricosPack = preciosSnapshot?.baseTeoricos ?? (packActivo.sumarTeoricosAlPrecio
       ? (packActivo.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
           const ct = (ctx.cursosTeoricos || []).find(x => String(x.id) === String(ctId));
           return acc + (Number(ct?.precio) || 0);
         }, 0)
-      : 0;
+      : 0);
     const items = [
-      { label: 'Suma de sesiones', value: '$' + baseSesionesPack.toFixed(2) }
+      { label: 'Suma de sesiones', value: '$' + Number(baseSesionesPack).toFixed(2) }
     ];
     if (baseTeoricosPack > 0) {
-      items.push({ label: 'Módulos formativos', value: '$' + baseTeoricosPack.toFixed(2) });
+      items.push({ label: 'Módulos formativos', value: '$' + Number(baseTeoricosPack).toFixed(2) });
     }
-    const descLabel = packActivo.descuentoTipo === 'porcentaje'
-      ? `Descuento (${packActivo.descuentoValor}%)`
+    const descTipo = preciosSnapshot?.descuentoTipo ?? packActivo.descuentoTipo;
+    const descValor = preciosSnapshot?.descuentoValor ?? packActivo.descuentoValor;
+    const descLabel = descTipo === 'porcentaje'
+      ? `Descuento (${descValor}%)`
       : 'Descuento';
     if (packDescuentoMonto > 0) {
       items.push({ label: descLabel, value: '-$' + packDescuentoMonto.toFixed(2) });

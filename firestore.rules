@@ -36,6 +36,65 @@ service cloud.firestore {
         ('sedeId' in maestra && sedeId == maestra.sedeId);
     }
 
+    function packPre(packId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/packs/$(packId)).data;
+    }
+
+    function preciosMasterValidos(p, m) {
+      return p is map &&
+        p.precios is map &&
+        m.preciosCongelados is map &&
+        m.precioBaseCongelado == p.precios.precioBaseTotal &&
+        m.descuentoCongelado.tipo == p.precios.descuentoTipo &&
+        m.descuentoCongelado.valor == p.precios.descuentoValor &&
+        m.descuentoCongelado.monto == p.precios.descuentoMonto &&
+        m.precioTotalCongelado == p.precios.precioTotal &&
+        m.packSnapshot.cursoIds == p.precios.cursoIds &&
+        m.preciosCongelados.cursoIds == p.precios.cursoIds &&
+        m.preciosCongelados.preciosBase == p.precios.preciosBase &&
+        m.preciosCongelados.preciosProrrateados == p.precios.preciosProrrateados &&
+        m.preciosCongelados.comisionesInstructor == p.precios.comisionesInstructor &&
+        m.preciosCongelados.comisionesProveedorMotoEmpresa == p.precios.comisionesProveedorMotoEmpresa &&
+        m.preciosCongelados.comisionesProveedorMotoPropia == p.precios.comisionesProveedorMotoPropia &&
+        m.preciosCongelados.deficitsMotoEmpresa == p.precios.deficitsMotoEmpresa &&
+        m.preciosCongelados.deficitsMotoPropia == p.precios.deficitsMotoPropia &&
+        m.preciosCongelados.motoIncluidaPorCurso == p.precios.motoIncluidaPorCurso &&
+        m.preciosCongelados.permiteTraerMotoPropiaPorCurso == p.precios.permiteTraerMotoPropiaPorCurso &&
+        m.preciosCongelados.teoricosIncluidos == p.precios.teoricosIncluidos &&
+        m.preciosCongelados.teoricosIds == p.precios.teoricosIds &&
+        m.preciosCongelados.teoricosPrecios == p.precios.teoricosPrecios;
+    }
+
+    function preciosChildValidos(pc, d) {
+      return pc is map &&
+        d.precio is number &&
+        d.precioBaseOriginal is number &&
+        d.comisionInstructor is number &&
+        d.comisionProveedor is number &&
+        d.deficitComision is number &&
+        d.cursoId == pc.cursoIds[d.packCursoIndex] &&
+        d.precio == pc.preciosProrrateados[d.packCursoIndex] &&
+        d.precioBaseOriginal == pc.preciosBase[d.packCursoIndex] &&
+        d.comisionInstructor == pc.comisionesInstructor[d.packCursoIndex] &&
+        (
+          (
+            d.traeMoto == 'Sí' &&
+            d.comisionProveedor == 0 &&
+            d.proveedorId == null &&
+            d.motoAsignadaId == null &&
+            d.comisionProveedor == pc.comisionesProveedorMotoPropia[d.packCursoIndex] &&
+            d.deficitComision == pc.deficitsMotoPropia[d.packCursoIndex]
+          ) ||
+          (
+            d.traeMoto == 'No' &&
+            d.comisionProveedor == pc.comisionesProveedorMotoEmpresa[d.packCursoIndex] &&
+            d.deficitComision == pc.deficitsMotoEmpresa[d.packCursoIndex]
+          )
+        ) &&
+        (pc.motoIncluidaPorCurso[d.packCursoIndex] == true || d.traeMoto == 'Sí') &&
+        (pc.permiteTraerMotoPropiaPorCurso[d.packCursoIndex] == true || d.traeMoto == 'No');
+    }
+
     function esLockCorrupto(lockData) {
       return !(
         'userId' in lockData &&
@@ -181,6 +240,7 @@ service cloud.firestore {
                               maestraAfter(request.resource.data.packReservaId).get('cursoActual', 0) == 0 &&
                               maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
                               maestraAfter(request.resource.data.packReservaId).subReservas[0].reservaId == docId &&
+                              preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
                               maestraAfter(request.resource.data.packReservaId).subReservas.size() == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
                               maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() > 0 &&
                               request.resource.data.cursoId == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds[0] &&
@@ -207,6 +267,7 @@ service cloud.firestore {
                               request.resource.data.cursoId == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds[request.resource.data.packCursoIndex] &&
                               maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
                               maestraAfter(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex].reservaId == docId &&
+                              preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
                               (
                                 !isAdmin() ||
                                 (
@@ -335,7 +396,9 @@ service cloud.firestore {
           request.resource.data.cursoActual == 0 &&
           request.resource.data.subReservas is list &&
           request.resource.data.subReservas.size() > 0 &&
-          request.resource.data.precioTotalCongelado > 0;
+          request.resource.data.precioTotalCongelado > 0 &&
+          request.resource.data.packId is string &&
+          preciosMasterValidos(packPre(request.resource.data.packId), request.resource.data);
         allow update: if isAuth() && (
           isAdmin() ||
           (

@@ -201,3 +201,15 @@
 - Publicados con nombres `-v2` para evitar caché; manifest, `index.html` y `includeAssets` actualizados.
 - Hosting desplegado (114 archivos, `Last-Modified 18:34:26 GMT`); iconos v2 con 200 y hash idéntico al build.
 - Backup previo: `backup/pwa-icons-20261121-143351`.
+
+---
+
+### Sesión 21/11/2026 – `B-PACK-PRECIOS-CLIENTE`: precios A+ en producción
+
+- `packPricing.js`: cálculo puro en centavos, teóricos incluidos, déficit con signo y variantes de moto; 5/5 pruebas unitarias.
+- `FormPack` persiste `packs.precios`; `ReservaService` usa `packs.precios` y `maestra.preciosCongelados`; comisión de proveedor 0 con `traeMoto='Sí'`; `Paso2Pack`/`InscripcionView` muestran el snapshot.
+- Reglas: binding de precios y comisiones maestra/child, variantes de moto y espejo; 7/7 pruebas reales en emulador.
+- Backfill PROD: 8 packs con `precios`, 9 maestras con `preciosCongelados`, 19 children, 0 issues. Backups `backup/backfill-precios-motoescuelapp-2026-11-21T19-19-37-005Z.json` y `backup/backfill-masters-motoescuelapp-2026-11-21T19-19-54-103Z.json`.
+- Build 1844 módulos; hosting 114 archivos (`index-CIc7IW2W.js`, `Last-Modified 19:22:20 GMT`); reglas compiladas y liberadas.
+- Auditoría post-deploy: 8/8 packs con precios, 9/9 maestras con snapshot; Home/Login 200 sin errores de consola.
+- Residual: `B-FX-CONCILIACION`, `B-RESERVA-PRECIOS-CLIENTE`, `B-PACK-SUBRESERVAS-METADATA`, `B-ESPEJO-FANTASMA`; clientes PWA antiguos deben actualizar.

@@ -50,11 +50,12 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
         return acc + (Number(ct?.precio) || 0);
       }, 0)
     : 0;
-  const precioBase = precioBaseCursos + precioBaseTeoricos;
-  const descuentoMonto = pack?.descuentoTipo === 'porcentaje'
+  const preciosPack = pack?.precios;
+  const precioBase = preciosPack?.precioBaseTotal ?? (precioBaseCursos + precioBaseTeoricos);
+  const descuentoMonto = preciosPack?.descuentoMonto ?? (pack?.descuentoTipo === 'porcentaje'
     ? (precioBase * (Number(pack.descuentoValor) || 0)) / 100
-    : (Number(pack.descuentoValor) || 0);
-  const precioFinal = Math.max(0, precioBase - descuentoMonto);
+    : (Number(pack.descuentoValor) || 0));
+  const precioFinal = preciosPack?.precioTotal ?? Math.max(0, precioBase - descuentoMonto);
 
   const traeMotoPorCurso = form.traeMotoPorCurso || {};
 

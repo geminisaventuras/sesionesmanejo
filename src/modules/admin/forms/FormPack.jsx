@@ -1,11 +1,13 @@
-// @build: 2026-09-22.A2.12-b | id: FORM-PACK-SEDES | desc: FormPack con sedesPermitidas (como cursos)
+// @build: 2026-11-21.A+ | id: FORM-PACK-PRECIOS-SNAPSHOT | desc: FormPack persiste snapshot de precios A+ y lo calcula con la función pura compartida.
 import { useState, useContext, memo } from 'react';
+import { Timestamp } from 'firebase/firestore';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Input } from '../../../components/UI';
+import { calcularPreciosPack } from '../../inscripcion/utils/packPricing.js';
 import { ChevronLeft, ArrowUp, ArrowDown, GripVertical, Plus, X, MapPin, GraduationCap } from 'lucide-react';
 
 const FormPack = memo(({ item, onSave, onCancel }) => {
-  const { cursos, cursosTeoricos, sedes, refreshCatalogos } = useContext(AppContext);
+  const { cursos, cursosTeoricos, sedes, refreshCatalogos, user } = useContext(AppContext);
     const [form, setForm] = useState(
     item?.id
       ? { ...item, cursoIds: item.cursoIds || [], sedesPermitidas: item.sedesPermitidas || [], cursosTeoricosIncluidos: item.cursosTeoricosIncluidos || [], sumarTeoricosAlPrecio: item.sumarTeoricosAlPrecio === true }
@@ -38,20 +40,29 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     c => !form.cursoIds.includes(String(c.id))
   );
 
-  const precioBaseCursos = cursosSeleccionados.reduce(
-    (acc, c) => acc + (Number(c.precioBase) || 0), 0
-  );
-  const precioTeoricos = form.sumarTeoricosAlPrecio
-    ? (form.cursosTeoricosIncluidos || []).reduce((acc, ctId) => {
-        const ct = (cursosTeoricos || []).find(x => String(x.id) === String(ctId));
-        return acc + (Number(ct?.precio) || 0);
-      }, 0)
-    : 0;
-  const precioBase = precioBaseCursos + precioTeoricos;
-  const descuentoMonto = form.descuentoTipo === 'porcentaje'
-    ? (precioBase * (Number(form.descuentoValor) || 0)) / 100
-    : (Number(form.descuentoValor) || 0);
-  const precioFinal = Math.max(0, precioBase - descuentoMonto);
+  const cursosTeoricosSeleccionados = form.sumarTeoricosAlPrecio
+    ? (form.cursosTeoricosIncluidos || [])
+      .map(id => (cursosTeoricos || []).find(x => String(x.id) === String(id)))
+      .filter(Boolean)
+    : [];
+
+  const preciosPreview = (() => {
+    try {
+      return calcularPreciosPack({
+        cursos: cursosSeleccionados,
+        cursosTeoricos: cursosTeoricosSeleccionados,
+        descuentoTipo: form.descuentoTipo,
+        descuentoValor: Number(form.descuentoValor) || 0,
+        sumarTeoricosAlPrecio: form.sumarTeoricosAlPrecio === true
+      });
+    } catch {
+      return null;
+    }
+  })();
+
+  const precioBase = preciosPreview?.precioBaseTotal ?? 0;
+  const descuentoMonto = preciosPreview?.descuentoMonto ?? 0;
+  const precioFinal = preciosPreview?.precioTotal ?? 0;
 
   const agregarCurso = (cursoId) => {
     setForm(f => ({ ...f, cursoIds: [...f.cursoIds, String(cursoId)] }));
@@ -152,8 +163,36 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
       alert('El descuento porcentual no puede ser 100% o más');
       return;
     }
+    if (cursosSeleccionados.length !== form.cursoIds.length) {
+      alert('Hay cursos del pack que ya no existen en el catálogo. Quita o reemplaza esos cursos.');
+      return;
+    }
+    if (form.sumarTeoricosAlPrecio && cursosTeoricosSeleccionados.length !== (form.cursosTeoricosIncluidos || []).length) {
+      alert('Hay teóricos del pack que ya no existen en el catálogo. Ajusta la selección.');
+      return;
+    }
+    let precios;
+    try {
+      precios = calcularPreciosPack({
+        cursos: cursosSeleccionados,
+        cursosTeoricos: cursosTeoricosSeleccionados,
+        descuentoTipo: form.descuentoTipo,
+        descuentoValor: Number(form.descuentoValor) || 0,
+        sumarTeoricosAlPrecio: form.sumarTeoricosAlPrecio === true,
+        calculadoEn: Timestamp.now(),
+        calculadoPor: user?.uid || null
+      });
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+    if (precios.precioTotal <= 0) {
+      alert('El precio final del pack debe ser mayor que cero.');
+      return;
+    }
       onSave({
       ...form,
+      precios,
       nombre: form.nombre.trim(),
       descripcion: (form.descripcion || '').trim(),
       descuentoValor: Number(form.descuentoValor) || 0,
