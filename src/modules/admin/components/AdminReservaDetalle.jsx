@@ -1234,7 +1234,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       {mostrarCambiarHorario && (
         <CambiarHorarioModal
           reserva={res}
-          ctx={{ horarios, ocupacionConfirmada: reservas, cursos, instructores, motos: [] }}
+          ctx={{ horarios, ocupacionConfirmada: reservas, cursos, instructores, motos }}
           onConfirmar={cambiarHorario}
           onCancelar={() => setMostrarCambiarHorario(false)}
         />
