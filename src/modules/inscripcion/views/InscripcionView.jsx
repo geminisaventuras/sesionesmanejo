@@ -13,7 +13,7 @@ import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
-import { useInscripcionState } from '../hooks/useInscripcionState';
+import { useInscripcionState, crearFlowId } from '../hooks/useInscripcionState';
 import { Paso1DatosPersonales } from '../components/Paso1DatosPersonales';
 import { Paso2Configuracion } from '../components/Paso2Configuracion';
 import { Paso2Pack } from '../components/Paso2Pack';
@@ -30,7 +30,7 @@ import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 
-import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
+import { useBloqueosProveedorEstado } from '../../../hooks/useBloqueosProveedor';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
 import { useBloqueosInstructor } from '../../../hooks/useBloqueosInstructor';
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor, afectaInstructor } from '../../shared/utils/bloqueosHelpers';
@@ -38,12 +38,16 @@ import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/
 import { EmailService } from '../../shared/services/EmailService';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros, eliminarLockLocal } from '../utils/locksHelpers';
+import { enriquecerDiasConRoles } from '../utils/disponibilidadRoles';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
-import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
+import { useOcupacionConfirmadaRango } from '../../../hooks/useOcupacionConfirmadaRango';
 const LOCK_DURATION = 10 * 60 * 1000;
 const MAX_REINTENTOS_EXPIRACION = 3;
 const MAX_DIAS_RESERVA = 30;
+// Freno táctico: el auto-jump no puede encadenar fechas indefinidamente.
+// Se reinicia cuando el usuario elige una fecha manualmente.
+const MAX_AUTOJUMPS = 3;
 
 // ─── Blindaje temporal absoluto (America/Caracas) ──────
 const getCaracasTime = () => {
@@ -184,9 +188,10 @@ const evaluarDisponibilidad = ({
       return { ...bloque, disponible: false, reason: 'CERRADO', instructorId: null, motoAsignadaId: null };
     if (bloque.id === selectingBlockId)
       return { ...bloque, disponible: true, reason: '', instructorId: null, motoAsignadaId: null, seleccionando: true };
-    if (lockId && form.horaId === bloque.id)
-      return { ...bloque, disponible: true, reason: '', restaurado: true };
 
+    // El lock seleccionado NO se restaura a ciegas: debe pasar por las
+    // mismas validaciones de admin/proveedor/instructor/moto. Si un bloqueo
+    // posterior lo invalida, el efecto de InscripcionView libera el lock.
     const instructoresDisponibles = (instructores || [])
       .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
       .filter(i => estaPermitido(i))
@@ -209,8 +214,8 @@ const evaluarDisponibilidad = ({
       // SSOT-BLOQUEOS: bloqueo de proveedor contra fecha1 Y fecha2 (cursos de 2 días).
       motosDisponibles = motosDisponibles.filter(m => {
         const bloqueado = (bloqueosProveedor || []).some(b =>
-          afectaProveedor(b, m.id, fecha1, bloque.label) ||
-          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label))
+          afectaProveedor(b, m.id, fecha1, bloque.label, m.proveedorId) ||
+          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label, m.proveedorId))
         );
         return !bloqueado;
       });
@@ -279,7 +284,11 @@ if (!necesitaMoto) {
 
   const today = todayStr;
   
-  const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1); return d.toISOString().split('T')[0]; })();
+  const maxDate = (() => {
+    const d = new Date(todayStr + 'T12:00:00');
+    d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
+    return d.toISOString().split('T')[0];
+  })();
 
   const diasDisponibles = [];
   // SSOT-MOTO-HELPERS: calcular días cuando sede + (tipoMoto O curso sin moto).
@@ -319,7 +328,8 @@ const {
     form, updateForm,
  lockId, updateLockId,
     lockExpiresAt, updateLockExpiresAt,
-    limpiarSesion, resetForm
+    limpiarSesion, resetForm,
+    flow, updateFlow
   } = useInscripcionState();
 
   // Cálculos derivados ANTES del hook
@@ -332,15 +342,37 @@ const {
     return d.toISOString().split('T')[0];
   }, [form.fecha1, cursoUnDia]);
 
-  // Hook con fecha2 correcta
-  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmada({ 
+  // La cinta y el auto-jump necesitan ocupación de TODO el rango, no solo D1/D2.
+  const todayStr = ctx.getTodayStr();
+  const fechaFinRango = useMemo(() => {
+    const d = new Date(todayStr + 'T12:00:00');
+    d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
+    return d.toISOString().split('T')[0];
+  }, [todayStr]);
+
+  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmadaRango({ 
+    fechaInicio: todayStr,
+    fechaFin: fechaFinRango,
     fecha: form.fecha1,
-    fecha2: fecha2Calc,
-    limitDocs: 100 
+    limitDocs: 500
   });
 
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Un flujo persistido + una intención de navegación sin token nuevo
+    // significa que el usuario recargó, no que abrió una inscripción nueva.
+    // Los botones que inician una inscripción mandan entryToken único.
+    // Se calcula una sola vez al montar: crear el flujo para un usuario nuevo
+    // no debe convertir la resolución posterior de auth en una "recarga".
+    const flowAlEntrarRef = useRef(flow);
+    const tokenAlEntrarRef = useRef(location.state?.entryToken || location.state?.flowId || null);
+    const flowIdInicial = flowAlEntrarRef.current?.flowId || null;
+    const tokenInicial = tokenAlEntrarRef.current;
+    const mismoFlow = Boolean(flowIdInicial && tokenInicial && tokenInicial === flowIdInicial);
+    const esRecarga = Boolean(flowIdInicial && (mismoFlow || !tokenInicial));
+    const esEntradaNueva = !flowIdInicial || Boolean(tokenInicial && !mismoFlow);
+
        const esRecompra = location.state?.esRecompra && location.state?.modo === 'nueva';
       const esReintento = location.state?.esReintento && location.state?.modo === 'nueva' && !esRecompra;
        // Fase 3 Pack: detección. Prioridad: location.state → sessionStorage (para sobrevivir F5).
@@ -384,8 +416,10 @@ const {
     const reintentoInicializadoRef = useRef(false);
       const bootstrapEjecutado = useRef(false);
     const packInicializadoRef = useRef(false);
-  const [inicializandoRecompra, setInicializandoRecompra] = useState(esRecompra);
-  const [inicializandoReintento, setInicializandoReintento] = useState(esReintento);
+  // En una recarga el flujo ya está restaurado; no mostrar el spinner de una
+  // inicialización de recompra/reintento que no se va a ejecutar.
+  const [inicializandoRecompra, setInicializandoRecompra] = useState(esRecompra && !esRecarga);
+  const [inicializandoReintento, setInicializandoReintento] = useState(esReintento && !esRecarga);
   
 
 
@@ -402,7 +436,7 @@ const {
         const state = location.state || {};
 
         // FASE 1 — Origen público: limpiar + Paso 1 con curso preseleccionado
-        if (state.origen === 'publico' && state.cursoSugerido && state.cursoId) {
+        if (!esRecarga && state.origen === 'publico' && state.cursoSugerido && state.cursoId) {
           // ALT-E: FASE 1 no requiere auth → sella y sale.
           bootstrapEjecutado.current = true;
           limpiarSesion();
@@ -413,9 +447,35 @@ const {
             cursoSeleccionadoManual: false,
             origenPublico: true
           });
+          updateFlow({
+            flowId: tokenInicial || crearFlowId(),
+            origen: 'publico',
+            cursoId: state.cursoId,
+            esPack: false,
+            packId: null,
+            esRecompra: false,
+            esReintento: false,
+            step: '1',
+            createdAt: Date.now()
+          });
           navigate(location.pathname, { replace: true, state: {} });
           setStep('1');
           return;
+        }
+
+        // Registrar la intencion nueva (no recarga) antes de que auth resuelva.
+        if (esEntradaNueva) {
+          updateFlow({
+            flowId: tokenInicial || crearFlowId(),
+            origen: state.origen || (state.esPack ? 'pack' : 'individual'),
+            cursoId: state.cursoId || form.cursoId || '',
+            esPack: state.esPack === true,
+            packId: state.packId || null,
+            esRecompra: state.esRecompra === true,
+            esReintento: state.esReintento === true,
+            step,
+            createdAt: Date.now()
+          });
         }
 
         // FASE 2 — Sin sesión: terminar bootstrap
@@ -438,6 +498,9 @@ const {
         if (state.esRecompra || state.esReintento || state.esPack) return;
 
         // FASE 5 — Redirección temprana: usuario con reservas (cualquier estado)
+        // Si venimos de una recarga con flujo activo, no secuestramos el paso 3.
+        if (esRecarga) return;
+
         const resReservas = await ReservaService.obtenerReservasPorUsuario(ctx.fbUser.uid);
         if (!isMounted) return;
         const reservas = resReservas.success ? (resReservas.data || []) : [];
@@ -449,6 +512,9 @@ const {
         }
 
         // FASE 6 — Restauración de progreso (usuario sin reserva)
+        // Nunca sobrescribe un flujo restaurado por una recarga.
+        if (esRecarga) return;
+
         const pinSession = sessionStorage.getItem('inscripcion_generatedPin');
         if (pinSession) {
           if (!generatedPinRef.current) generatedPinRef.current = pinSession;
@@ -479,8 +545,20 @@ const {
             updateForm({ pin: pinGuardado });
           }
           if (progreso.data.datosFormulario) {
+            const pasoRestaurado = String(progreso.data.paso || '2');
             updateForm(progreso.data.datosFormulario);
-            setStep(String(progreso.data.paso || '2'));
+            setStep(pasoRestaurado);
+            updateFlow({
+              flowId: crearFlowId(),
+              origen: 'progreso',
+              cursoId: progreso.data.datosFormulario.cursoId || '',
+              esPack: false,
+              packId: null,
+              esRecompra: progreso.data.datosFormulario.esRecompra === true,
+              esReintento: progreso.data.datosFormulario.esReintento === true,
+              step: pasoRestaurado,
+              createdAt: Date.now()
+            });
           }
           return;
         }
@@ -498,6 +576,14 @@ const {
 
     return () => { isMounted = false; };
   }, [ctx.authReady, ctx.fbUser?.uid]); // ALT-E: re-ejecutar cuando auth resuelva
+
+  // El paso forma parte del flujo persistido: una recarga debe reabrir el
+  // mismo paso, aunque el usuario haya avanzado después de crear el flujo.
+  useEffect(() => {
+    if (!flow?.flowId) return;
+    if (String(flow.step || '') === String(step)) return;
+    updateFlow({ step });
+  }, [flow, step, updateFlow]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingHorario, setIsSelectingHorario] = useState(false);
@@ -520,6 +606,13 @@ const {
 
   const [activeLocks, setActiveLocks] = useState([]);  
     const fechaAnteriorRef = useRef(form.fecha1);
+  const isAutoJumpRef = useRef(false);
+  const autoJumpIntentosRef = useRef(0);
+  const autoJumpAvisoRef = useRef(false);
+  // Una fecha que viene de sessionStorage/flow se conserva; una fecha que el
+  // usuario eligió manualmente tampoco se reemplaza por auto-jump.
+  const fechaRestauradaRef = useRef(Boolean(flow?.flowId && form.fecha1));
+  const fechaManualRef = useRef(false);
 
   // LOCK-INVALIDATION-SSOT-V1: contexto de invalidación (solo inputs).
   // Si cambia cualquiera de estos campos, el lock se libera automáticamente.
@@ -531,6 +624,10 @@ const {
   }, []);
   const calendarioRef = useRef(null);
   const generatedPinRef = useRef(null);
+  const submitEnCursoRef = useRef(false);
+  const selectingHorarioRef = useRef(false);
+  const lockValidadoRef = useRef(null);
+  const contextoDisponibilidadRef = useRef(null);
     
   const [generatedPin, setGeneratedPin] = useState(() => {
     return sessionStorage.getItem('inscripcion_generatedPin') || null;
@@ -550,6 +647,9 @@ const {
         useEffect(() => {
     const state = location.state || {};
     if (!ctx.fbUser || !state.esRecompra || state.modo !== 'nueva') return;
+    if (esRecarga) return;
+    // No decidir que el curso no existe antes de que cargue el catálogo.
+    if (!ctx.cursos?.length) return;
     if (recompraInicializadaRef.current) return;
     recompraInicializadaRef.current = true;
 
@@ -643,6 +743,17 @@ const {
         });
 
         setStep('2');
+        updateFlow({
+          flowId: tokenInicial || crearFlowId(),
+          origen: 'recompra',
+          cursoId: state.cursoId || '',
+          esPack: false,
+          packId: null,
+          esRecompra: true,
+          esReintento: false,
+          step: '2',
+          createdAt: Date.now()
+        });
       } catch (error) {
         showToast('Error al preparar la inscripción', 'error');
         navigate('/portal-reservas');
@@ -654,12 +765,13 @@ const {
     
 
        iniciarRecompra();
-}, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm, ctx.cursos]);
+}, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm, ctx.cursos, updateFlow, esRecarga]);
 
   // A2.6: useEffect de reintento (estudiante con reserva cancelada por pago no coincidente)
   useEffect(() => {
     const state = location.state || {};
     if (!ctx.fbUser || !state.esReintento || state.modo !== 'nueva') return;
+    if (esRecarga) return;
     if (reintentoInicializadoRef.current) return;
     reintentoInicializadoRef.current = true;
 
@@ -719,6 +831,17 @@ const {
 
         // FIRE + MAMBA (P4): aterrizar en Paso 1 con datos prellenados
         setStep('1');
+        updateFlow({
+          flowId: tokenInicial || crearFlowId(),
+          origen: 'reintento',
+          cursoId: state.cursoId || '',
+          esPack: false,
+          packId: null,
+          esRecompra: false,
+          esReintento: true,
+          step: '1',
+          createdAt: Date.now()
+        });
       } catch (error) {
         showToast('Error al preparar la reinscripción', 'error');
         navigate('/portal-reservas');
@@ -728,13 +851,14 @@ const {
     };
 
     iniciarReintento();
-  }, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm]);
+  }, [ctx.fbUser, location.state, navigate, limpiarSesion, resetForm, setStep, showToast, updateForm, updateFlow, esRecarga]);
 
   useEffect(() => { if (generatedPin) generatedPinRef.current = generatedPin; }, [generatedPin]);
 
   // Fase 3 Pack: cargar pack y prellenar form cuando llega desde /packs o panel
   useEffect(() => {
     if (!esPack || !packId || !ctx.cursos?.length) return;
+    if (esRecarga) return;
     if (packInicializadoRef.current) return;
 
     const pack = (ctx.packs || []).find(p => String(p.id) === String(packId));
@@ -814,19 +938,106 @@ const {
 
     // Usuario logueado → Paso 2 (datos del SSOT ya precargados).
     // Usuario nuevo → Paso 1 (necesita crear cuenta + generar PIN).
-    setStep(ctx.fbUser ? '2' : '1');
-   }, [esPack, packId, ctx.cursos, ctx.packs, ctx.fbUser, ctx.user, updateForm, setStep, navigate, showToast, resetForm]);
+    const pasoPack = ctx.fbUser ? '2' : '1';
+    setStep(pasoPack);
+    updateFlow({
+      flowId: tokenInicial || crearFlowId(),
+      origen: 'pack',
+      cursoId: cursoEquilibrio.id,
+      esPack: true,
+      packId,
+      esRecompra: false,
+      esReintento: false,
+      step: pasoPack,
+      createdAt: Date.now()
+    });
+   }, [esPack, packId, ctx.cursos, ctx.packs, ctx.fbUser, ctx.user, updateForm, setStep, navigate, showToast, resetForm, updateFlow, esRecarga]);
 
 
   
 useEffect(() => {
   if (!ctx.fbUser) return;
   const fechaAEscuchar = form.fecha1 || ctx.getTodayStr();
-  const cleanup = LockService.escucharOcupacionTemporal(fechaAEscuchar, (locks) => {
+  // D1 + D2: el listener debe cubrir las dos fechas del curso.
+  const fechasAEscuchar = [fechaAEscuchar, fecha2Calc].filter(Boolean);
+  const cleanup = LockService.escucharOcupacionTemporal(fechasAEscuchar, (locks) => {
     setActiveLocks(locks);
   });
   return () => cleanup();
-}, [form.fecha1, ctx.fbUser, ctx.getTodayStr]);
+}, [form.fecha1, fecha2Calc, ctx.fbUser, ctx.getTodayStr]);
+
+  // CAMBIO-DE-CONTEXTO-V2: si el estudiante vuelve al Paso 2 y cambia curso,
+  // sede, tipo de moto o modalidad, la fecha anterior ya no es confiable.
+  // Limpiar fecha/horario y liberar el lock evita que quede pegado el 22.
+  useEffect(() => {
+    const actual = {
+      cursoId: form.cursoId || '',
+      sedeId: form.sedeId || '',
+      tipoMoto: form.tipoMoto || '',
+      traeMoto: form.traeMoto || '',
+      traeMotoPorCursoSerializado: serializeTraeMotoPorCurso(form.traeMotoPorCurso),
+      packId: esPack ? (packId || null) : null
+    };
+    const anterior = contextoDisponibilidadRef.current;
+    contextoDisponibilidadRef.current = actual;
+    if (!anterior) return;
+
+    const cambio = Object.keys(actual).some(k => String(anterior[k]) !== String(actual[k]));
+    if (!cambio) return;
+
+    const teniaSeleccion = Boolean(form.fecha1 || form.horaId || lockId);
+    if (lockId) {
+      LockService.liberarLock(lockId).catch(() => {});
+      limpiarLockPropioOptimista(lockId);
+      updateLockId(null);
+      updateLockExpiresAt(null);
+      setTiempoRestante(null);
+    }
+    updateForm({ fecha1: '', horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+    sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+    if (teniaSeleccion) {
+      showToast('Actualizaste tu configuración. Elige nueva fecha y horario.', 'info');
+    }
+  }, [form.cursoId, form.sedeId, form.tipoMoto, form.traeMoto, form.traeMotoPorCurso, esPack, packId, lockId]);
+
+  // LOCK-RESTORE-V1: al recargar Paso 3, el lock de sessionStorage puede estar
+  // vencido o pertenecer a otro contexto. Validarlo antes de permitir pagar.
+  useEffect(() => {
+    if (step !== '3') return;
+    if (!ctx.fbUser?.uid || !lockId) return;
+    if (lockValidadoRef.current === lockId) return;
+    lockValidadoRef.current = lockId;
+    let cancelled = false;
+
+    const validar = async () => {
+      const resultado = await LockService.validarLockVigente(lockId, {
+        userId: ctx.fbUser.uid,
+        fecha: form.fecha1,
+        horaId: form.horaId
+      });
+      if (cancelled) return;
+
+      if (resultado.success) {
+        const expiresAt = resultado.data?.expiresAt?.toMillis?.();
+        if (expiresAt) updateLockExpiresAt(expiresAt);
+        return;
+      }
+
+      await LockService.liberarLock(lockId).catch(() => {});
+      if (cancelled) return;
+      limpiarLockPropioOptimista(lockId);
+      updateLockId(null);
+      updateLockExpiresAt(null);
+      setTiempoRestante(null);
+      setRenovacionUsada(false);
+      updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+      sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+      showToast('Tu bloqueo de horario expiró o ya no es válido. Elige otro bloque.', 'info');
+    };
+
+    validar();
+    return () => { cancelled = true; };
+  }, [ctx.fbUser?.uid, lockId]);
 
 // SSOT-BLOQUEOS: reemplazado por useBloqueosAdmin hook (más abajo en el componente).
 
@@ -859,6 +1070,20 @@ useEffect(() => {
     if (fechaAnteriorRef.current === fechaActual) return;
     const fechaAnterior = fechaAnteriorRef.current;
     fechaAnteriorRef.current = fechaActual;
+
+    // Si la fecha cambió por auto-jump, no la interpretamos como una
+    // selección manual ni liberamos un lock que no existe (guard arriba).
+    if (isAutoJumpRef.current) {
+      isAutoJumpRef.current = false;
+      return;
+    }
+
+    // Fecha elegida por el usuario: no permitir que un auto-jump posterior
+    // la reemplace, aunque un snapshot transitorio la marque ocupada.
+    fechaRestauradaRef.current = false;
+    fechaManualRef.current = Boolean(fechaActual);
+    autoJumpIntentosRef.current = 0;
+    autoJumpAvisoRef.current = false;
 
     if (fechaAnterior && lockId && form.horaId && step !== '4') {
       LockService.liberarLock(lockId).catch(() => {});
@@ -900,7 +1125,7 @@ useEffect(() => {
     setTiempoRestante(null);
     updateForm({ horaId: '' });
     sessionStorage.removeItem(LOCK_CONTEXT_KEY);
-    showToast('Actualizaste tu configuración. Elegí un nuevo horario.', 'info');
+    showToast('Actualizaste tu configuración. Elige un nuevo horario.', 'info');
   }, [step, lockId, form.horaId, lockContext, limpiarLockPropioOptimista, updateLockId, updateLockExpiresAt, updateForm, showToast]);
 
     useEffect(() => {
@@ -914,12 +1139,11 @@ useEffect(() => {
  
 
   // ─── Cálculo de disponibilidad ────────────────────────
-      const todayStr = ctx.getTodayStr();
-  const bloqueosProveedor = useBloqueosProveedor(form.fecha1, step === '3');
+  const { bloqueos: bloqueosProveedor, cargando: cargandoProveedor } = useBloqueosProveedorEstado(form.fecha1, step === '3', fecha2Calc);
   const { bloqueos: bloqueosAdmin, cargando: cargandoBloqueos } = useBloqueosAdmin(step === '3');
   // FEATURE-BLOQUEOS-INSTRUCTORES: carga TODOS los bloqueos activos.
   // El filtro por fecha + instructor + hora lo hace afectaInstructor.
-  const bloqueosInstructor = useBloqueosInstructor(step === '3');
+  const { bloqueos: bloqueosInstructor, cargando: cargandoInstructor } = useBloqueosInstructor(step === '3');
   const sedeSeleccionada = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
 
  
@@ -931,10 +1155,43 @@ const disponibilidad = useMemo(() => {
     currentUserId: ctx.fbUser?.uid, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
   });
 }, [form, ctx.horarios, ctx.instructores, ctx.motos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor]);
+
+  // Solo presentación: agrega rol D1/D2 sobre la disponibilidad ya calculada.
+  // No modifica diasDisponibles ni el auto-jump.
+  const diasDisponiblesUI = useMemo(
+    () => enriquecerDiasConRoles(disponibilidad?.diasDisponibles || [], { esCursoDosDias: !cursoUnDia }),
+    [disponibilidad, cursoUnDia]
+  );
+
   useEffect(() => {
     if (step !== '3') return;
-    if (cargandoBloqueos) return;
+    if (cargandoBloqueos || cargandoProveedor || cargandoInstructor) return;
     if (cargandoOcupacion) return;
+
+    // Si el bloque ya seleccionado se invalida (bloqueo admin/proveedor,
+    // instructor o moto), no dejamos continuar con un lock obsoleto.
+    if (!isSelectingHorario && form.horaId) {
+      const bloqueActual = disponibilidad?.bloques?.find(b => b.id === form.horaId);
+      if (bloqueActual && !bloqueActual.disponible) {
+        if (lockId) {
+          LockService.liberarLock(lockId).catch(() => {});
+          limpiarLockPropioOptimista(lockId);
+        }
+        updateLockId(null);
+        updateLockExpiresAt(null);
+        setTiempoRestante(null);
+        setRenovacionUsada(false);
+        setSelectingBlockId(null);
+        updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+        sessionStorage.removeItem(LOCK_CONTEXT_KEY);
+        showToast('El horario que habías seleccionado ya no está disponible. Elige otro bloque.', 'error');
+        return;
+      }
+    }
+
+    // No mover una fecha con un lock ya tomado: el usuario está en el
+    // punto de no retorno y el auto-jump podría liberar su selección.
+    if (lockId || form.horaId || isSelectingHorario) return;
 
     // ALT-4 (FIX-HUEVO-GALLINA): esperar a que la ocupación esté sincronizada
     // con la fecha actual. Si form.fecha1 está seteado pero fechaConsultada
@@ -944,6 +1201,13 @@ const disponibilidad = useMemo(() => {
     // ALT-5 acotada: si la fecha actual quedó inválida (todos los bloques
     // sin disponibilidad), re-elegir. Agnóstico al origen: si el usuario
     // eligió una fecha que se volvió inválida, el sistema la corrige.
+    // AUTO-JUMP-SOLO-INICIAL: una fecha restaurada o elegida manualmente no
+    // se mueve. Si quedó inválida, la cinta la muestra deshabilitada y el
+    // usuario decide. El auto-jump solo corrige una fecha generada por el
+    // propio sistema cuando aún no había selección manual.
+    if (form.fecha1 && (fechaRestauradaRef.current || fechaManualRef.current)) return;
+
+    // Para fechas generadas por auto-jump, mantener una fecha válida.
     if (form.fecha1) {
       const infoFecha = disponibilidad?.diasDisponibles?.find(d => d.fecha === form.fecha1);
       if (infoFecha?.disponible) return;
@@ -951,10 +1215,30 @@ const disponibilidad = useMemo(() => {
 
     if (!disponibilidad?.diasDisponibles?.length) return;
     const primerDiaLibre = disponibilidad.diasDisponibles.find(dia => dia.disponible);
-    if (!primerDiaLibre) return;
+    if (!primerDiaLibre) {
+      if (!autoJumpAvisoRef.current) {
+        autoJumpAvisoRef.current = true;
+        showToast('No hay fechas disponibles en este momento. Intenta más tarde.', 'info');
+      }
+      return;
+    }
     if (primerDiaLibre.fecha === form.fecha1) return;
+
+    // Freno táctico (INC-2026-11-17): máximo de saltos encadenados.
+    // Sin esto, una fecha que se vuelve inválida mientras se recalcula
+    // disponibilidad puede re-disparar el efecto indefinidamente.
+    if (autoJumpIntentosRef.current >= MAX_AUTOJUMPS) {
+      if (!autoJumpAvisoRef.current) {
+        autoJumpAvisoRef.current = true;
+        showToast('No pudimos encontrar una fecha estable. Elige una fecha manualmente.', 'info');
+      }
+      return;
+    }
+
+    isAutoJumpRef.current = true;
+    autoJumpIntentosRef.current += 1;
     updateForm({ fecha1: primerDiaLibre.fecha });
-  }, [step, form.fecha1, disponibilidad, updateForm, todayStr, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
+  }, [step, form.fecha1, form.horaId, lockId, isSelectingHorario, disponibilidad, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista, todayStr, cargandoBloqueos, cargandoProveedor, cargandoInstructor, cargandoOcupacion, fechaConsultada, showToast]);
 
     
     const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
@@ -1005,6 +1289,10 @@ const disponibilidad = useMemo(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error: Sesión no encontrada. Recarga la página.', 'error'); return; }
     if (!lockId) { showToast('Error: No se encontró el bloqueo del horario.', 'error'); return; }
+    // Freno de doble submit: el primer clic es el único que puede iniciar
+    // la transacción, aunque el botón reciba un doble tap/click.
+    if (submitEnCursoRef.current) return;
+    submitEnCursoRef.current = true;
     setIsSubmitting(true);
 
     // ✅ PASO 1: Capturar PIN INMEDIATAMENTE (antes de cualquier operación)
@@ -1117,6 +1405,7 @@ const disponibilidad = useMemo(() => {
     }
 
     setIsSubmitting(false);
+    submitEnCursoRef.current = false;
 
     if (result.success) {
       if (esRecompra) {
@@ -1185,8 +1474,13 @@ const disponibilidad = useMemo(() => {
       console.log('[handleConfirmarPago] Pantalla de éxito mostrada con PIN:', pinParaMostrar ? 'SÍ' : 'NO');
     } else {
       const codigo = result.error?.code;
-      if (codigo === 'slot-occupied') {
-        // BUG-2: el servicio ya libero el lock; limpiamos el estado local y volvemos al paso 3.
+      const requiereNuevoHorario = ['slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch'].includes(codigo);
+      if (requiereNuevoHorario) {
+        // El servicio ya liberó el lock o el lock ya no es utilizable.
+        // Limpiamos el estado local y volvemos al Paso 3.
+        if (codigo === 'lock-expired' || codigo === 'lock-invalid') {
+          LockService.liberarLock(lockId).catch(() => {});
+        }
         limpiarLockPropioOptimista(lockId);
         updateLockId('');
         updateLockExpiresAt(null);
@@ -1195,14 +1489,15 @@ const disponibilidad = useMemo(() => {
         setSelectingBlockId(null);
         sessionStorage.removeItem(LOCK_CONTEXT_KEY);
         updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
-        showToast(result.error.message || 'Ese horario acaba de ser ocupado. Elegí otro bloque.', 'error');
+        setStep('3');
+        showToast(result.error.message || 'Ese horario acaba de ser ocupado. Elige otro bloque.', 'error');
       } else if (codigo === 'invalid-data') {
         showToast(result.error.message || 'Datos inválidos', 'error');
       } else {
         showToast(result.error.message || 'Error al crear la reserva', 'error');
       }
     }
-    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista]);
+    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista, setStep]);
   const handleIrAlPanel = useCallback(async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error de sesión. No se puede acceder al panel.', 'error'); return; }
@@ -1224,7 +1519,7 @@ const disponibilidad = useMemo(() => {
 
    const handleSelectHorario = useCallback(async (bloque) => {
     if (lockId && form.horaId === bloque.id) { setModalLiberar({ bloque }); return; }
-    if (isSelectingHorario) return;
+    if (isSelectingHorario || selectingHorarioRef.current) return;
     if (!ctx.fbUser) { showToast('Espera un momento...', 'error'); return; }
 
     // SSOT-BLOQUEOS: revalidar bloqueos admin (fecha1 y fecha2) usando helper.
@@ -1297,8 +1592,8 @@ if (necesitaMoto) {
       return r.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha === disponibilidad.fecha2Calc) || r.fecha2 === form.fecha1 || (disponibilidad?.fecha2Calc && r.fecha2 === disponibilidad.fecha2Calc);    }))
     // SSOT-BLOQUEOS: filtrar motos bloqueadas por proveedor (fecha1 y fecha2).
     .filter(m => !(bloqueosProveedor || []).some(b =>
-      afectaProveedor(b, m.id, form.fecha1, bloque.label) ||
-      (disponibilidad?.fecha2Calc && afectaProveedor(b, m.id, disponibilidad.fecha2Calc, bloque.label))
+      afectaProveedor(b, m.id, form.fecha1, bloque.label, m.proveedorId) ||
+      (disponibilidad?.fecha2Calc && afectaProveedor(b, m.id, disponibilidad.fecha2Calc, bloque.label, m.proveedorId))
     ));
 }
 
@@ -1336,12 +1631,13 @@ if (necesitaMoto) {
           setTiempoRestante(null);
           updateForm({ horaId: '' });
           sessionStorage.removeItem(LOCK_CONTEXT_KEY);
-          showToast('Tu configuración cambió. Elegí un nuevo horario.', 'info');
+          showToast('Tu configuración cambió. Elige un nuevo horario.', 'info');
           return;
         }
       }
     }
 
+    selectingHorarioRef.current = true;
     setIsSelectingHorario(true); setSelectingBlockId(bloque.id);
         if (lockId && !renovacionUsada) {
       await LockService.liberarLock(lockId).catch(() => {});
@@ -1367,6 +1663,7 @@ if (necesitaMoto) {
       else if (codigo === 'network-error' || codigo === 'unavailable') showToast('Error de conexión. Intente de nuevo.', 'error');
       else showToast(result.error?.message || 'No se pudo bloquear el horario', 'error');
     }
+    selectingHorarioRef.current = false;
     setIsSelectingHorario(false); setSelectingBlockId(null);
   }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, bloqueosAdmin, bloqueosProveedor, bloqueosInstructor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
   const handleRenovarLock = useCallback(async () => {
@@ -1763,13 +2060,13 @@ if (necesitaMoto) {
                     <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} reservas={ctx.reservas} fbUser={ctx.fbUser} />
         ))}        {step === '3' && !ctx.fbUser ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Verificando sesión..." /></div>
-) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length || cargandoBloqueos) ? (
+) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length || cargandoBloqueos || cargandoProveedor || cargandoInstructor) ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Sincronizando disponibilidad..." /></div>
 ) : (
   step === '3' && disponibilidad && (
             <Paso3Horario
               form={form} updateForm={updateForm}
-              diasDisponibles={disponibilidad.diasDisponibles} bloques={disponibilidad.bloques}
+              diasDisponibles={diasDisponiblesUI} bloques={disponibilidad.bloques}
               onSelectHorario={handleSelectHorario} onMostrarCalendario={() => setMostrarCalendario(true)}
               isSelectingHorario={isSelectingHorario} selectingBlockId={selectingBlockId}
               fbUser={ctx.fbUser} lockId={lockId}
@@ -1779,6 +2076,8 @@ if (necesitaMoto) {
               sedeNombre={formatearSede((ctx.sedes || []).find(s => String(s.id) === String(form.sedeId)))}
               tipoMoto={form.tipoMoto}
               traeMoto={form.traeMoto}
+              esCursoDosDias={!cursoUnDia}
+              fecha2Calc={disponibilidad.fecha2Calc}
             />
           )
         )}
@@ -1823,7 +2122,7 @@ if (necesitaMoto) {
 }}
  lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
       </div>
-      {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={disponibilidad?.diasDisponibles || []} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} />}
+      {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponiblesUI} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} esCursoDosDias={!cursoUnDia} fecha2Calc={disponibilidad?.fecha2Calc || null} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}
       {mostrarCalendarioNacimiento && <CalendarioNacimiento tempFechaNacimiento={tempFechaNacimiento} setTempFechaNacimiento={setTempFechaNacimiento} onConfirm={() => { updateForm({ diaNac: tempFechaNacimiento.dia, mesNac: tempFechaNacimiento.mes, anoNac: tempFechaNacimiento.ano }); setMostrarCalendarioNacimiento(false); }} onClose={() => setMostrarCalendarioNacimiento(false)} />}
       {modalLiberar && <ModalConfirmacion titulo="Liberar horario" mensaje="¿Deseas liberar este horario? Si lo haces, deberás seleccionar otro bloque para continuar." onConfirm={handleLiberarHorario} onCancel={() => setModalLiberar(null)} />}

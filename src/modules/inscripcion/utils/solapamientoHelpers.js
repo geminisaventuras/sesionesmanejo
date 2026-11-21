@@ -24,6 +24,21 @@ export function motoValida(motoId) {
   return normalizarTexto(texto) !== 'sinmoto';
 }
 
+// IDs deterministas por recurso. El lock principal conserva el ID que usa la UI,
+// y estos IDs adicionales hacen que dos combinaciones distintas no puedan
+// reservar el mismo instructor o la misma moto en el mismo bloque.
+export function construirLockIds({ lockId, fecha, horaId, instructorId, motoAsignadaId }) {
+  const ids = [];
+  if (lockId) ids.push(String(lockId));
+  if (fecha && horaId && instructorId) {
+    ids.push(`${fecha}_${horaId}_instructor_${instructorId}`);
+  }
+  if (fecha && horaId && motoValida(motoAsignadaId)) {
+    ids.push(`${fecha}_${horaId}_moto_${motoAsignadaId}`);
+  }
+  return [...new Set(ids)];
+}
+
 // Slots que ocupa la reserva objetivo: fecha + fecha2 con su bloque efectivo.
 export function construirSlotsObjetivo({ fecha, fecha2 = null, horaId, horaId2 = null }) {
   const slots = [];
@@ -84,24 +99,34 @@ export function detectarSolapamiento({
 }
 
 // Cross-check contra locks temporales (ocupacionTemporal).
-// Cierra la ventana "mismo instructor + distinta moto" (Escenario 3 del analisis TOCTOU).
+// Cierra las dos ventanas TOCTOU:
+//   1. mismo instructor + distinta moto
+//   2. distinto instructor + misma moto
 // Excluye unicamente el lock del propio usuario.
 export function detectarLocksActivos({
   locksTemporales = [],
   slotsObjetivo = [],
   instructorId = null,
+  motoAsignadaId = null,
   currentUserId = null,
   ahora = Date.now()
 }) {
   const conflictos = [];
-  if (!instructorId || slotsObjetivo.length === 0) {
+  const motoObjetivo = motoValida(motoAsignadaId) ? String(motoAsignadaId) : null;
+
+  if ((!instructorId && !motoObjetivo) || slotsObjetivo.length === 0) {
     return { hayConflicto: false, conflictos };
   }
 
   for (const lock of locksTemporales) {
-    if (!lock || !lock.userId || !lock.instructorId || !lock.horaId || !lock.fecha) continue;
+    if (!lock || !lock.userId || !lock.horaId || !lock.fecha) continue;
     if (lock.userId === currentUserId) continue;
-    if (lock.instructorId !== instructorId) continue;
+
+    const conflictoInstructor = Boolean(instructorId)
+      && String(lock.instructorId || '') === String(instructorId);
+    const conflictoMoto = Boolean(motoObjetivo)
+      && String(lock.motoAsignadaId || '') === motoObjetivo;
+    if (!conflictoInstructor && !conflictoMoto) continue;
 
     const expira = lock.expiresAt?.toMillis?.() ?? null;
     if (!expira || expira <= ahora) continue;
@@ -115,6 +140,9 @@ export function detectarLocksActivos({
       lockId: lock.id || null,
       fecha: lock.fecha,
       bloqueId: lock.horaId,
+      tipo: conflictoInstructor && conflictoMoto
+        ? 'instructor+moto'
+        : (conflictoInstructor ? 'instructor' : 'moto'),
       motivo: 'lock_activo_otro_usuario'
     });
   }

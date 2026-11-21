@@ -2,6 +2,7 @@
 import { useState, memo, useContext } from 'react';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Input, Select } from '../../../components/UI';
+import { BANCOS_NOMBRES } from '../../../constants/bancos';
 import { ChevronLeft } from 'lucide-react';
 
 const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
@@ -36,7 +37,7 @@ const FormPersonal = memo(({ item, onSave, onCancel, rol }) => {
       </div>
       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
         <h4 className="text-sm font-bold text-blue-900 mb-2">Datos para recibir pagos</h4>
-        <Select label="Banco" options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} />
+        <Select label="Banco" options={BANCOS_NOMBRES} value={form.pagoBanco} onChange={e => setForm({ ...form, pagoBanco: e.target.value })} />
         <Input label="Teléfono Pago Móvil" value={form.pagoTelefono} onChange={e => setForm({ ...form, pagoTelefono: e.target.value })} />
         <Input label="Cédula Pago Móvil" value={form.pagoCedula} onChange={e => setForm({ ...form, pagoCedula: e.target.value })} />
       </div>

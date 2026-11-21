@@ -5,16 +5,7 @@ import { Select, Input } from '../../../components/UI';
 import { BotonCopiarDatos } from './BotonCopiarDatos';
 import { validarPaso4 } from '../../shared/schemas/validations';
 import { ModalTerminos } from './ModalTerminos';
-
-const BANCOS = [
-  { nombre: 'Banesco', codigo: '0134' },
-  { nombre: 'Mercantil', codigo: '0105' },
-  { nombre: 'Provincial', codigo: '0108' },
-  { nombre: 'Venezuela', codigo: '0102' },
-  { nombre: 'Bancamiga', codigo: '0172' },
-  { nombre: 'BNC', codigo: '0191' },
-  { nombre: 'Tesoro', codigo: '0163' }
-];
+import { BANCOS } from '../../../constants/bancos';
 
 export function Paso4Pago({
   form, updateForm,

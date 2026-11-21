@@ -6,7 +6,7 @@ import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, de
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { LockService } from './LockService';
-import { construirSlotsObjetivo, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
+import { construirSlotsObjetivo, construirLockIds, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
 import { consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
 
 const appId = 'motoescuela-pro-v1';
@@ -73,6 +73,7 @@ async function validarDisponibilidadAntesDeCrear({
       locksTemporales: locks.locks,
       slotsObjetivo: slots,
       instructorId,
+      motoAsignadaId,
       currentUserId: userId
     });
 
@@ -94,7 +95,7 @@ async function validarDisponibilidadAntesDeCrear({
         ok: false,
         error: {
           code: 'slot-occupied',
-          message: 'Ese horario acaba de ser ocupado por otra reserva. Elegí otro bloque.',
+          message: 'Ese horario acaba de ser ocupado por otra reserva. Elige otro bloque.',
           traceId
         }
       };
@@ -290,22 +291,66 @@ export const ReservaService = {
 
     try {
       await runTransaction(db, async (transaction) => {
-             const lockSnap = await transaction.get(lockRef);
-        if (!lockSnap.exists()) throw new Error('El horario ya no está disponible');
+        const crearError = (code, message) => {
+          const error = new Error(message);
+          error.code = code;
+          return error;
+        };
+
+        const lockSnap = await transaction.get(lockRef);
+        if (!lockSnap.exists()) {
+          throw crearError('slot-occupied', 'El horario ya no está disponible. Elige otro bloque.');
+        }
 
         const lockData = lockSnap.data();
 
-        // ✅ Validación robusta de expiración e integridad
+        // Fail-closed: un lock expirado o corrupto NO autoriza la reserva.
+        // Antes se ignoraba y se creaba la reserva, permitiendo doble venta.
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
         const lockCorrupto = !lockData.userId || !lockData.instructorId || !lockData.fecha || !lockData.horaId;
-
-        if (!lockExpirado && !lockCorrupto && lockData.userId !== reservaData.userId) {
-          throw new Error('El horario está bloqueado por otro usuario');
+        if (lockExpirado) {
+          throw crearError('lock-expired', 'El tiempo para completar la reserva expiró. Elige otro horario.');
+        }
+        if (lockCorrupto) {
+          throw crearError('lock-invalid', 'El bloqueo del horario es inválido. Elige otro horario.');
+        }
+        if (String(lockData.userId) !== String(reservaData.userId)) {
+          throw crearError('lock-owner-mismatch', 'El horario está bloqueado por otro usuario.');
         }
 
-        // Si el lock está expirado o corrupto, se ignora y se eliminará al final de la transacción
-        if (lockExpirado || lockCorrupto) {
-          console.log(`[ReservaService] Lock ${lockId} ignorado (expirado: ${lockExpirado}, corrupto: ${lockCorrupto})`);
+        // El lock debe corresponder exactamente a lo que se está reservando.
+        const lockMoto = lockData.motoAsignadaId || null;
+        // Para cursos sin moto incluida, la reserva normaliza moto a null
+        // (misma regla que usa el resto del servicio).
+        const reservaMoto = (cursoData?.motoIncluida === false)
+          ? null
+          : (reservaData.motoAsignadaId || null);
+        const lockCoincide =
+          String(lockData.fecha) === String(reservaData.fecha) &&
+          String(lockData.horaId) === String(reservaData.horaId) &&
+          String(lockData.instructorId) === String(reservaData.instructorId) &&
+          String(lockMoto || '') === String(reservaMoto || '');
+        if (!lockCoincide) {
+          throw crearError('lock-mismatch', 'El bloqueo no coincide con el horario seleccionado.');
+        }
+
+        // Los locks nuevos se escriben con IDs por instructor y por moto.
+        // En una transacción no se pueden hacer queries, pero sí leer los
+        // documentos deterministas: así se cierra la ventana de carrera.
+        const lockIds = construirLockIds({
+          lockId,
+          fecha: lockData.fecha,
+          horaId: lockData.horaId,
+          instructorId: lockData.instructorId,
+          motoAsignadaId: lockData.motoAsignadaId
+        });
+        const recursosEsperados = lockData.esquema === 'recursos-v1' ? lockIds : [lockId];
+        for (const id of recursosEsperados) {
+          if (id === lockId) continue;
+          const recursoSnap = await transaction.get(doc(db, 'locks', id));
+          if (!recursoSnap.exists() || String(recursoSnap.data().userId) !== String(reservaData.userId)) {
+            throw crearError('lock-resource-mismatch', 'El bloqueo de recursos cambió. Elige otro horario.');
+          }
         }
 
         const datosReserva = {
@@ -366,16 +411,22 @@ export const ReservaService = {
           comisionProveedor: Number(datosReserva.comisionProveedor) || 0
         });
 
-        // ✅ Purga atómica de la colección viva (ocupacionTemporal)
-        const temporalRef = doc(db, 'ocupacionTemporal', lockId);
-        transaction.delete(temporalRef);
-
-        // ✅ Purga de la colección legacy (locks)
-        transaction.delete(lockRef);
+        // Purga atómica del lote completo: principal + IDs por recurso.
+        // Si el lock legacy no tiene IDs por recurso, solo se borra el principal.
+        for (const id of recursosEsperados) {
+          transaction.delete(doc(db, 'ocupacionTemporal', id));
+          transaction.delete(doc(db, 'locks', id));
+        }
       });
         return { success: true, data: { id: reservaDoc.id } };
     } catch (error) {
-      return { success: false, error: { code: 'transaction-failed', message: error.message } };
+      return {
+        success: false,
+        error: {
+          code: error.code || 'transaction-failed',
+          message: error.message
+        }
+      };
     }
   },
 
@@ -462,9 +513,14 @@ export const ReservaService = {
           throw new Error('El horario ya no está disponible');
         }
         const lockData = lockSnap.data();
+        const lockIds = lockData.esquema === 'recursos-v1'
+          ? construirLockIds({ lockId, ...lockData })
+          : [lockId];
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
         const lockCorrupto = !lockData.userId || !lockData.instructorId || !lockData.fecha || !lockData.horaId;
-        if (!lockExpirado && !lockCorrupto && lockData.userId !== usuarioActual.uid) {
+        if (lockExpirado) throw new Error('El tiempo para completar la reserva expiró. Elige otro horario.');
+        if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
+        if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw new Error('El horario está bloqueado por otro usuario');
         }
 
@@ -660,9 +716,11 @@ export const ReservaService = {
           comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
 
-        // 11. Purga de locks
-        transaction.delete(temporalRef);
-        transaction.delete(lockRef);
+        // 11. Purga de locks (principal + IDs por instructor/moto)
+        for (const id of lockIds) {
+          transaction.delete(doc(db, 'ocupacionTemporal', id));
+          transaction.delete(doc(db, 'locks', id));
+        }
 
         childIdFinal = childRef.id;
         maestraIdFinal = maestraRef.id;
@@ -777,9 +835,14 @@ export const ReservaService = {
           throw new Error('El horario ya no está disponible');
         }
         const lockData = lockSnap.data();
+        const lockIds = lockData.esquema === 'recursos-v1'
+          ? construirLockIds({ lockId, ...lockData })
+          : [lockId];
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
         const lockCorrupto = !lockData.userId || !lockData.instructorId || !lockData.fecha || !lockData.horaId;
-        if (!lockExpirado && !lockCorrupto && lockData.userId !== usuarioActual.uid) {
+        if (lockExpirado) throw new Error('El tiempo para completar la reserva expiró. Elige otro horario.');
+        if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
+        if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw new Error('El horario está bloqueado por otro usuario');
         }
 
@@ -930,9 +993,11 @@ export const ReservaService = {
           comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
 
-        // 11. Purga de locks
-        transaction.delete(temporalRef);
-        transaction.delete(lockRef);
+        // 11. Purga de locks (principal + IDs por instructor/moto)
+        for (const id of lockIds) {
+          transaction.delete(doc(db, 'ocupacionTemporal', id));
+          transaction.delete(doc(db, 'locks', id));
+        }
 
         childIdFinal = childRef.id;
       });

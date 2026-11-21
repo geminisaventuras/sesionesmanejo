@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import { Button, Input, Select } from '../../../components/UI';
+import { BANCOS_NOMBRES, BANCOS_CODIGOS } from '../../../constants/bancos';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
@@ -176,25 +177,16 @@ const { showToast } = useToast();
             <div className="px-4 pb-4 space-y-3">
               <Select
                 label="Banco"
-                options={['Banesco', 'Mercantil', 'Provincial', 'Venezuela', 'Bancamiga', 'BNC', 'Tesoro']}
+                options={BANCOS_NOMBRES}
                 value={localCfg.pagoMovilEscuela?.banco || 'Banesco'}
                 onChange={(e) => {
                   const nombreBanco = e.target.value;
-                  const codigos = {
-                    'Banesco': '0134',
-                    'Mercantil': '0105',
-                    'Provincial': '0108',
-                    'Venezuela': '0102',
-                    'Bancamiga': '0172',
-                    'BNC': '0191',
-                    'Tesoro': '0163'
-                  };
                   setLocalCfg(prev => ({
                     ...prev,
                     pagoMovilEscuela: {
                       ...prev.pagoMovilEscuela,
                       banco: nombreBanco,
-                      codigo: codigos[nombreBanco] || ''
+                      codigo: BANCOS_CODIGOS[nombreBanco] || ''
                     }
                   }));
                 }}

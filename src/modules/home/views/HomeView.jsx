@@ -5,6 +5,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { Calendar, ArrowRight, User, Lock, MessageCircle, LogOut, BookOpen, Package, GraduationCap } from 'lucide-react';
 import AppShell from '../../shared/components/AppShell';
 import LegalFooter from '../../shared/components/LegalFooter';
+import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 
 const HomeView = () => {
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ const HomeView = () => {
 
         <div className="px-6 pb-8 space-y-3 relative z-10 -mt-8 shrink-0">
           {/* Inscribirse - ancho completo */}
-          <button onClick={() => navigate('/inscripcion', { state: { esPack: false, origen: 'publico' } })} className="w-full bg-[#1d4ed8] text-white p-6 rounded-3xl flex items-center justify-between shadow-[0_10px_40px_rgba(29,78,216,0.4)] hover:bg-blue-700 transition-all active:scale-[0.98]">
+          <button onClick={() => navigate('/inscripcion', { state: { esPack: false, origen: 'publico', entryToken: crearFlowId() } })} className="w-full bg-[#1d4ed8] text-white p-6 rounded-3xl flex items-center justify-between shadow-[0_10px_40px_rgba(29,78,216,0.4)] hover:bg-blue-700 transition-all active:scale-[0.98]">
             <div className="flex items-center gap-4">
               <Calendar size={28} className="text-white" />
               <div className="text-left">

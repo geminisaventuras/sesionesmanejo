@@ -7,9 +7,9 @@ import { AppContext } from '../../../context/AppContextValue';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
 import { LockService } from '../../../services/LockService';
 import { useDisponibilidadPack } from '../../inscripcion/hooks/useDisponibilidadPack';
-import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
+import { useOcupacionConfirmadaRango } from '../../../hooks/useOcupacionConfirmadaRango';
 import { useStableArray } from '../../../hooks/useStableArray';
-import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
+import { useBloqueosProveedorEstado } from '../../../hooks/useBloqueosProveedor';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
 import { afectaFechaAdmin, afectaHorarioAdmin } from '../../shared/utils/bloqueosHelpers';
 import { Paso3Horario } from '../../inscripcion/components/Paso3Horario';
@@ -21,8 +21,12 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { ArrowRight, Check, Package, Activity, BookOpen, Compass, Library, Settings, FileText } from 'lucide-react';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { enriquecerDiasConRoles } from '../../inscripcion/utils/disponibilidadRoles';
+import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 const LOCK_DURATION = 10 * 60 * 1000;
+const MAX_AUTOJUMPS = 3;
+const MAX_DIAS_RESERVA = 30;
 
 export function AgendarPackView() {
   const { packReservaId } = useParams();
@@ -53,8 +57,13 @@ export function AgendarPackView() {
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
   const [tiempoRestante, setTiempoRestante] = useState(null);
+  const todayStr = ctx.getTodayStr();
+  const fechaFinRango = useMemo(() => {
+    const d = new Date(todayStr + 'T12:00:00');
+    d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
+    return d.toISOString().split('T')[0];
+  }, [todayStr]);
 
-  const bloqueosProveedor = useBloqueosProveedor(fecha1, true);
   const { bloqueos: bloqueosAdmin, cargando: cargandoBloqueos } = useBloqueosAdmin(true);
   const calendarioRef = useRef(null);
 
@@ -75,10 +84,14 @@ export function AgendarPackView() {
     return d.toISOString().split('T')[0];
   }, [fecha1]);
 
-  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmada({
+  // FIX-PROVEEDOR-D2: los bloqueos del proveedor deben incluir D1 y D2.
+  const { bloqueos: bloqueosProveedor, cargando: cargandoProveedor } = useBloqueosProveedorEstado(fecha1, true, fecha2CalcOcupacion);
+
+  const { ocupacion: ocupacionConfirmada, cargando: cargandoOcupacion, fechaConsultada } = useOcupacionConfirmadaRango({
+    fechaInicio: todayStr,
+    fechaFin: fechaFinRango,
     fecha: fecha1,
-    fecha2: fecha2CalcOcupacion,
-    limitDocs: 100
+    limitDocs: 500
   });
 
   // ─── Cargar pack + child anterior (para datos personales) ───────
@@ -154,11 +167,12 @@ export function AgendarPackView() {
   useEffect(() => {
     if (!fbUser?.uid) return;
     const fechaAEscuchar = fecha1 || getTodayStrRef.current();
-    const cleanup = LockService.escucharOcupacionTemporal(fechaAEscuchar, (locks) => {
+    const fechasAEscuchar = [fechaAEscuchar, fecha2CalcOcupacion].filter(Boolean);
+    const cleanup = LockService.escucharOcupacionTemporal(fechasAEscuchar, (locks) => {
       setActiveLocks(locks);
     });
     return () => cleanup();
-  }, [fecha1, fbUser?.uid]);
+  }, [fecha1, fecha2CalcOcupacion, fbUser?.uid]);
 
   // ─── Contador del lock ──────────────────────────────────────────
   useEffect(() => {
@@ -266,9 +280,10 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     cursoId: cursoData?.id || '',
     sedeId: sedeSeleccionadaId || pack?.sedeId || '',
     tipoMoto: tipoMotoEfectivo || '',
-    traeMoto: cursoData?.motoIncluida === false
-      ? 'Sí'
-      : ((pack?.traeMotoPorCurso || {})[String(cursoData?.id)] || 'No'),
+    traeMoto: derivarTraeMotoPermitido(
+      cursoData,
+      (pack?.traeMotoPorCurso || {})[String(cursoData?.id)] || 'No'
+    ),
     fecha1,
     horaId
   }), [cursoData, pack, sedeSeleccionadaId, fecha1, horaId]);
@@ -287,7 +302,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     reservasConfirmadas: ocupacionConfirmada || [],    activeLocks,
     selectingBlockId,
     currentUserId: uid,
-    todayStr: ctx.getTodayStr(),
+    todayStr,
     lockId,
     bloqueosProveedor,
     bloqueosAdmin,
@@ -295,14 +310,45 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     sedeSeleccionada: sede
   });
 
-  // FIX-PACK-AUTOJUMP-FECHA: si fecha1 está vacía, saltar a la primera
-  // fecha con disponibilidad real. Mismo patrón que InscripcionView.
-  // Solo se ejecuta cuando fecha1 === '' (no sobreescribe elección del usuario).
+  // Solo presentación: agrega rol D1/D2 sobre la disponibilidad ya calculada.
+  // No modifica diasDisponibles ni el auto-jump del pack.
+  const diasDisponiblesUI = useMemo(
+    () => enriquecerDiasConRoles(disponibilidad?.diasDisponibles || [], { esCursoDosDias: !cursoUnDiaPack }),
+    [disponibilidad, cursoUnDiaPack]
+  );
+
+  // FIX-PACK-AUTOJUMP-FECHA: si fecha1 está vacía o quedó inválida, saltar
+  // a la primera fecha con disponibilidad real. Mismo patrón acotado que
+  // InscripcionView (máximo 3 saltos, sin mover fechas con lock/hora).
+  const isAutoJumpRef = useRef(false);
+  const autoJumpIntentosRef = useRef(0);
+  const autoJumpAvisoRef = useRef(false);
+  const fechaAnteriorRef = useRef(fecha1);
+
   useEffect(() => {
-    if (true) return; // 🔴 HOTFIX 17/11: desactivado temporalmente por loop de fechas
+    if (cargando) return;
     if (!tipoMotoEfectivo) return;
-    if (cargandoBloqueos) return;
-    if (cargandoOcupacion) return;
+    if (cargandoBloqueos || cargandoProveedor || cargandoOcupacion) return;
+
+    // Si el bloque elegido se invalida por un bloqueo posterior, se libera
+    // el lock y se obliga a elegir otro horario.
+    if (!selectingBlockId && horaId) {
+      const bloqueActual = disponibilidad?.bloques?.find(b => b.id === horaId);
+      if (bloqueActual && !bloqueActual.disponible) {
+        if (lockId) {
+          LockService.liberarLock(lockId).catch(() => {});
+        }
+        setLockId('');
+        setLockExpiresAt(null);
+        setHoraId('');
+        setInstructorId('');
+        setMotoAsignadaId('');
+        showToast('El horario que habías seleccionado ya no está disponible. Elige otro bloque.', 'error');
+        return;
+      }
+    }
+
+    if (lockId || horaId || selectingBlockId) return;
 
     // ALT-4 (FIX-HUEVO-GALLINA): esperar a que la ocupación esté sincronizada
     // con la fecha actual. Si fecha1 está seteada pero fechaConsultada
@@ -318,25 +364,43 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
 
     if (!disponibilidad?.diasDisponibles?.length) return;
     const primerDiaLibre = disponibilidad.diasDisponibles.find(d => d.disponible);
-    if (!primerDiaLibre) return;
+    if (!primerDiaLibre) {
+      if (!autoJumpAvisoRef.current) {
+        autoJumpAvisoRef.current = true;
+        showToast('No hay fechas disponibles en este momento. Intenta más tarde.', 'info');
+      }
+      return;
+    }
     if (primerDiaLibre.fecha === fecha1) return;
+
+    if (autoJumpIntentosRef.current >= MAX_AUTOJUMPS) {
+      if (!autoJumpAvisoRef.current) {
+        autoJumpAvisoRef.current = true;
+        showToast('No pudimos encontrar una fecha estable. Elige una fecha manualmente.', 'info');
+      }
+      return;
+    }
+
     isAutoJumpRef.current = true;
+    autoJumpIntentosRef.current += 1;
     setFecha1(primerDiaLibre.fecha);
-  }, [tipoMotoEfectivo, fecha1, disponibilidad, cargandoBloqueos, cargandoOcupacion, fechaConsultada]);
+  }, [cargando, tipoMotoEfectivo, fecha1, horaId, lockId, selectingBlockId, disponibilidad, cargandoBloqueos, cargandoProveedor, cargandoOcupacion, fechaConsultada, showToast]);
 
   // ─── Reset lock si cambia la fecha ──────────────────────────────
-  const isAutoJumpRef = useRef(false);
-  const fechaAnteriorRef = useRef(fecha1);
   useEffect(() => {
     if (fechaAnteriorRef.current === fecha1) return;
-    
-    // Freno Táctico (FIRE + MAMBA): Si el cambio vino del auto-jump, no liberar lock.
+
+    // Si el cambio vino del auto-jump, no liberar lock ni resetear el
+    // presupuesto; el guard del efecto ya impide saltar con lock activo.
     if (isAutoJumpRef.current) {
       isAutoJumpRef.current = false;
       fechaAnteriorRef.current = fecha1;
       return;
     }
-    
+
+    autoJumpIntentosRef.current = 0;
+    autoJumpAvisoRef.current = false;
+
     if (lockId && horaId) {
       LockService.liberarLock(lockId).catch(() => {});
       setLockId('');
@@ -357,7 +421,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       setLockId('');
       setLockExpiresAt(null);
       setHoraId('');
-      showToast('Cambiaste de sede. Elegí un nuevo horario.', 'info');
+      showToast('Cambiaste de sede. Elige un nuevo horario.', 'info');
     }
     sedeAnteriorRef.current = sedeSeleccionadaId;
   }, [sedeSeleccionadaId, lockId, horaId, showToast]);
@@ -601,7 +665,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
           <Paso3Horario
             form={form}
             updateForm={updateForm}
-            diasDisponibles={disponibilidad.diasDisponibles}
+            diasDisponibles={diasDisponiblesUI}
             bloques={disponibilidad.bloques}
             onSelectHorario={handleSelectHorario}
             onMostrarCalendario={() => setMostrarCalendario(true)}
@@ -616,6 +680,8 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
             sedeNombre={formatearSede(sede)}
             tipoMoto={pack.tipoMoto}
             traeMoto={form.traeMoto}
+            esCursoDosDias={!cursoUnDiaPack}
+            fecha2Calc={disponibilidad.fecha2Calc}
           />
         )}
 
@@ -644,12 +710,14 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
           ref={calendarioRef}
           form={form}
           updateForm={updateForm}
-          diasDisponibles={disponibilidad.diasDisponibles}
+          diasDisponibles={diasDisponiblesUI}
           maxDate={disponibilidad.maxDate}
           mesCalendario={mesCalendario}
           setMesCalendario={setMesCalendario}
           onClose={() => setMostrarCalendario(false)}
           showToast={showToast}
+          esCursoDosDias={!cursoUnDiaPack}
+          fecha2Calc={disponibilidad.fecha2Calc}
         />
       )}
     </AppShell>

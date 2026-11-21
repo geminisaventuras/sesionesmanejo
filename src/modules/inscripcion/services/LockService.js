@@ -1,5 +1,6 @@
-import { doc, setDoc, query, collection, where, Timestamp, deleteDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, query, collection, where, Timestamp, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
+import { construirLockIds } from '../utils/solapamientoHelpers';
 
 const MAX_LIMPIEZA = 10;
 const LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -10,31 +11,34 @@ export const LockService = {
     if (!lockId || !userId)
       return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del lock' } };
 
-    const batch = writeBatch(db);
-    const lockRef = doc(db, 'locks', lockId);
-    const ocupacionRef = doc(db, 'ocupacionTemporal', lockId);
-const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
-    batch.set(lockRef, {
-      expiresAt,
-      userId,
-      fecha: metadata.fecha,
-      horaId: metadata.horaId,
-      instructorId: metadata.instructorId || null,
-      motoAsignadaId: metadata.motoAsignadaId || null
-    });
+    if (!metadata.fecha || !metadata.horaId) {
+      return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del recurso a bloquear' } };
+    }
 
-    batch.set(ocupacionRef, {
+    const batch = writeBatch(db);
+    const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
+    const datosLock = {
+      esquema: 'recursos-v1',
       expiresAt,
       userId,
       fecha: metadata.fecha,
       horaId: metadata.horaId,
       instructorId: metadata.instructorId || null,
       motoAsignadaId: metadata.motoAsignadaId || null
-    });
+    };
+    const lockIds = construirLockIds({ lockId, ...metadata });
+
+    // Batch atómico: si cualquiera de los IDs por recurso ya existe (mismo
+    // instructor o misma moto en el mismo bloque), Firestore rechaza el lote
+    // completo y no queda un lock parcial.
+    for (const id of lockIds) {
+      batch.set(doc(db, 'locks', id), datosLock);
+      batch.set(doc(db, 'ocupacionTemporal', id), datosLock);
+    }
 
     try {
       await batch.commit();
-      return { success: true, data: { lockId } };
+      return { success: true, data: { lockId, lockIds } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }
@@ -44,17 +48,28 @@ const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKE
     if (!lockId)
       return { success: false, error: { code: 'missing-fields', message: 'Falta el ID del lock' } };
 
-    const batch = writeBatch(db);
-    const lockRef = doc(db, 'locks', lockId);
-    const ocupacionRef = doc(db, 'ocupacionTemporal', lockId);
-    const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
-
-    batch.update(lockRef, { expiresAt });
-    batch.update(ocupacionRef, { expiresAt });
-
     try {
+      const lockSnap = await getDoc(doc(db, 'locks', lockId));
+      if (!lockSnap.exists()) {
+        return { success: false, error: { code: 'lock-not-found', message: 'El bloqueo ya no existe' } };
+      }
+
+      const lockData = lockSnap.data();
+      const lockIds = construirLockIds({ lockId, ...lockData });
+      const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
+      const snapshots = await Promise.all(
+        lockIds.map(id => getDoc(doc(db, 'locks', id)))
+      );
+
+      const batch = writeBatch(db);
+      lockIds.forEach((id, index) => {
+        if (snapshots[index].exists()) {
+          batch.update(doc(db, 'locks', id), { expiresAt });
+          batch.update(doc(db, 'ocupacionTemporal', id), { expiresAt });
+        }
+      });
       await batch.commit();
-      return { success: true, data: { lockId } };
+      return { success: true, data: { lockId, lockIds } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }
@@ -65,13 +80,35 @@ const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKE
     if (!lockId)
       return { success: false, error: { code: 'missing-fields', message: 'Falta el ID del lock' } };
 
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'ocupacionTemporal', lockId));
-    batch.delete(doc(db, 'locks', lockId));
-
     try {
+      // El lock principal contiene fecha/hora/instructor/moto. A partir de
+      // esos datos reconstruimos los IDs por recurso para liberar el lote
+      // completo, incluso si la UI solo conoce el ID principal.
+      let lockIds = [lockId];
+      try {
+        const lockSnap = await getDoc(doc(db, 'locks', lockId));
+        if (lockSnap.exists()) {
+          lockIds = construirLockIds({ lockId, ...lockSnap.data() });
+        }
+      } catch (readError) {
+        // Si el lock ya no existe/no se puede leer, al menos intentamos
+        // borrar el ID que conoce la UI.
+        console.warn('[LockService] No se pudo leer lock para liberar lote:', readError?.code);
+      }
+
+      // Borrar solo documentos existentes evita evaluar reglas de delete
+      // sobre IDs legacy que nunca llegaron a crearse.
+      const snapshots = await Promise.all(
+        lockIds.map(id => getDoc(doc(db, 'locks', id)))
+      );
+      const existentes = lockIds.filter((_, index) => snapshots[index].exists());
+      const batch = writeBatch(db);
+      for (const id of existentes) {
+        batch.delete(doc(db, 'ocupacionTemporal', id));
+        batch.delete(doc(db, 'locks', id));
+      }
       await batch.commit();
-      return { success: true };
+      return { success: true, data: { lockIds: existentes } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }
@@ -100,6 +137,43 @@ const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKE
     // Para evitar falsos positivos, no validamos moto aquí a menos que sea obligatoria.
     
     return { valido: true };
+  },
+
+  /**
+   * Verifica que un lock siga vigente y pertenezca al usuario/contexto actual.
+   * Se usa al restaurar Paso 3 después de una recarga para no mantener en
+   * pantalla un bloqueo vencido o de otro usuario.
+   */
+  async validarLockVigente(lockId, { userId, fecha, horaId } = {}) {
+    if (!lockId || !userId) {
+      return { success: false, error: { code: 'missing-fields', message: 'Faltan datos para validar el lock' } };
+    }
+
+    try {
+      const snap = await getDoc(doc(db, 'locks', lockId));
+      if (!snap.exists()) {
+        return { success: false, error: { code: 'lock-not-found', message: 'El bloqueo ya no existe' } };
+      }
+
+      const lock = snap.data();
+      const estructura = this.validarLock(lock);
+      if (!estructura.valido) {
+        return { success: false, error: { code: estructura.razon, message: 'El bloqueo expiró o no es válido' } };
+      }
+      if (lock.userId !== userId) {
+        return { success: false, error: { code: 'lock-owner-mismatch', message: 'El bloqueo pertenece a otro usuario' } };
+      }
+      if (fecha && String(lock.fecha) !== String(fecha)) {
+        return { success: false, error: { code: 'lock-date-mismatch', message: 'El bloqueo no coincide con la fecha seleccionada' } };
+      }
+      if (horaId && String(lock.horaId) !== String(horaId)) {
+        return { success: false, error: { code: 'lock-slot-mismatch', message: 'El bloqueo no coincide con el horario seleccionado' } };
+      }
+
+      return { success: true, data: lock };
+    } catch (error) {
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
   },
 
   /**
@@ -193,8 +267,14 @@ const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKE
   },
 
   escucharOcupacionTemporal(fecha, callback) {
+    const fechas = (Array.isArray(fecha) ? fecha : [fecha]).filter(Boolean);
+    if (fechas.length === 0) return () => {};
+    const unicas = [...new Set(fechas)];
     const ocupacionRef = collection(db, 'ocupacionTemporal');
-    const q = query(ocupacionRef, where('fecha', '==', fecha));
+    // Un curso de 2 días necesita ver locks de D1 y D2 en la misma foto.
+    const q = unicas.length === 1
+      ? query(ocupacionRef, where('fecha', '==', unicas[0]))
+      : query(ocupacionRef, where('fecha', 'in', unicas));
 
     const unsub = onSnapshot(q, (snap) => {
       const ahora = Date.now();

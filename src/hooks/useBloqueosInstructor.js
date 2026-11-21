@@ -26,12 +26,16 @@ import { db } from '../firebase';
  */
 export function useBloqueosInstructor(activo = true) {
   const [bloqueos, setBloqueos] = useState([]);
+  const [cargando, setCargando] = useState(Boolean(activo));
 
   useEffect(() => {
     if (!activo) {
       setBloqueos([]);
+      setCargando(false);
       return;
     }
+
+    setCargando(true);
 
     // Solo bloqueos activos (soft-delete filtra 'cancelado').
     // Sin filtro de fecha: el hook es agnóstico al día evaluado.
@@ -45,15 +49,17 @@ export function useBloqueosInstructor(activo = true) {
       (snap) => {
         const datos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setBloqueos(datos);
+        setCargando(false);
       },
       (error) => {
         console.warn('[useBloqueosInstructor] Error:', error);
         setBloqueos([]);
+        setCargando(false);
       }
     );
 
     return () => unsubscribe();
   }, [activo]);
 
-  return bloqueos;
+  return { bloqueos, cargando };
 }

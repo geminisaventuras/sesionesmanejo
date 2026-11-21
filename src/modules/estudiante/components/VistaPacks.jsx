@@ -5,6 +5,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { Package, Sparkles, ChevronRight, GraduationCap, AlertCircle } from 'lucide-react';
+import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -76,7 +77,8 @@ export function VistaPacks() {
       state: {
         esPack: true,
         packId: pack.id,
-        origen: 'panel-estudiante'
+        origen: 'panel-estudiante',
+        entryToken: crearFlowId()
       }
     });
   };

@@ -8,6 +8,7 @@ import ModalCursoDetalle from '../components/ModalCursoDetalle';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 import LegalFooter from '../../shared/components/LegalFooter';
 import { calcularDias, formatearDias } from '../../shared/utils/duraciones';
+import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 const APP_ID = 'motoescuela-pro-v1';
 
 
@@ -143,7 +144,8 @@ const unsub = onSnapshot(q, (snap) => {
       state: {
         cursoId,
         origen: 'publico',
-        cursoSugerido: true
+        cursoSugerido: true,
+        entryToken: crearFlowId()
       }
     });
   };
@@ -158,7 +160,8 @@ const unsub = onSnapshot(q, (snap) => {
           state: {
             cursoId: equilibrio.id,
             origen: 'publico',
-            cursoSugerido: true
+            cursoSugerido: true,
+            entryToken: crearFlowId()
           }
         });
       } else {
@@ -173,7 +176,8 @@ const unsub = onSnapshot(q, (snap) => {
           state: {
             cursoId,
             origen: 'publico',
-            cursoSugerido: true
+            cursoSugerido: true,
+            entryToken: crearFlowId()
           }
         });
       }

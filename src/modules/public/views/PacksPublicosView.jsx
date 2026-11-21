@@ -7,6 +7,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { Package, Clock, ChevronLeft, GraduationCap, Sparkles, Info, X } from 'lucide-react';
 import LegalFooter from '../../shared/components/LegalFooter';
 import { calcularDiasPack, formatearDias } from '../../shared/utils/duraciones';
+import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -228,7 +229,8 @@ export default function PacksPublicosView() {
                               state: {
                                 esPack: true,
                                 packId: pack.id,
-                                origen: 'pack-publico'
+                                origen: 'pack-publico',
+                                entryToken: crearFlowId()
                               }
                             });
                           }}

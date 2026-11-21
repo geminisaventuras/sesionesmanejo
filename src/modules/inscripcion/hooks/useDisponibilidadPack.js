@@ -126,10 +126,9 @@ const evaluarDisponibilidad = ({
       return { ...bloque, disponible: false, reason: 'CERRADO', instructorId: null, motoAsignadaId: null };
     if (bloque.id === selectingBlockId)
       return { ...bloque, disponible: true, reason: '', instructorId: null, motoAsignadaId: null, seleccionando: true };
-    if (lockId && form.horaId === bloque.id)
-      return { ...bloque, disponible: true, reason: '', restaurado: true };
-
-        const instructoresDisponibles = (instructores || [])
+    // El lock seleccionado no se restaura a ciegas: debe seguir pasando
+    // por bloqueos admin/proveedor e instructor/moto.
+    const instructoresDisponibles = (instructores || [])
       .filter(estaPermitido)
       .filter(i => i.activo && (i.sedes || []).includes(form.sedeId))
       .filter(i => !isInstructorOcupado(i.id, bloque.id, fecha1, fecha2));
@@ -146,8 +145,8 @@ const evaluarDisponibilidad = ({
       // SSOT-BLOQUEOS: bloqueo de proveedor contra fecha1 Y fecha2.
       motosDisponibles = motosDisponibles.filter(m => {
         const bloqueado = (bloqueosProveedor || []).some(b =>
-          afectaProveedor(b, m.id, fecha1, bloque.label) ||
-          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label))
+          afectaProveedor(b, m.id, fecha1, bloque.label, m.proveedorId) ||
+          (fecha2 && afectaProveedor(b, m.id, fecha2, bloque.label, m.proveedorId))
         );
         return !bloqueado;
       });
@@ -199,7 +198,7 @@ const evaluarDisponibilidad = ({
 
   const today = todayStr;
   const maxDate = (() => {
-    const d = new Date();
+    const d = new Date(todayStr + 'T12:00:00');
     d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
     return d.toISOString().split('T')[0];
   })();

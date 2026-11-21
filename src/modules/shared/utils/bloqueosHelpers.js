@@ -3,7 +3,7 @@
 //
 // ESQUEMAS (conviven, NO normalizar sin consulta):
 // - bloqueosAdmin: { fechaInicio, fechaFin, todoElDia, horarios[], sedeId }
-// - bloqueosProveedor: { motoId, fecha, horaInicio, horaFin }
+// - bloqueosProveedor: { proveedorId, motoId, fecha, horaInicio, horaFin }
 //
 // Fecha siempre en formato 'YYYY-MM-DD' (zona América/Caracas).
 
@@ -47,10 +47,16 @@ export function afectaHorarioAdmin(bloqueo, horaId) {
  * @param {string} motoId    - ID de la moto asignada
  * @param {string} fecha     - 'YYYY-MM-DD'
  * @param {string} horaLabel - '08:00 AM - 10:00 AM' (label del horario)
+ * @param {string|null} motoProveedorId - Proveedor de la moto; si se omite,
+ *   se conserva el comportamiento legacy de `ALL` (sin alcance de proveedor).
  * @returns {boolean}
  */
-export function afectaProveedor(bloqueo, motoId, fecha, horaLabel) {
+export function afectaProveedor(bloqueo, motoId, fecha, horaLabel, motoProveedorId = null) {
   if (!bloqueo || !fecha || !horaLabel) return false;
+  // Un bloqueo "Todas mis motos" solo aplica a las motos de su proveedor.
+  // Si el bloqueo no tiene proveedorId, se mantiene el comportamiento legacy.
+  if (bloqueo.proveedorId && motoProveedorId &&
+      String(bloqueo.proveedorId) !== String(motoProveedorId)) return false;
   if (bloqueo.motoId !== motoId && bloqueo.motoId !== 'ALL') return false;
   if (bloqueo.fecha !== fecha) return false;
 

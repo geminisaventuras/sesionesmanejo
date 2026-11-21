@@ -3,6 +3,7 @@ import React, { useRef, useEffect, useMemo } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
+import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
   const tipoCurso = curso.tipoCurso;
@@ -147,6 +148,16 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   // - Si el curso SÍ ofrece moto Y NO permite traer propia (Equilibrio) → botón "Sí" bloqueado.
   const permiteTraerMotoPropia = cursoSeleccionado?.permiteTraerMotoPropia !== false;
   const bloqueaMotoPropia = !!cursoSeleccionado && motoIncluida && !permiteTraerMotoPropia;
+
+  // Si el curso cambia por cualquier vía (dropdown, curso automático o el
+  // botón "No sé andar"), corrige el estado que luego consume Paso 3.
+  useEffect(() => {
+    if (!cursoSeleccionado) return;
+    const esperado = derivarTraeMotoPermitido(cursoSeleccionado, form.traeMoto);
+    if (form.traeMoto !== esperado) {
+      updateForm({ traeMoto: esperado });
+    }
+  }, [cursoSeleccionado, form.traeMoto, updateForm]);
 
     const bloqueaTipoMoto = (tipo) => {
     if (form.sabeBicicleta === 'No' && tipo !== 'Automática') return true;

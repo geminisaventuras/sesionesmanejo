@@ -21,6 +21,18 @@ export function calcularNecesitaMoto(curso, traeMoto) {
   return { cursoIncluyeMoto, necesitaMoto };
 }
 
+// Normaliza la elección de moto según la configuración del curso.
+// Usa los mismos campos SSOT que ReservaService: motoIncluida y
+// permiteTraerMotoPropia. No crea una regla nueva.
+export function derivarTraeMotoPermitido(curso, traeMotoActual = 'No') {
+  const motoIncluida = curso?.motoIncluida !== false;
+  const permitePropia = curso?.permiteTraerMotoPropia !== false;
+
+  if (!motoIncluida) return 'Sí';
+  if (!permitePropia) return 'No';
+  return traeMotoActual === 'Sí' ? 'Sí' : 'No';
+}
+
 /**
  * ¿Se puede calcular disponibilidad para este contexto?
  * Regla:

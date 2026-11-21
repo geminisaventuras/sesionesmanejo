@@ -21,6 +21,7 @@ import { VistaServicios } from '../components/VistaServicios';
 import { VistaHistorial } from '../components/VistaHistorial';
 import { useMetricasUsuario } from '../../../hooks/useMetricasUsuario';
 import { VistaPacks } from '../components/VistaPacks';
+import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
@@ -715,7 +716,8 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
                 cursoId: cursoDetalle.reserva.cursoId,
                 origen: 'panel-estudiante',
                 modo: 'nueva',
-                esRecompra: true
+                esRecompra: true,
+                entryToken: crearFlowId()
               }
             })}
             disabled={tieneReservaPendiente}
@@ -831,7 +833,8 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
                           origen: 'panel-estudiante',
                           modo: 'nueva',
                           esRecompra: tieneAprobada,
-                          esReintento: soloCancelada
+                          esReintento: soloCancelada,
+                          entryToken: crearFlowId()
                         }
                       });
                     }}

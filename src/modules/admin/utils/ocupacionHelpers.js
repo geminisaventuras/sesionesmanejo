@@ -61,7 +61,13 @@ export function calcularEstadoBloque({
   // Bloqueo de Proveedor (solo si hay filtro específico)
   if (motoId) {
     const hayBloqueoProveedor = bloqueosProveedor.some(b => 
-      afectaProveedor(b, motoId, fecha, bloque.label)
+      afectaProveedor(
+        b,
+        motoId,
+        fecha,
+        bloque.label,
+        motos.find(m => String(m.id) === String(motoId))?.proveedorId
+      )
     );
     if (hayBloqueoProveedor) {
       return { estado: 'bloqueado', total: 1, disponibles: 0, motivo: 'Proveedor', reservas: [] };
@@ -91,6 +97,21 @@ export function calcularEstadoBloque({
     return true;
   });
 
+  // Un bloqueo "ALL" de proveedor solo excluye las motos de ese proveedor.
+  // Cuando el filtro es "Todas", la matriz debe reflejar el bloqueo parcial.
+  const motosBloqueadasProveedor = motosValidas.filter(m =>
+    (bloqueosProveedor || []).some(b =>
+      afectaProveedor(b, m.id, fecha, bloque.label, m.proveedorId)
+    )
+  );
+  const motosDisponiblesProveedor = motosValidas.filter(m =>
+    !motosBloqueadasProveedor.some(b => String(b.id) === String(m.id))
+  );
+
+  if (motosValidas.length > 0 && motosDisponiblesProveedor.length === 0) {
+    return { estado: 'bloqueado', total: 0, disponibles: 0, motivo: 'Proveedor', reservas: [] };
+  }
+
   // ==========================================
   // 3. CALCULAR OCUPADOS Y RESERVAS DEL BLOQUE
   // ==========================================
@@ -108,14 +129,14 @@ export function calcularEstadoBloque({
     reservasEnBloque.some(r => String(r.instructorId) === String(i.id))
   );
 
-  const motosOcupadas = motosValidas.filter(m => 
+  const motosOcupadas = motosDisponiblesProveedor.filter(m => 
     reservasEnBloque.some(r => String(r.motoAsignadaId) === String(m.id))
   );
 
   const totalInstructores = instructoresValidos.length;
   const disponiblesInstructores = Math.max(0, totalInstructores - instructoresOcupados.length);
   
-  const totalMotos = motosValidas.length;
+  const totalMotos = motosDisponiblesProveedor.length;
   const disponiblesMotos = Math.max(0, totalMotos - motosOcupadas.length);
 
   const totalReal = totalMotos > 0 ? Math.min(totalInstructores, totalMotos) : totalInstructores;
@@ -129,7 +150,11 @@ export function calcularEstadoBloque({
   if (disponiblesReal === 0) estado = 'lleno';
   else if (disponiblesReal < totalReal) estado = 'parcial';
 
-  // Forzar 'parcial_bloqueado' si había un bloqueo parcial y no es un bloqueo total
+  // Forzar 'parcial_bloqueado' si había un bloqueo parcial de admin o proveedor
+  // y no es un bloqueo total.
+  if (motosBloqueadasProveedor.length > 0 && estado !== 'bloqueado') {
+    estado = 'parcial_bloqueado';
+  }
   if (!sedeId && hayBloqueoAdminParcial && estado !== 'bloqueado') {
     estado = 'parcial_bloqueado';
   }
