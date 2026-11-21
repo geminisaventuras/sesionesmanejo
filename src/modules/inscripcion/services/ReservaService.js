@@ -1,5 +1,5 @@
 // Archivo: src/modules/inscripcion/services/ReservaService.js
-// @build: 2026-07-21 | id: SERV-PROGRESO-INSCRIPCION | desc: Nuevos métodos para progreso de inscripción
+// @build: 2026-11-21.14-10-52 | id: PACK-CHILD-C-DETERMINISTIC | backup: backup/packchild-c-20261121-141052/src/modules/inscripcion/services/ReservaService.js | desc: IDs deterministas de child pack_sub y verificación de existencia para unicidad estructural.
 
 import { db, auth } from '../../shared/firebase/firebase';
 import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, serverTimestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
@@ -487,7 +487,7 @@ export const ReservaService = {
 
     const packRef = doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId);
     const maestraRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack'));
-    const childRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservas'));
+    const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', `${maestraRef.id}_sub_0`);
     const lockRef = doc(db, 'locks', lockId);
     const temporalRef = doc(db, 'ocupacionTemporal', lockId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childRef.id);
@@ -522,6 +522,12 @@ export const ReservaService = {
         if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
         if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw new Error('El horario está bloqueado por otro usuario');
+        }
+
+        // PACK-CHILD-C: el ID determinista garantiza una sola child por pack+índice.
+        const childSnap = await transaction.get(childRef);
+        if (childSnap.exists()) {
+          throw new Error('La sesión inicial de este pack ya fue creada');
         }
 
         // 3. Resolver cursos del pack
@@ -764,10 +770,8 @@ export const ReservaService = {
     }
 
     const maestraRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservasPack', packData.packReservaId);
-    const childRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservas'));
     const lockRef = doc(db, 'locks', lockId);
     const temporalRef = doc(db, 'ocupacionTemporal', lockId);
-    const espejoRef = doc(db, 'ocupacionConfirmada', childRef.id);
 
     // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
     const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
@@ -810,7 +814,10 @@ export const ReservaService = {
         }
 
         // 2. Validar que el curso actual no tenga ya una reserva agendada
-        const cursoActual = maestra.cursoActual ?? 0;
+        const cursoActual = Number(maestra.cursoActual ?? 0);
+        if (!Number.isInteger(cursoActual) || cursoActual < 0) {
+          throw new Error('El pack tiene un índice de curso inválido.');
+        }
         const subReservas = [...(maestra.subReservas || [])];
         const subActual = subReservas[cursoActual];
         if (!subActual) {
@@ -822,6 +829,10 @@ export const ReservaService = {
         if (subActual.reservaId) {
           throw new Error('Este curso ya tiene una fecha agendada');
         }
+
+        // PACK-CHILD-C: ID determinista por pack+índice (unicidad estructural).
+        const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', `${maestraRef.id}_sub_${cursoActual}`);
+        const espejoRef = doc(db, 'ocupacionConfirmada', childRef.id);
 
         // 3. Validar que el curso a agendar coincide con el subReservas[cursoActual]
         const cursoData = packData.cursoSnapshot;
@@ -844,6 +855,12 @@ export const ReservaService = {
         if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
         if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw new Error('El horario está bloqueado por otro usuario');
+        }
+
+        // PACK-CHILD-C: verificar que el documento determinista aún no exista.
+        const childSnap = await transaction.get(childRef);
+        if (childSnap.exists()) {
+          throw new Error('Esta sesión del pack ya fue agendada');
         }
 
         // 5. Prorrateo del curso actual

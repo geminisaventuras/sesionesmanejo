@@ -172,3 +172,32 @@
 **Validación:**
 - Centinela V4.0: APROBADO (Luz Verde para Producción).
 - Flujo completo de inscripción probado exitosamente por el Operador.
+
+---
+
+### Sesión 21/11/2026 – Login y Home: rediseño, RBAC por pestaña y sin scroll
+
+- `LoginView.jsx`: paleta navy/azul, logo recortado, toggle de contraseña/PIN, Google oficial y validación de rol por pestaña (Staff: admin/instructor/proveedor; Usuario: estudiante). Pestaña Usuario solo correo + PIN de 6 dígitos.
+- `HomeView.jsx`: `LegalFooter compact`, hero `flex-1` con altura mínima responsive y logo recortado sin cortes.
+- `LegalFooter.jsx`: nueva prop `compact` con `<details>`; la variante normal conserva el aviso legal completo.
+- Verificación: build OK (1843 módulos); deploy hosting `motoescuelapp` (110 archivos); smoke 200 en `motoescuelapp.web.app` y `motoapp.website`; Playwright 390x844 y 360x640 sin scroll en login/home.
+- Backup previo: `backup/pre-deploy-login-home-20261121-123038`. Sin cambios en reglas, datos ni Functions.
+
+---
+
+### Sesión 21/11/2026 – `B-PACK-RULES-CHILD`: cierre C determinista en PROD
+
+- `ReservaService.js`: children `pack_sub` con ID determinista `${packReservaId}_sub_${packCursoIndex}`, verificación de no-existencia en la transacción y guarda de entero en `cursoActual`.
+- `firestore.rules`: maestra aprobada/activa/no vencida, índice actual, curso desde `packSnapshot.cursoIds`, punteros de maestra al child, tamaños iguales, `estadoCurso: 'Pendiente'`; compra Pendiente solo con maestra nueva e índice 0; admin con auditoría; espejo `pack_sub` con igualdad de campos; guarda del `reservaId` actual.
+- Pruebas emulador 20/20; auditoría read-only 5 packs activos, 19 children, 0 inconsistencias.
+- Backup: `backup/packchild-c-20261121-142745`. Build 1843 módulos.
+- Hosting primero (110 archivos, `index-CWknOiHx.js` con `_sub_`, smoke 200) y reglas después (compiladas y liberadas). Commit/push pendiente.
+
+---
+
+### Sesión 21/11/2026 – Icono PWA con el logo de la app
+
+- Iconos 512/192 y Apple Touch 180 generados desde el emblema de `logo.png` (fondo blanco, 76% del ancho).
+- Publicados con nombres `-v2` para evitar caché; manifest, `index.html` y `includeAssets` actualizados.
+- Hosting desplegado (114 archivos, `Last-Modified 18:34:26 GMT`); iconos v2 con 200 y hash idéntico al build.
+- Backup previo: `backup/pwa-icons-20261121-143351`.

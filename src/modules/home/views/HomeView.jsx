@@ -19,19 +19,22 @@ const HomeView = () => {
   return (
     <AppShell bgColor="bg-gray-100" maxWidth="max-w-md" className="sm:rounded-[40px] sm:shadow-2xl sm:max-h-[90vh]">
       <div className="flex flex-col h-full">
-        <div className="bg-[#0f172a] text-white flex-[0.55] flex flex-col items-center justify-center px-6 rounded-b-[40px] relative z-0 pt-10 pb-16">
-          <div className="relative w-20 h-20 mb-6">
-            <img
-              src="/logo.png"
-              alt="Motoescuela Logo"
-              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 max-w-[90vw] md:w-80 h-auto object-contain"
-            />
-          </div>
+        <div className="bg-[#0f172a] text-white flex-1 min-h-[190px] max-h-[52vh] [@media(max-height:620px)]:min-h-[168px] flex flex-col items-center justify-center px-6 rounded-b-[40px] relative z-0 pt-6 pb-14">
+          <div
+            role="img"
+            aria-label="Motoescuela Logo"
+            className="h-12 w-[86px] bg-no-repeat mb-3"
+            style={{
+              backgroundImage: "url('/logo.png')",
+              backgroundSize: '313.5% auto',
+              backgroundPosition: '50% 42%',
+            }}
+          />
           <h1 className="text-4xl font-black mb-2 tracking-tight">MOTO<span className="text-blue-500"> APP</span></h1>
           <p className="text-slate-400 text-sm font-medium text-center px-4">Plataforma Integral de Gestión y Desarrollo.</p>
         </div>
 
-        <div className="px-6 pb-8 space-y-3 relative z-10 -mt-8 shrink-0">
+        <div className="px-6 pb-4 space-y-3 relative z-10 -mt-8 shrink-0">
           {/* Inscribirse - ancho completo */}
           <button onClick={() => navigate('/inscripcion', { state: { esPack: false, origen: 'publico', entryToken: crearFlowId() } })} className="w-full bg-[#1d4ed8] text-white p-6 rounded-3xl flex items-center justify-between shadow-[0_10px_40px_rgba(29,78,216,0.4)] hover:bg-blue-700 transition-all active:scale-[0.98]">
             <div className="flex items-center gap-4">
@@ -124,7 +127,9 @@ const HomeView = () => {
           )}
         </div>
 
-        <LegalFooter />
+        <div className="mt-auto">
+          <LegalFooter compact />
+        </div>
       </div>
     </AppShell>
   );

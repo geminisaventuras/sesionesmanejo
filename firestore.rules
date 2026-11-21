@@ -16,6 +16,26 @@ service cloud.firestore {
       );
     }
 
+    function maestraPre(packId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(packId)).data;
+    }
+
+    function maestraAfter(packId) {
+      return getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(packId)).data;
+    }
+
+    function slotLibre(sub) {
+      return !('reservaId' in sub) || sub.reservaId == null || sub.reservaId == '';
+    }
+
+    function sedePermitida(maestra, sedeId) {
+      return !('packSnapshot' in maestra) ||
+        !('sedesPermitidas' in maestra.packSnapshot) ||
+        maestra.packSnapshot.sedesPermitidas.size() == 0 ||
+        sedeId in maestra.packSnapshot.sedesPermitidas ||
+        ('sedeId' in maestra && sedeId == maestra.sedeId);
+    }
+
     function esLockCorrupto(lockData) {
       return !(
         'userId' in lockData &&
@@ -71,7 +91,22 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         isAuth() && 
         request.resource.data.userId == request.auth.uid &&
-        getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.userId == request.auth.uid
+        getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.userId == request.auth.uid &&
+        (
+          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.get('tipoReserva', null) != 'pack_sub' ||
+          (
+            request.resource.data.fecha == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.fecha &&
+            request.resource.data.fecha2 == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.fecha2 &&
+            request.resource.data.horaId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.horaId &&
+            request.resource.data.instructorId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.instructorId &&
+            request.resource.data.motoAsignadaId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.motoAsignadaId &&
+            request.resource.data.traeMoto == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.traeMoto &&
+            request.resource.data.sedeId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.sedeId &&
+            request.resource.data.tipoCurso == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.tipoCurso &&
+            request.resource.data.estadoPago == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.estadoPago &&
+            request.resource.data.proveedorId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.proveedorId
+          )
+        )
       );
       allow update, delete: if isAdmin();
     }
@@ -115,29 +150,74 @@ service cloud.firestore {
         );
 
         allow create: if isAuth() && 
-                      request.resource.data.userId == request.auth.uid &&
+                      (request.resource.data.userId == request.auth.uid || isAdmin()) &&
                       request.resource.data.precio > 0 &&
                       !('sesionTotalInicio' in request.resource.data) &&
                       !('pausaTotalAcumulada' in request.resource.data) &&
                       (
                         (
                           !('tipoReserva' in request.resource.data) &&
+                          request.resource.data.userId == request.auth.uid &&
                           request.resource.data.estadoPago == 'Pendiente'
                         ) ||
                         (
-                          'tipoReserva' in request.resource.data &&
                           request.resource.data.tipoReserva == 'pack_sub' &&
-                          request.resource.data.estadoPago in ['Pendiente', 'Aprobado'] &&
-                          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.userId == request.auth.uid &&
-                          // FIX-PACK-SEDE-POR-SESION: validar que sedeId esté en las sedes permitidas del pack.
-                          // Fallback legacy: si packSnapshot.sedesPermitidas está vacío o no existe,
-                          // se usa [maestra.sedeId].
+                          request.resource.data.packReservaId is string &&
+                          request.resource.data.packCursoIndex is int &&
+                          request.resource.data.packCursoIndex >= 0 &&
+                          request.resource.data.cursoId is string &&
+                          request.resource.data.estadoCurso == 'Pendiente' &&
+                          docId == request.resource.data.packReservaId + '_sub_' + string(request.resource.data.packCursoIndex) &&
                           (
-                            !('packSnapshot' in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data) ||
-                            !('sedesPermitidas' in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot) ||
-                            getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot.sedesPermitidas.size() == 0 ||
-                            request.resource.data.sedeId in getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.packSnapshot.sedesPermitidas ||
-                            request.resource.data.sedeId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)).data.sedeId
+                            // PACK-CHILD-C: compra (maestra nueva, primera child Pendiente)
+                            (
+                              request.resource.data.estadoPago == 'Pendiente' &&
+                              request.resource.data.userId == request.auth.uid &&
+                              request.resource.data.packCursoIndex == 0 &&
+                              !exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)) &&
+                              maestraAfter(request.resource.data.packReservaId).userId == request.auth.uid &&
+                              maestraAfter(request.resource.data.packReservaId).estadoPago == 'Pendiente' &&
+                              maestraAfter(request.resource.data.packReservaId).estado == 'activo' &&
+                              maestraAfter(request.resource.data.packReservaId).get('cursoActual', 0) == 0 &&
+                              maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
+                              maestraAfter(request.resource.data.packReservaId).subReservas[0].reservaId == docId &&
+                              maestraAfter(request.resource.data.packReservaId).subReservas.size() == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
+                              maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() > 0 &&
+                              request.resource.data.cursoId == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds[0] &&
+                              sedePermitida(maestraAfter(request.resource.data.packReservaId), request.resource.data.sedeId)
+                            ) ||
+                            // PACK-CHILD-C: agendamiento o reparación admin
+                            (
+                              request.resource.data.estadoPago == 'Aprobado' &&
+                              exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)) &&
+                              maestraPre(request.resource.data.packReservaId).userId == request.resource.data.userId &&
+                              maestraPre(request.resource.data.packReservaId).estadoPago == 'Aprobado' &&
+                              maestraPre(request.resource.data.packReservaId).estado == 'activo' &&
+                              (
+                                !('vencimiento' in maestraPre(request.resource.data.packReservaId)) ||
+                                maestraPre(request.resource.data.packReservaId).get('vencimiento', null) == null ||
+                                !(maestraPre(request.resource.data.packReservaId).vencimiento is timestamp) ||
+                                maestraPre(request.resource.data.packReservaId).vencimiento > request.time
+                              ) &&
+                              request.resource.data.packCursoIndex == maestraPre(request.resource.data.packReservaId).get('cursoActual', 0) &&
+                              request.resource.data.packCursoIndex < maestraPre(request.resource.data.packReservaId).subReservas.size() &&
+                              request.resource.data.packCursoIndex < maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
+                              maestraPre(request.resource.data.packReservaId).subReservas.size() == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
+                              slotLibre(maestraPre(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex]) &&
+                              request.resource.data.cursoId == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds[request.resource.data.packCursoIndex] &&
+                              maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
+                              maestraAfter(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex].reservaId == docId &&
+                              (
+                                !isAdmin() ||
+                                (
+                                  request.resource.data.origen == 'reparacion_admin' &&
+                                  request.resource.data.creadoPorUid == request.auth.uid &&
+                                  request.resource.data.motivoReparacion is string &&
+                                  request.resource.data.motivoReparacion.size() > 0
+                                )
+                              ) &&
+                              sedePermitida(maestraPre(request.resource.data.packReservaId), request.resource.data.sedeId)
+                            )
                           )
                         )
                       );
@@ -259,16 +339,33 @@ service cloud.firestore {
         allow update: if isAuth() && (
           isAdmin() ||
           (
-            // RAMA 1 - DUENO: agendar
+            // RAMA 1 - DUENO: agendar (solo reservaId del curso actual)
             resource.data.userId == request.auth.uid &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'subReservas', 'cursoReservaId'
             ]) &&
+            resource.data.get('cursoActual', 0) is int &&
+            resource.data.get('cursoActual', 0) >= 0 &&
+            resource.data.get('cursoActual', 0) < resource.data.subReservas.size() &&
+            request.resource.data.subReservas.size() == resource.data.subReservas.size() &&
+            request.resource.data.subReservas[resource.data.get('cursoActual', 0)].cursoId == resource.data.subReservas[resource.data.get('cursoActual', 0)].cursoId &&
             (
-              request.resource.data.cursoReservaId == resource.data.cursoReservaId ||
               (
+                resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) != null &&
+                resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) != '' &&
+                request.resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) == resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) &&
+                request.resource.data.cursoReservaId == resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null)
+              ) ||
+              (
+                (resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) == null ||
+                 resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) == '') &&
+                request.resource.data.subReservas[resource.data.get('cursoActual', 0)].get('reservaId', null) == request.resource.data.cursoReservaId &&
                 request.resource.data.cursoReservaId != null &&
-                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.userId == request.auth.uid
+                !exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)) &&
+                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.userId == request.auth.uid &&
+                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.tipoReserva == 'pack_sub' &&
+                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.packReservaId == packReservaId &&
+                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.packCursoIndex == resource.data.get('cursoActual', 0)
               )
             )
           ) ||
