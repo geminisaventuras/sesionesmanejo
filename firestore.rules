@@ -257,12 +257,51 @@ service cloud.firestore {
           request.resource.data.subReservas.size() > 0 &&
           request.resource.data.precioTotalCongelado > 0;
         allow update: if isAuth() && (
-          isAdmin() || 
-          resource.data.userId == request.auth.uid ||
+          isAdmin() ||
           (
+            // RAMA 1 - DUENO: agendar
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'subReservas', 'cursoReservaId'
+            ]) &&
+            (
+              request.resource.data.cursoReservaId == resource.data.cursoReservaId ||
+              (
+                request.resource.data.cursoReservaId != null &&
+                getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(request.resource.data.cursoReservaId)).data.userId == request.auth.uid
+              )
+            )
+          ) ||
+          (
+            // RAMA 2 - DUENO: corregir referencia de pago (pack rechazado)
+            resource.data.userId == request.auth.uid &&
+            resource.data.estadoPago == 'Rechazado' &&
+            request.resource.data.estadoPago == 'Pendiente' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'pagoRef', 'estadoPago', 'rechazadoEn'
+            ]) &&
+            request.resource.data.pagoRef is string &&
+            request.resource.data.pagoRef.size() == 4
+          ) ||
+          (
+            // RAMA 3 - TUTOR ASIGNADO: avance y vencimiento
             resource.data.cursoReservaId != null &&
             get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(resource.data.cursoReservaId)).data.instructorId == request.auth.uid &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subReservas', 'cursoActual', 'estado'])
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'subReservas', 'cursoActual', 'estado'
+            ]) &&
+            request.resource.data.cursoActual >= resource.data.cursoActual &&
+            request.resource.data.cursoActual <= resource.data.cursoActual + 1 &&
+            (
+              resource.data.estado == request.resource.data.estado ||
+              (resource.data.estado == 'activo' && request.resource.data.estado == 'completado') ||
+              (
+                resource.data.estado == 'activo' &&
+                request.resource.data.estado == 'vencido' &&
+                resource.data.vencimiento is timestamp &&
+                resource.data.vencimiento < request.time
+              )
+            )
           )
         );
         allow delete: if false;
