@@ -61,6 +61,10 @@ export default function CambiarHorarioModal({
   const fechaEfectiva1 = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha;
   const fechaEfectiva2 = modo === 'reponer_d2' ? null : nuevaFecha2Calculada;
 
+  // Los bloqueos "Todas mis motos" del proveedor solo aplican a sus motos.
+  const obtenerProveedorMoto = (motoId) =>
+    (motos || []).find(m => String(m.id) === String(motoId))?.proveedorId;
+
   // ── Horarios disponibles para la fecha según el modo ────────
   const horariosDisponibles = useMemo(() => {
     const fechaParaFiltrar = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha;
@@ -106,18 +110,18 @@ export default function CambiarHorarioModal({
         : reserva.motoAsignadaId;
       if (motoValidar) {
         const bloqueadoProvF1 = (bloqueosProvF1 || []).some(b =>
-          afectaProveedor(b, motoValidar, fechaEfectiva1, h.label));
+          afectaProveedor(b, motoValidar, fechaEfectiva1, h.label, obtenerProveedorMoto(motoValidar)));
         if (bloqueadoProvF1) return false;
         if (fechaEfectiva2) {
           const bloqueadoProvF2 = (bloqueosProvF2 || []).some(b =>
-            afectaProveedor(b, motoValidar, fechaEfectiva2, h.label));
+            afectaProveedor(b, motoValidar, fechaEfectiva2, h.label, obtenerProveedorMoto(motoValidar)));
           if (bloqueadoProvF2) return false;
         }
       }
 
       return !(ocupacionConfirmada || []).some(r => otraOcupaSlot(r, h.id));
     });
-  }, [nuevaFecha, nuevaFecha2, modo, horarios, ocupacionConfirmada, reserva.id, reserva.sedeId, motoReposicionId, reserva.motoAsignadaId, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2]);
+  }, [nuevaFecha, nuevaFecha2, modo, horarios, ocupacionConfirmada, reserva.id, reserva.sedeId, motoReposicionId, reserva.motoAsignadaId, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2, motos]);
 
   // ── Validaciones al seleccionar ─────────────────────────────
   const validarSeleccion = useCallback(async () => {
@@ -156,9 +160,9 @@ export default function CambiarHorarioModal({
       : reserva.motoAsignadaId;
     if (motoValidarB && labelValidar) {
       const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
-        afectaProveedor(b, motoValidarB, fechaEfectiva1, labelValidar));
+        afectaProveedor(b, motoValidarB, fechaEfectiva1, labelValidar, obtenerProveedorMoto(motoValidarB)));
       const bloqueadoProv2 = fechaEfectiva2 && (bloqueosProvF2 || []).some(b =>
-        afectaProveedor(b, motoValidarB, fechaEfectiva2, labelValidar));
+        afectaProveedor(b, motoValidarB, fechaEfectiva2, labelValidar, obtenerProveedorMoto(motoValidarB)));
       if (bloqueadoProv || bloqueadoProv2) {
         advertenciasTemp.push({
           tipo: 'bloqueo_proveedor',
@@ -209,7 +213,7 @@ export default function CambiarHorarioModal({
 
     setAdvertencias(advertenciasTemp);
     setValidando(false);
-  }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada, horarios, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2]);
+  }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada, horarios, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2, motos]);
 
   // ── Confirmar ────────────────────────────────────────────────
   const handleConfirmar = () => {
@@ -234,9 +238,9 @@ export default function CambiarHorarioModal({
       : reserva.motoAsignadaId;
     if (motoFinal && labelFinal) {
       const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
-        afectaProveedor(b, motoFinal, fechaEfectiva1, labelFinal));
+        afectaProveedor(b, motoFinal, fechaEfectiva1, labelFinal, obtenerProveedorMoto(motoFinal)));
       const bloqueadoProv2 = fechaEfectiva2 && (bloqueosProvF2 || []).some(b =>
-        afectaProveedor(b, motoFinal, fechaEfectiva2, labelFinal));
+        afectaProveedor(b, motoFinal, fechaEfectiva2, labelFinal, obtenerProveedorMoto(motoFinal)));
       if (bloqueadoProv || bloqueadoProv2) {
         setAdvertencias([{ tipo: 'bloqueo_proveedor', mensaje: 'La moto está bloqueada por el proveedor en este horario. Elige otro.' }]);
         return;
