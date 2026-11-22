@@ -522,12 +522,14 @@ export const ReservaService = {
     }
 
     // Freno: 1 pack de sesiones activo máximo (los de solo teóricos sí se permiten en N)
+    // Hotfix 2026-11-22: cursoIdsNuevo se usa dentro de la transacción, fuera de este try.
+    let cursoIdsNuevo = [];
     try {
       const rpRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack');
       const rpQ = query(rpRef, where('userId', '==', usuarioActual.uid));
       const rpSnap = await getDocs(rpQ);
       const packSnapPre = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId));
-      const cursoIdsNuevo = packSnapPre.exists() ? (packSnapPre.data().cursoIds || []) : [];
+      cursoIdsNuevo = packSnapPre.exists() ? (packSnapPre.data().cursoIds || []) : [];
       if (cursoIdsNuevo.length > 0) {
         const yaTiene = rpSnap.docs.some(d => packBloqueaNuevaCompra(d.data()));
         if (yaTiene) {
