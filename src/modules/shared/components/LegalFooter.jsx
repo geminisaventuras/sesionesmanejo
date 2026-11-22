@@ -2,16 +2,21 @@
 const AVISO_LEGAL = "Esta plataforma ofrece servicios privados de educación no formal, consultoría deportiva y tutorías de acompañamiento para el desarrollo de habilidades motoras. No somos una 'Escuela del Transporte' ni prestamos servicios conexos regulados por el Instituto Nacional de Transporte Terrestre (INTT). Las constancias emitidas por esta plataforma son de carácter privado, recreativo, y no poseen validez legal para la obtención de licencias de conducir, certificados de saberes o cualquier otro trámite ante las autoridades de tránsito del Estado venezolano.";
 
 export default function LegalFooter({ compact = false }) {
+  const version = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : '';
+
   if (compact) {
     return (
-      <details className="mt-2 px-1 text-center">
-        <summary className="cursor-pointer list-none text-[10px] font-bold uppercase tracking-wider text-slate-400/80 transition-colors hover:text-slate-300">
-          Aviso legal
-        </summary>
-        <p className="mt-2 text-[10px] leading-relaxed text-slate-400/90">
-          {AVISO_LEGAL}
-        </p>
-      </details>
+      <div className="mt-2 px-1 text-center">
+        <details>
+          <summary className="cursor-pointer list-none text-[10px] font-bold uppercase tracking-wider text-slate-400/80 transition-colors hover:text-slate-300">
+            Aviso legal
+          </summary>
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-400/90">
+            {AVISO_LEGAL}
+          </p>
+        </details>
+        {version && <p className="mt-1 text-[9px] text-slate-500/80">Versión {version}</p>}
+      </div>
     );
   }
 
@@ -20,6 +25,7 @@ export default function LegalFooter({ compact = false }) {
       <p className="text-[10px] leading-relaxed text-gray-400">
         <strong className="font-bold">Aviso Legal:</strong> {AVISO_LEGAL}
       </p>
+      {version && <p className="mt-1 text-[9px] text-gray-400">Versión {version}</p>}
     </footer>
   );
 }

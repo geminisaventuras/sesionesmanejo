@@ -1,9 +1,16 @@
 // @build: 2026-06-22 | id: PWA-CONFIG | desc: Configuración de Vite con plugin PWA para app instalable
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+const buildId = `${pkg.version} - ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
 export default defineConfig({
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId)
+  },
   plugins: [
     react(),
     VitePWA({
