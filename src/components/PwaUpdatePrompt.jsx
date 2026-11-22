@@ -5,6 +5,7 @@ const INTERVALO_ACTUALIZACION_MS = 60 * 60 * 1000;
 
 export default function PwaUpdatePrompt() {
   const intervaloRef = useRef(null);
+  const actualizandoRef = useRef(false);
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker
@@ -34,6 +35,13 @@ export default function PwaUpdatePrompt() {
 
   if (!needRefresh) return null;
 
+  const actualizarApp = () => {
+    if (actualizandoRef.current) return;
+    actualizandoRef.current = true;
+    updateServiceWorker(false).catch(() => {});
+    window.setTimeout(() => window.location.reload(), 2000);
+  };
+
   return (
     <div
       role="status"
@@ -47,7 +55,7 @@ export default function PwaUpdatePrompt() {
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          onClick={() => updateServiceWorker(true)}
+          onClick={actualizarApp}
           className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
         >
           Actualizar ahora
