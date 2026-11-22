@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 const INTERVALO_ACTUALIZACION_MS = 60 * 60 * 1000;
+const ESPERA_RECARGA_MS = 5000;
 
 export default function PwaUpdatePrompt() {
   const intervaloRef = useRef(null);
   const actualizandoRef = useRef(false);
+  const [actualizando, setActualizando] = useState(false);
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker
@@ -38,8 +40,22 @@ export default function PwaUpdatePrompt() {
   const actualizarApp = () => {
     if (actualizandoRef.current) return;
     actualizandoRef.current = true;
+    setActualizando(true);
+
+    let recargado = false;
+    const recargar = () => {
+      if (recargado) return;
+      recargado = true;
+      window.location.reload();
+    };
+
+    navigator.serviceWorker?.addEventListener('controllerchange', recargar, { once: true });
     updateServiceWorker(false).catch(() => {});
-    window.setTimeout(() => window.location.reload(), 2000);
+    window.setTimeout(recargar, ESPERA_RECARGA_MS);
+    window.setTimeout(() => {
+      actualizandoRef.current = false;
+      setActualizando(false);
+    }, ESPERA_RECARGA_MS + 3000);
   };
 
   return (
@@ -56,9 +72,10 @@ export default function PwaUpdatePrompt() {
         <button
           type="button"
           onClick={actualizarApp}
-          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+          disabled={actualizando}
+          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60"
         >
-          Actualizar ahora
+          {actualizando ? 'Actualizando…' : 'Actualizar ahora'}
         </button>
         <button
           type="button"
