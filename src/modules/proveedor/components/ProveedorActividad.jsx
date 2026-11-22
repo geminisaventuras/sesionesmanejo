@@ -3,7 +3,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { Calendar, Clock, Bike, MapPin, User, RefreshCw } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
-import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 const ProveedorActividad = () => {
@@ -15,16 +15,16 @@ const ProveedorActividad = () => {
     if (!user?.uid) return;
     setCargando(true);
     try {
-      const q = query(
-        collection(db, 'ocupacionConfirmada'),
-        where('proveedorId', '==', user.uid)
-      );
-      const snapshot = await getDocs(q);
-      const actividades = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setActividad(actividades);
+      const base = collection(db, 'ocupacionConfirmada');
+      const [snapOriginal, snapReposicion] = await Promise.all([
+        getDocs(query(base, where('proveedorId', '==', user.uid))),
+        getDocs(query(base, where('proveedorReposicionId', '==', user.uid)))
+      ]);
+      const mapa = new Map();
+      [...snapOriginal.docs, ...snapReposicion.docs].forEach((doc) => {
+        mapa.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+      setActividad(Array.from(mapa.values()));
     } catch (error) {
       console.error('[ProveedorActividad] Error:', error);
     } finally {
@@ -83,7 +83,8 @@ const ProveedorActividad = () => {
       ) : (
         <div className="space-y-3">
           {clasesDelDia.map(r => {
-            const moto = (motos || []).find(m => String(m.id) === String(r.motoAsignadaId));
+            const motoId = getMotoIdOcupacion(r, fechaSeleccionada) || r.motoAsignadaId;
+            const moto = (motos || []).find(m => String(m.id) === String(motoId));
             const bloqueEfectivo = getHoraIdOcupacion(r, r.fecha2 || r.fecha);
 const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectivo || r.horaId));
             const sede = (sedes || []).find(s => String(s.id) === String(r.sedeId));

@@ -1,9 +1,12 @@
 // @build: 2026-10-09 | id: ACCESO-TEORICO-SERVICE | desc: Servicio de compra y aprobación de accesos a módulos formativos
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, Timestamp, writeBatch, addDoc } from 'firebase/firestore';
-import { db } from '../../../firebase';
+import { db, auth } from '../../../firebase';
+import { resumenAccesoId } from '../../shared/utils/accesoTeoricoResumen';
 
 const APP_ID = 'motoescuela-pro-v1';
 const COLL = `artifacts/${APP_ID}/public/data/accesosTeoricos`;
+const CURSOS_TEORICOS = `artifacts/${APP_ID}/public/data/cursosTeoricos`;
+const RESUMEN = `artifacts/${APP_ID}/public/data/accesosTeoricosResumen`;
 
 // NOTA: el campo `precio` es el precio congelado al momento de la compra (FIX-036).
 // La regla Firestore exige `precio > 0` para create. No renombrar a precioCongelado.
@@ -46,15 +49,23 @@ export const AccesoTeoricoService = {
   },
 
   // Crea un acceso standalone en estado Pendiente.
+  // B-TEORICO-PRECIO-CLIENTE: precio, moneda y vitalicio salen del catálogo
+  // `cursosTeoricos`; los parámetros del navegador ya no se usan.
   async crearAcceso({
-    userId, cursoTeoricoId, precio, moneda,
-    metodoPagoId, pagoBanco, pagoTelefono, pagoCedula, pagoRef,
-    esAccesoVitalicio
+    userId, cursoTeoricoId,
+    metodoPagoId, pagoBanco, pagoTelefono, pagoCedula, pagoRef
   }) {
     if (!userId || !cursoTeoricoId) return { success: false, error: 'Faltan parámetros' };
-    if (!precio || Number(precio) <= 0) return { success: false, error: 'Precio inválido' };
 
     try {
+      const cursoSnap = await getDoc(doc(db, CURSOS_TEORICOS, String(cursoTeoricoId)));
+      if (!cursoSnap.exists()) return { success: false, error: 'Módulo formativo no encontrado.' };
+      const curso = cursoSnap.data();
+      const precio = Number(curso.precio) || 0;
+      if (precio <= 0) return { success: false, error: 'El módulo no tiene un precio válido.' };
+      const moneda = curso.moneda || 'USD';
+      const esAccesoVitalicio = curso.duracionAcceso === 'vida';
+
       // Pre-check doble compra
       const existente = await this.obtenerAcceso(userId, cursoTeoricoId);
       if (existente.success && existente.data) {
@@ -87,7 +98,7 @@ export const AccesoTeoricoService = {
         pagoRef: pagoRef || null,
         comisionInstructor: 0,
         comisionProveedor: 0,
-        esAccesoVitalicio: esAccesoVitalicio !== false,
+        esAccesoVitalicio,
         fechaCompra: Timestamp.now(),
         aprobadoEn: null,
         rechazadoEn: null,
@@ -110,11 +121,16 @@ export const AccesoTeoricoService = {
 
   // Aprueba un acceso. Batch atómico: acceso + capacidad en usuarios/{uid} + notificación.
   async aprobarAcceso(accesoId, userId, cursoTeoricoId, esVitalicio = true, duracionDias = 30) {
-    if (!accesoId || !userId) return { success: false, error: 'Faltan parámetros' };
+    if (!accesoId || !userId || !cursoTeoricoId) return { success: false, error: 'Faltan parámetros' };
     try {
+      const adminUid = auth.currentUser?.uid;
+      if (!adminUid) return { success: false, error: 'Sesión de administrador requerida' };
       const batch = writeBatch(db);
       const accesoRef = doc(db, COLL, accesoId);
       const userRef = doc(db, `artifacts/${APP_ID}/public/data/usuarios`, userId);
+      const accesoSnap = await getDoc(accesoRef);
+      if (!accesoSnap.exists()) return { success: false, error: 'Acceso no encontrado' };
+      const accesoData = accesoSnap.data();
 
       const aprobadoEn = Timestamp.now();
       let vencimiento = null;
@@ -128,6 +144,18 @@ export const AccesoTeoricoService = {
         vencimiento,
         updatedAt: aprobadoEn
       });
+
+      // B-TEORICO-MODULO-BYPASS: índice determinista para reglas de lectura.
+      const resumenRef = doc(db, RESUMEN, resumenAccesoId(userId, cursoTeoricoId));
+      batch.set(resumenRef, {
+        userId: String(userId),
+        cursoTeoricoId: String(cursoTeoricoId),
+        estado: 'Aprobado',
+        vencimientoMs: vencimiento ? vencimiento.toMillis() : null,
+        origen: 'standalone',
+        accesoId,
+        updatedAt: aprobadoEn
+      }, { merge: true });
 
       // Capacidades (si el doc usuarios existe)
       try {
@@ -151,6 +179,31 @@ export const AccesoTeoricoService = {
         createdAt: aprobadoEn,
         emisorId: 'sistema'
       });
+
+      // B-MOVIMIENTOS-ATOMICOS: ingreso del módulo standalone en el mismo batch.
+      // Los accesos de pack (precio 0) no generan un segundo ingreso.
+      const precioAcceso = Number(accesoData.precio) || 0;
+      const esAccesoPack = accesoData.origen === 'pack' || (precioAcceso === 0 && accesoData.packReservaId);
+      if (!esAccesoPack && precioAcceso > 0) {
+        const movimientoId = `mov_acc_${accesoId}`;
+        batch.set(doc(db, `artifacts/${APP_ID}/public/data/movimientos`, movimientoId), {
+          id: movimientoId,
+          tipo: 'ingreso',
+          categoria: 'ingreso_reserva',
+          origen: 'sistema',
+          origenId: accesoId,
+          monto: precioAcceso,
+          desc: `Módulo formativo - A-${String(accesoId).slice(-4)}`,
+          fecha: new Date().toISOString().split('T')[0],
+          userId: accesoData.userId || userId,
+          createdBy: adminUid,
+          createdAt: aprobadoEn,
+          estado: 'confirmado',
+          moneda: accesoData.moneda || 'USD',
+          referenciaId: accesoId,
+          referenciaTipo: 'acceso_teorico'
+        });
+      }
 
       await batch.commit();
       return { success: true };
@@ -229,6 +282,13 @@ export const AccesoTeoricoService = {
         createdAt: ahora,
         emisorId: 'sistema'
       });
+
+      // Sin acceso aprobado, el resumen debe desaparecer para cerrar módulos.
+      const cursoIdResumen = cursoTeoricoId || data.cursoTeoricoId;
+      const uidResumen = userId || data.userId;
+      if (cursoIdResumen && uidResumen) {
+        batch.delete(doc(db, RESUMEN, resumenAccesoId(uidResumen, cursoIdResumen)));
+      }
 
       await batch.commit();
       return { success: true };

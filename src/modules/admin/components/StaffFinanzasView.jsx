@@ -13,8 +13,10 @@ import StaffResumenTab from './StaffResumenTab';
 import {
   comisionInstructorReserva,
   comisionProveedorReserva,
+  construirAsignacionesProveedor,
   esPendienteInstructor,
-  esPendienteProveedor
+  esPendienteProveedor,
+  montoPendienteProveedor
 } from '../../shared/utils/finanzasHelpers';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { formatearMonto } from '../../shared/utils/currency';
@@ -151,9 +153,14 @@ const StaffFinanzasView = () => {
     }
     (reservas || []).forEach(r => {
       if (tipoStaff === 'instructor') {
-        if (String(r.instructorId) !== String(staffId)) return;
+        const tieneAsignacion = r.pagosInstructorDia && Object.values(r.pagosInstructorDia).some(
+          (asignacion) => String(asignacion.instructorId) === String(staffId)
+        );
+        if (String(r.instructorId) !== String(staffId) && !tieneAsignacion) return;
       } else {
-        if (String(r.proveedorId) !== String(staffId)) return;
+        const esProveedorOriginal = String(r.proveedorId) === String(staffId);
+        const esProveedorD2 = String(r.proveedorReposicionId) === String(staffId);
+        if (!esProveedorOriginal && !esProveedorD2) return;
       }
       map.set(String(r.id), r);
     });
@@ -171,7 +178,7 @@ const StaffFinanzasView = () => {
       if (tipoStaff === 'instructor') {
         return acc + comisionInstructorReserva(r, staffId, { permitirColaboracion: true });
       }
-      return acc + comisionProveedorReserva(r, config);
+      return acc + montoPendienteProveedor(r, staffId, config);
     }, 0);
   }, [reservasPendientes, tipoStaff, staffId, config]);
 
@@ -197,7 +204,15 @@ const StaffFinanzasView = () => {
       }
       const base = tipoStaff === 'instructor'
         ? comisionInstructorReserva(r, staffId, { permitirColaboracion: true })
-        : comisionProveedorReserva(r, config);
+        : (() => {
+            // Split D1/D2: el histórico sin `detalles` muestra solo la parte
+            // pagada al proveedor de este pago, no la comisión completa.
+            const pagadas = construirAsignacionesProveedor(r, config)
+              .filter((a) => String(a.proveedorId) === String(staffId) && a.pagado === true);
+            return pagadas.length > 0
+              ? pagadas.reduce((acc, a) => acc + (Number(a.monto) || 0), 0)
+              : comisionProveedorReserva(r, config);
+          })();
       return {
         reservaId: rid,
         fecha: r.fecha,

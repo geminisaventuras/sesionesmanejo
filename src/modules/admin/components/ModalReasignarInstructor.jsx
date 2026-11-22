@@ -1,6 +1,6 @@
 // @build: 2026-09-16 | id: MODAL-REASIGNAR-INSTRUCTOR | desc: Modal para reasignar instructor con split de comisión (MVP A→B)
 import { useState, useMemo } from 'react';
-import { X, Users, AlertCircle } from 'lucide-react';
+import { X, Users } from 'lucide-react';
 import { Button } from '../../../components/UI';
 
 export default function ModalReasignarInstructor({
@@ -12,7 +12,6 @@ export default function ModalReasignarInstructor({
   onCancelar
 }) {
   const [destinoId, setDestinoId] = useState('');
-  const [porcentajeDestino, setPorcentajeDestino] = useState(50);
   const [motivo, setMotivo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,13 +19,11 @@ export default function ModalReasignarInstructor({
     return (instructoresDisponibles || []).find(i => String(i.id) === String(destinoId));
   }, [instructoresDisponibles, destinoId]);
 
-  const porcentajeOrigen = 100 - Number(porcentajeDestino || 0);
-  const porcentajeValido =
-    Number(porcentajeDestino) >= 0 &&
-    Number(porcentajeDestino) <= 100 &&
-    Number.isFinite(porcentajeOrigen);
+  // FT-001: regla fija. D1/D2 50/50 si el curso inició; 100% al nuevo si no.
+  const porcentajeDestino = instructorInicioCurso ? 50 : 100;
+  const porcentajeOrigen = 100 - porcentajeDestino;
 
-  const puedeConfirmar = destinoId && porcentajeValido && !isSubmitting;
+  const puedeConfirmar = Boolean(destinoId) && !isSubmitting;
 
   const handleConfirmar = async () => {
     if (!puedeConfirmar) return;
@@ -35,7 +32,7 @@ export default function ModalReasignarInstructor({
       await onConfirmar({
         instructorDestinoId: destinoId,
         instructorDestinoNombre: `${destinoSeleccionado?.nombre || ''} ${destinoSeleccionado?.apellido || ''}`.trim(),
-        porcentajeDestino: Number(porcentajeDestino),
+        porcentajeDestino,
         motivo: motivo.trim()
       });
     } finally {
@@ -69,8 +66,8 @@ export default function ModalReasignarInstructor({
           </p>
                     <p className="text-[11px] text-blue-600 mt-1">
             {instructorInicioCurso
-              ? 'Este instructor mantendrá su comisión según el porcentaje que definas.'
-              : 'Este instructor no completó su parte. No se le asignará comisión.'}
+              ? 'El tutor actual conserva su 50% de D1. El nuevo tutor recibe el 50% de D2.'
+              : 'Este instructor no inició el curso. El nuevo tutor recibe el 100% de la comisión.'}
           </p>
         </div>
 
@@ -110,41 +107,22 @@ export default function ModalReasignarInstructor({
 
           {instructorInicioCurso && (
           <>
-          {/* Porcentajes */}
+          {/* Split fijo aprobado (FT-001): no editable */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                % {instructorActual?.nombre || 'A'}
-              </label>
-              <input
-                type="number"
-                value={porcentajeOrigen}
-                readOnly
-                className="w-full bg-gray-100 border-2 border-gray-200 rounded-xl py-2.5 px-3 outline-none text-sm text-gray-600"
-              />
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-gray-500 uppercase">D1 · {instructorActual?.nombre || 'Tutor A'}</p>
+              <p className="text-lg font-black text-gray-900">{porcentajeOrigen}%</p>
+              <p className="text-[10px] text-gray-500">Parte ya servida</p>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                % {destinoSeleccionado?.nombre || 'B'}
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={porcentajeDestino}
-                onChange={e => setPorcentajeDestino(e.target.value)}
-                disabled={isSubmitting}
-                className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 outline-none text-sm"
-              />
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-blue-600 uppercase">D2 · {destinoSeleccionado?.nombre || 'Tutor B'}</p>
+              <p className="text-lg font-black text-blue-900">{porcentajeDestino}%</p>
+              <p className="text-[10px] text-blue-600">Parte de relevo</p>
             </div>
           </div>
-
-          {!porcentajeValido && (
-            <div className="flex items-center gap-1 text-[11px] text-orange-600 font-bold">
-              <AlertCircle size={12} />
-              El porcentaje debe estar entre 0 y 100.
-            </div>
-          )}
+          <p className="text-[10px] text-gray-500">
+            Regla fija 50/50. Si el tutor anterior cobró 100%, el exceso queda como deuda descontable de su próximo pago.
+          </p>
                     </>
           )}
 

@@ -30,7 +30,7 @@ const AdminPackDetalle = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [waModalData, setWaModalData] = useState(null);
-  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, saveMovimiento } = useContext(AppContext);  
+  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user } = useContext(AppContext);  
   const { reservas, packs } = useAdminReservas();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -114,24 +114,6 @@ const AdminPackDetalle = () => {
     try {
       const res = await ReservaService.aprobarReservaPack(pack.id, child.id);
       if (res.success) {
-        // Movimiento contable (fire-and-forget): 1 ingreso por el total del pack
-        // FIX-FINANCIERO: Se calcula la resta (Base - Descuento) para evitar montos corruptos de compras viejas
-        const montoRealContable = Math.max(0, (pack.precioBaseCongelado || 0) - (pack.descuentoCongelado?.monto || 0)) || (Number(pack.precioTotalCongelado) || 0);
-        
-        await saveMovimiento({
-          id: `mov_pack_${pack.id}`,
-          tipo: 'ingreso',
-          categoria: 'ingreso_reserva',
-          origen: 'reserva',
-          origenId: pack.id,
-          monto: Number(montoRealContable.toFixed(2)),
-          desc: `Pack ${pack.packNombre || ''} - C-${String(pack.id).slice(-4)}`,
-          fecha: new Date().toISOString().split('T')[0],
-          userId: pack.userId
-        }).catch((err) => {
-          console.warn('[AdminPackDetalle] Error guardando movimiento:', err);
-        });
-
         if (res.batchWarning === 'accesos_teoricos_pendientes') {
           showToast('Pack aprobado. Los accesos teóricos se sincronizarán en segundo plano.', 'info');
         } else {

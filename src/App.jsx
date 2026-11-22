@@ -4,6 +4,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppContext } from './context/AppContextValue';
 import { ToastProvider, useToast } from './modules/shared/components/ToastProvider';
 import { Spinner } from './components/UI';
+import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import InstructorPanel from './modules/instructor/views/InstructorPanel';
 // Lazy loading de todas las vistas
 const HomeView = React.lazy(() => import('./modules/home/views/HomeView'));
@@ -87,6 +88,7 @@ function App() {
 
   return (
     <ToastProvider>
+      <PwaUpdatePrompt />
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Rutas públicas */}

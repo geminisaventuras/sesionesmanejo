@@ -12,7 +12,15 @@ import {
   Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings, Check, MessageCircle
 } from 'lucide-react';
 import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, increment, Timestamp, updateDoc } from 'firebase/firestore';
-import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { getHoraIdOcupacion, getMotoIdOcupacion, derivarProveedorReposicion } from '../../shared/utils/reservaHelpers';
+import {
+  construirAsignacionesProveedor,
+  calcularDeudasReprogramacionD2,
+  calcularRelevoTutor,
+  comisionProveedorReserva,
+  cursoIniciadoParaRelevo
+} from '../../shared/utils/finanzasHelpers';
+import { construirEventoReprogramacion, COLECCION_AUDITORIA_REPROGRAMACIONES } from '../services/ReprogramacionAuditService';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { db } from '../../../firebase';
 import CambiarHorarioModal from './CambiarHorarioModal';
@@ -30,12 +38,24 @@ const formatearFecha = (fechaStr) => {
   return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
 };
 
+// B-D2-AUDITORIA: añade el evento append-only DENTRO del mismo batch que la
+// reprogramación. Si el batch falla, no queda auditoría huérfana (ni viceversa).
+const agregarAuditoriaReprogramacion = (batch, datos) => {
+  batch.set(
+    doc(collection(db, COLECCION_AUDITORIA_REPROGRAMACIONES)),
+    {
+      ...construirEventoReprogramacion(datos),
+      createdAt: serverTimestamp()
+    }
+  );
+};
+
 const AdminReservaDetalle = () => {
   const { reservaId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const volverA = location.state?.from || '/admin/reservas';  
-  const { reservas, instructores, cursos, horarios, sedes, motos, proveedores, saveReserva, saveMovimiento, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, cursos, horarios, sedes, motos, proveedores, saveReserva, user, logoutUser } = useContext(AppContext);
   const { showToast } = useToast();
   
   const [mostrarCambiarHorario, setMostrarCambiarHorario] = useState(false);
@@ -158,7 +178,12 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       instructorId: res.instructorId,
       motoAsignadaId: res.motoAsignadaId || null,
       traeMoto: res.traeMoto || 'No',
+      sedeId: res.sedeId || null,
+      tipoCurso: res.tipoCurso || null,
       estadoPago: 'Aprobado',
+      estadoCurso: 'En Curso',
+      pagadoProveedor: res.pagadoProveedor === true,
+      pagoProveedorId: res.pagoProveedorId || null,
       proveedorId: res.proveedorId || null,
       comisionProveedor: Number(res.comisionProveedor) || 0
     }, { merge: true });
@@ -167,10 +192,27 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
       updatedAt: serverTimestamp()
     });
+
+    // B-MOVIMIENTOS-ATOMICOS: el ingreso nace en el mismo batch que la aprobación.
+    const movimientoId = `mov_reserva_${res.id}`;
+    batch.set(doc(db, 'artifacts/motoescuela-pro-v1/public/data/movimientos', movimientoId), {
+      id: movimientoId,
+      tipo: 'ingreso',
+      categoria: 'ingreso_reserva',
+      origen: 'reserva',
+      origenId: res.id,
+      monto: Number(res.pagoTotalMoneda) || 0,
+      desc: `Inscripción C-${String(res.id).slice(-4)}`,
+      fecha: new Date().toISOString().split('T')[0],
+      userId: res.userId,
+      createdBy: user?.uid || '',
+      createdAt: serverTimestamp(),
+      estado: 'confirmado',
+      moneda: 'USD'
+    });
     
     try {
       await batch.commit();
-      await saveMovimiento({ id: `mov_reserva_${res.id}`, tipo: 'ingreso', categoria: 'ingreso_reserva', origen: 'reserva', origenId: res.id, monto: res.pagoTotalMoneda, desc: `Inscripción C-${String(res.id).slice(-4)}`, fecha: new Date().toISOString().split('T')[0], userId: res.userId });
             showToast('Pago aprobado. Ahora puedes enviar la confirmación por WhatsApp.', 'success');
             
     } catch (error) {
@@ -187,6 +229,27 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       if (tipo === 'cancelar') {
       batch.update(reservaRef, { estadoPago: 'Cancelado', estadoCurso: 'Cancelado' });
       batch.delete(espejoRef);
+
+      // B-PACK-SUBRESERVAS-METADATA: si es una sesión de pack, marcar su
+      // metadata como cancelada para no dejar un subReservas activo huérfano.
+      if (res.tipoReserva === 'pack_sub' && res.packReservaId) {
+        try {
+          const masterRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservasPack', res.packReservaId);
+          const masterSnap = await getDoc(masterRef);
+          if (masterSnap.exists()) {
+            const master = masterSnap.data();
+            const subs = Array.isArray(master.subReservas) ? [...master.subReservas] : [];
+            const idx = Number(res.packCursoIndex);
+            if (Number.isInteger(idx) && subs[idx]) {
+              subs[idx] = { ...subs[idx], estado: 'cancelado' };
+              batch.update(masterRef, { subReservas: subs });
+            }
+          }
+        } catch (err) {
+          console.warn('[AdminReservaDetalle] No se pudo normalizar subReservas:', err);
+        }
+      }
+
       // FIX-METRICAS-TRIGGER: invalidar caché del hook
       batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
         updatedAt: serverTimestamp()
@@ -238,7 +301,12 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         instructorId: res.instructorId,
         motoAsignadaId: res.motoAsignadaId || null,
         traeMoto: res.traeMoto || 'No',
+        sedeId: res.sedeId || null,
+        tipoCurso: res.tipoCurso || null,
         estadoPago: 'Pendiente',
+        estadoCurso: res.estadoCurso || 'Pendiente',
+        pagadoProveedor: res.pagadoProveedor === true,
+        pagoProveedorId: res.pagoProveedorId || null,
         proveedorId: res.proveedorId || null,
         comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
@@ -276,20 +344,19 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     }
   };
 
-   // Reasignación de instructor con split de comisión (MVP A→B)
-  const reasignarInstructor = async ({ instructorDestinoId, instructorDestinoNombre, porcentajeDestino, motivo }) => {
+   // Reasignación de instructor con la regla aprobada FT-001:
+   // D1 pagado se conserva; 50/50 fijo si inició; 100% al nuevo si no inició;
+   // deuda al tutor saliente por el exceso; auditoría y deuda en el mismo batch.
+  const reasignarInstructor = async ({ instructorDestinoId, instructorDestinoNombre, motivo }) => {
     if (!isAdmin) return showToast('Sin permisos', 'error');
     if (!instructorDestinoId) return showToast('Selecciona un tutor', 'error');
     if (instructorDestinoId === res.instructorId) return showToast('Selecciona un tutor diferente', 'error');
 
-    // Bloqueos de negocio
+    // Bloqueos de negocio (T-025 permite reasignar aunque pagadoInstructor sea true).
     if (res.estadoPago === 'Cancelado') {
       return showToast('No se puede reasignar una reserva cancelada', 'error');
     }
-    if (res.pagadoInstructor === true) {
-      return showToast('No se puede reasignar: la comisión ya fue pagada', 'error');
-    }
-    if (res.esReservaCompartida === true) {
+    if (res.esReservaCompartida === true && !res.pagosInstructorDia) {
       return showToast('Función avanzada no disponible todavía para reservas ya compartidas', 'error');
     }
 
@@ -330,99 +397,65 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       }
     }
 
-    // Detectar si el instructor original ya inició el curso.
-    // Si NO inició: reasignación simple (sin split de comisión).
-    // Si SÍ inició: split entre A y B.
-    const modulosEstadoArr = res.modulosEstado ? Object.values(res.modulosEstado) : [];
-    const instructorInicioCurso = Boolean(
-      res.sesionTotalInicio ||
-      res.sesionDiariaInicio ||
-      res.moduloEnProgreso ||
-      (typeof res.tiempoEfectivo === 'number' && res.tiempoEfectivo > 0) ||
-      res.pausaActiva ||
-      modulosEstadoArr.some(v => v === true || v?.completado === true)
-    );
+    // Detectar si el curso ya inició (estado del curso o marcas de sesión).
+    // Si NO inició: 100% al nuevo tutor. Si SÍ inició: 50/50 fijo.
+    const instructorInicioCurso = cursoIniciadoParaRelevo(res);
+
+    const instructorOrigenId = res.instructorId;
+    const relevo = calcularRelevoTutor(res, {
+      instructorDestinoId,
+      instructorDestinoNombre: instructorDestinoNombre || '',
+      inicioCurso: instructorInicioCurso
+    });
+    if (!relevo) return showToast('No se pudo calcular el relevo del tutor', 'error');
+
+    const {
+      pagosInstructorDia,
+      deudas: deudasRelevo,
+      pagadoInstructor
+    } = relevo;
 
     try {
       const batch = writeBatch(db);
       const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
       const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
 
-      const instructorOrigenId = res.instructorId;
+      const antes = {
+        instructorId: instructorOrigenId || null,
+        pagadoInstructor: res.pagadoInstructor === true,
+        pagosInstructorDia: res.pagosInstructorDia || null
+      };
+      const despues = {
+        instructorId: instructorDestinoId,
+        instructorOriginalId: res.instructorOriginalId || instructorOrigenId || null,
+        pagadoInstructor,
+        pagosInstructorDia
+      };
 
-      let datosActualizacion;
-
-      if (!instructorInicioCurso) {
-        // Reasignación simple — sin split. La comisión va completa al nuevo instructor.
-        // BUG-1 FIX (19/11): registrar evento de auditoría (MAMBA: Timestamp.now() dentro del array, NO serverTimestamp())
-        datosActualizacion = {
-          instructorId: instructorDestinoId,
-          instructorAnteriorId: instructorOrigenId,
-          motivoRelevo: motivo || '',
-          reasignadoPor: user?.uid || 'admin',
-          reasignadoEn: serverTimestamp(),
-          reprogramaciones: arrayUnion({
-            tipo: 'reasignacion_tutor',
-            timestamp: Timestamp.now(),
-            autor: user?.uid || 'admin',
-            autorRol: 'admin',
-            motivo: (motivo || '').trim(),
-            antes: { instructorId: instructorOrigenId },
-            despues: { instructorId: instructorDestinoId }
-          }),
-          reprogramacionesCount: increment(1)
-        };
-      } else {
-        // Split — A inició el curso, se reparte la comisión.
-        const instructorOrigenNombre = instructorActual
-          ? `${instructorActual.nombre || ''} ${instructorActual.apellido || ''}`.trim()
-          : 'Instructor anterior';
-
-        const porcentajeOrigen = 100 - Number(porcentajeDestino);
-
-        const instructoresInvolucrados = [
-          {
-            id: instructorOrigenId,
-            nombre: instructorOrigenNombre,
-            porcentaje: porcentajeOrigen,
-            pagado: false,
-            pagadoEn: null
-          },
-          {
-            id: instructorDestinoId,
-            nombre: instructorDestinoNombre || '',
-            porcentaje: Number(porcentajeDestino),
-            pagado: false,
-            pagadoEn: null
-          }
-        ];
-
-        const implicadosIds = [instructorOrigenId, instructorDestinoId].filter(Boolean);
-
-        datosActualizacion = {
-          instructorId: instructorDestinoId,
-          instructorOriginalId: instructorOrigenId,
-          instructorAnteriorId: instructorOrigenId,
-          instructoresInvolucrados,
-          implicadosIds,
-          esReservaCompartida: true,
-          motivoRelevo: motivo || '',
-          reasignadoPor: user?.uid || 'admin',
-          reasignadoEn: serverTimestamp(),
-          reprogramaciones: arrayUnion({
-            tipo: 'reasignacion_tutor',
-            timestamp: Timestamp.now(),
-            autor: user?.uid || 'admin',
-            autorRol: 'admin',
-            motivo: (motivo || '').trim(),
-            antes: { instructorId: instructorOrigenId },
-            despues: { instructorId: instructorDestinoId },
-            esSplit: true,
-            instructoresInvolucrados
-          }),
-          reprogramacionesCount: increment(1)
-        };
-      }
+      const datosActualizacion = {
+        instructorId: instructorDestinoId,
+        instructorOriginalId: res.instructorOriginalId || instructorOrigenId || null,
+        instructorAnteriorId: instructorOrigenId || null,
+        pagosInstructorDia,
+        pagadoInstructor,
+        motivoRelevo: motivo || '',
+        reasignadoPor: user?.uid || 'admin',
+        reasignadoEn: serverTimestamp(),
+        reprogramaciones: arrayUnion({
+          tipo: 'reasignacion_tutor',
+          timestamp: Timestamp.now(),
+          autor: user?.uid || 'admin',
+          autorRol: 'admin',
+          motivo: (motivo || '').trim(),
+          esSplit: instructorInicioCurso,
+          inicioCurso: instructorInicioCurso,
+          regla: instructorInicioCurso ? '50_50_d1_d2' : '100_nuevo_tutor',
+          antes,
+          despues,
+          deudas: deudasRelevo
+        }),
+        reprogramacionesCount: increment(1)
+      };
 
       batch.update(reservaRef, datosActualizacion);
       batch.set(espejoRef, {
@@ -432,12 +465,64 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
 
+      agregarAuditoriaReprogramacion(batch, {
+        reservaId: res.id,
+        tipo: 'reasignacion_tutor',
+        origen: 'AdminReservaDetalle',
+        motivo,
+        antes,
+        despues,
+        autorId: user?.uid || 'admin',
+        autorRol: 'admin'
+      });
+
+      // Deuda(s) del tutor saliente por el exceso cobrado. IDs determinísticos
+      // por reserva/tutor/ciclo para que reintentar no duplique documentos.
+      const cicloDeuda = Number(res.reprogramacionesCount) || 0;
+      for (const deudaRelevo of deudasRelevo) {
+        if (!deudaRelevo?.instructorId || !(deudaRelevo.monto > 0)) continue;
+
+        const deudaId = `deuda_${res.id}_${deudaRelevo.instructorId}_relevo_${cicloDeuda}`;
+        const ledgerId = `ledger_${deudaId}`;
+        const deudaRef = doc(db, 'deudasInstructor', deudaId);
+        const ledgerRef = doc(db, 'ledgerInstructor', ledgerId);
+        const [deudaSnap, ledgerSnap] = await Promise.all([getDoc(deudaRef), getDoc(ledgerRef)]);
+
+        if (!deudaSnap.exists()) {
+          batch.set(deudaRef, {
+            instructorId: deudaRelevo.instructorId,
+            reservaId: res.id,
+            motivo: deudaRelevo.motivo,
+            montoOriginal: deudaRelevo.monto,
+            saldo: deudaRelevo.monto,
+            moneda: 'USD',
+            estado: 'pendiente',
+            createdAt: serverTimestamp(),
+            createdBy: user?.uid || 'admin',
+            abonos: []
+          });
+        }
+
+        if (!ledgerSnap.exists()) {
+          batch.set(ledgerRef, {
+            tipo: 'deuda',
+            instructorId: deudaRelevo.instructorId,
+            deudaId,
+            reservaId: res.id,
+            monto: deudaRelevo.monto,
+            createdAt: serverTimestamp(),
+            createdBy: user?.uid || 'admin',
+            idempotencyKey: `deuda:${res.id}:${deudaRelevo.instructorId}:relevo:${cicloDeuda}`
+          });
+        }
+      }
+
       await batch.commit();
 
       showToast(
         instructorInicioCurso
-          ? 'Tutor reasignado con split de comisión'
-          : 'Tutor reasignado (sin split, no había iniciado)',
+          ? 'Tutor reasignado: D1 conservado y D2 al 50% para el nuevo tutor'
+          : 'Tutor reasignado: 100% de la comisión al nuevo tutor',
         'success'
       );
       setMostrarReasignar(false);
@@ -465,15 +550,20 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     if (!motoDestino) return showToast('Moto destino no encontrada', 'error');
 
     // Verificar que la moto no esté ocupada por OTRA reserva en las fechas de esta reserva.
+    // D2: compara la moto/bloque EFECTIVOS de cada fecha (motoReposicionId /
+    // horaIdReposicion en fecha2), no solo motoAsignadaId.
     const fechasRes = [res.fecha, res.fecha2].filter(Boolean);
     const conflicto = (reservas || []).some(r => {
       if (String(r.id) === String(res.id)) return false;
-      if (String(r.motoAsignadaId) !== String(motoDestinoId)) return false;
       if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
       for (const f of fechasRes) {
+        // En D1 el cambio aplica a motoDestinoId; en D2 rige la moto efectiva.
+        const motoRes = f === res.fecha ? motoDestinoId : getMotoIdOcupacion(res, f);
+        const motoR = getMotoIdOcupacion(r, f);
+        if (!motoRes || !motoR || String(motoRes) !== String(motoR)) continue;
         const bloqueRes = getHoraIdOcupacion(res, f);
         const bloqueR = getHoraIdOcupacion(r, f);
-        if (bloqueRes && bloqueR && bloqueRes === bloqueR) return true;
+        if (bloqueRes && bloqueR && String(bloqueRes) === String(bloqueR)) return true;
       }
       return false;
     });
@@ -519,6 +609,17 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
 
+      agregarAuditoriaReprogramacion(batch, {
+        reservaId: res.id,
+        tipo: 'cambio_moto',
+        origen: 'AdminReservaDetalle',
+        motivo,
+        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null },
+        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null },
+        autorId: user?.uid || 'admin',
+        autorRol: 'admin'
+      });
+
       await batch.commit();
 
       showToast(`Moto cambiada. Proveedor: ${proveedorDestinoNombre || 'Sin asignar'}`, 'success');
@@ -532,6 +633,11 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
   };
 
    const cambiarHorario = async (payload) => {
+    // Guardia de cancelada: no se escribe reserva, espejo, locks ni auditoría.
+    if (res.estadoPago === 'Cancelado') {
+      return showToast('No se puede reprogramar una reserva cancelada', 'error');
+    }
+
     const { modo } = payload;
 
     try {
@@ -543,6 +649,76 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
         if (!nuevaFecha2 || !horaIdReposicion || !motivo) {
           return showToast('Faltan datos: fecha D2, bloque o motivo', 'error');
+        }
+
+        // Proveedor de reposición derivado del catálogo de motos (SSOT).
+        // NO sobrescribe proveedorId de D1.
+        const proveedorReposicionId = derivarProveedorReposicion(motoReposicionId, motos);
+
+        // D2-FINANZAS: si D2 lo cubre otro proveedor, se normaliza el mapa
+        // D1/D2 y se calcula la deuda del original por sobrepago legacy.
+        const esSplitD2 = Boolean(
+          proveedorReposicionId &&
+          res.proveedorId &&
+          String(proveedorReposicionId) !== String(res.proveedorId)
+        );
+
+        let pagosProveedorDiaSplit = null;
+        let proveedoresInvolucradosSplit = null;
+        let deudasD2 = [];
+
+        if (esSplitD2) {
+          const reservaSplit = { ...res, proveedorReposicionId };
+          const asignaciones = construirAsignacionesProveedor(reservaSplit);
+          const comisionTotal = comisionProveedorReserva(res);
+          const mapaPrevio = res.pagosProveedorDia || null;
+          const legacyPagado = res.pagadoProveedor === true && !mapaPrevio;
+          const redondear = (valor) => Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
+
+          pagosProveedorDiaSplit = {};
+          asignaciones.forEach((asignacion) => {
+            const previoBruto = mapaPrevio?.[asignacion.dia] || {};
+            const previoDelMismo = !previoBruto.proveedorId ||
+              String(previoBruto.proveedorId) === String(asignacion.proveedorId);
+            const previo = previoDelMismo ? previoBruto : {};
+            const teniaPago = previoDelMismo &&
+              (previo.pagado === true || Boolean(previo.pagoId) || previo.montoPagado != null);
+            let pagado = asignacion.pagado === true;
+            let pagoId = asignacion.pagoId || null;
+            let montoPagado = pagado ? asignacion.monto : 0;
+
+            if (legacyPagado && asignacion.dia === 'd1') {
+              // Legacy cobró el 100%; el mapa deja constancia del exceso.
+              pagado = true;
+              pagoId = res.pagoProveedorId || null;
+              montoPagado = comisionTotal;
+            } else if (teniaPago) {
+              pagado = previo.pagado === true || Boolean(previo.pagoId);
+              pagoId = previo.pagoId || null;
+              montoPagado = Number(previo.montoPagado);
+              if (!Number.isFinite(montoPagado)) montoPagado = pagado ? asignacion.monto : 0;
+            }
+
+            pagosProveedorDiaSplit[asignacion.dia] = {
+              proveedorId: asignacion.proveedorId,
+              monto: asignacion.monto,
+              montoPagado: redondear(montoPagado),
+              pagado,
+              pagoId
+            };
+          });
+
+          deudasD2 = calcularDeudasReprogramacionD2(reservaSplit);
+          proveedoresInvolucradosSplit = Array.from(new Set(
+            [
+              ...(res.proveedoresInvolucrados || []),
+              res.proveedorId,
+              mapaPrevio?.d2?.proveedorId,
+              proveedorReposicionId
+            ]
+              .filter((id) => id != null && id !== '')
+              .map(String)
+          ));
         }
 
         // Confirmación especial si hay sesión activa
@@ -564,7 +740,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           horaId: res.horaId,
           horaIdReposicion: res.horaIdReposicion || null,
           motoAsignadaId: res.motoAsignadaId || null,
-          motoReposicionId: res.motoReposicionId || null
+          motoReposicionId: res.motoReposicionId || null,
+          proveedorReposicionId: res.proveedorReposicionId || null
         };
 
         const snapshotDespues = {
@@ -573,7 +750,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           horaId: res.horaId,                     // bloque original inmutable
           horaIdReposicion,                       // bloque real de reposición
           motoAsignadaId: res.motoAsignadaId || null,
-          motoReposicionId: motoReposicionId || null
+          motoReposicionId: motoReposicionId || null,
+          proveedorReposicionId
         };
 
         const evento = {
@@ -593,6 +771,11 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           fecha2: nuevaFecha2,
           horaIdReposicion,
           motoReposicionId: motoReposicionId || null,
+          proveedorReposicionId,
+          ...(esSplitD2 ? {
+            pagosProveedorDia: pagosProveedorDiaSplit,
+            proveedoresInvolucrados: proveedoresInvolucradosSplit
+          } : {}),
           reprogramaciones: arrayUnion(evento),
           reprogramacionesCount: (res.reprogramacionesCount || 0) + 1,
           ultimaReprogramacion: serverTimestamp()
@@ -606,6 +789,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           horaIdReposicion,
           motoAsignadaId: res.motoAsignadaId || null,
           motoReposicionId: motoReposicionId || null,
+          proveedorReposicionId,
           instructorId: res.instructorId,
           tipoCurso: res.tipoCurso || null,
           userId: res.userId,
@@ -613,8 +797,68 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           sedeId: res.sedeId,
           estadoPago: res.estadoPago,
           proveedorId: res.proveedorId || null,
-          comisionProveedor: Number(res.comisionProveedor) || 0
+          comisionProveedor: Number(res.comisionProveedor) || 0,
+          ...(esSplitD2 ? {
+            pagosProveedorDia: pagosProveedorDiaSplit,
+            proveedoresInvolucrados: proveedoresInvolucradosSplit
+          } : {})
         }, { merge: true });
+
+        // Deuda(s) por sobrepago D2: exceso legacy del original y/o un
+        // proveedor D2 anterior que ya cobró y deja de servir. IDs
+        // determinísticos por proveedor para que reintentar no duplique
+        // docs ni asientos.
+        if (esSplitD2 && deudasD2.length > 0) {
+          const cicloDeuda = Number(res.reprogramacionesCount) || 0;
+          for (const deudaD2 of deudasD2) {
+            if (!deudaD2?.proveedorId || !(deudaD2.monto > 0)) continue;
+
+            const deudaId = `deuda_${res.id}_${deudaD2.proveedorId}_d2_${cicloDeuda}`;
+            const ledgerId = `ledger_${deudaId}`;
+            const deudaRef = doc(db, 'deudasProveedor', deudaId);
+            const ledgerRef = doc(db, 'ledgerProveedor', ledgerId);
+            const [deudaSnap, ledgerSnap] = await Promise.all([getDoc(deudaRef), getDoc(ledgerRef)]);
+
+            if (!deudaSnap.exists()) {
+              batch.set(deudaRef, {
+                proveedorId: deudaD2.proveedorId,
+                reservaId: res.id,
+                motivo: deudaD2.motivo,
+                montoOriginal: deudaD2.monto,
+                saldo: deudaD2.monto,
+                moneda: 'USD',
+                estado: 'pendiente',
+                createdAt: serverTimestamp(),
+                createdBy: user?.uid || 'admin',
+                abonos: []
+              });
+            }
+
+            if (!ledgerSnap.exists()) {
+              batch.set(ledgerRef, {
+                tipo: 'deuda',
+                proveedorId: deudaD2.proveedorId,
+                deudaId,
+                reservaId: res.id,
+                monto: deudaD2.monto,
+                createdAt: serverTimestamp(),
+                createdBy: user?.uid || 'admin',
+                idempotencyKey: `deuda:${res.id}:${deudaD2.proveedorId}:d2:${cicloDeuda}`
+              });
+            }
+          }
+        }
+
+        agregarAuditoriaReprogramacion(batch, {
+          reservaId: res.id,
+          tipo: 'post_inicio_reposicion',
+          origen: 'AdminReservaDetalle',
+          motivo,
+          antes: snapshotAntes,
+          despues: snapshotDespues,
+          autorId: user?.uid || 'admin',
+          autorRol: 'admin'
+        });
 
         // Liberar locks asociados
         const locksOriginales = await obtenerLocksDeReserva(res);
@@ -727,6 +971,17 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         proveedorId: res.proveedorId || null,
         comisionProveedor: Number(res.comisionProveedor) || 0
       }, { merge: true });
+
+      agregarAuditoriaReprogramacion(batch, {
+        reservaId: res.id,
+        tipo: 'pre_inicio_total',
+        origen: 'AdminReservaDetalle',
+        motivo,
+        antes: horarioAnterior,
+        despues: horarioNuevo,
+        autorId: user?.uid || 'admin',
+        autorRol: 'admin'
+      });
 
       const locksOriginales = await obtenerLocksDeReserva(res);
       locksOriginales.forEach(lock => {
@@ -861,6 +1116,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
       // Si el curso se completo, invalidamos la cache de metricas del estudiante
       if (cursoCompletado) {
+        batch.set(doc(db, 'ocupacionConfirmada', res.id), { estadoCurso: 'Aprobado' }, { merge: true });
         batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
           updatedAt: serverTimestamp()
         });
@@ -917,6 +1173,9 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         estadoCurso: 'Aprobado',
         updatedAt: serverTimestamp()
       });
+
+      // B-PROVEEDOR-MIRROR-PAGOS: reflejar el estado de curso en el espejo.
+      batch.set(doc(db, 'ocupacionConfirmada', res.id), { estadoCurso: 'Aprobado' }, { merge: true });
 
       // Invalida caché de métricas en el estudiante
       batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
@@ -1095,8 +1354,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
                 disabled={
                   availableInstructors.length === 0 ||
                   res.estadoPago === 'Cancelado' ||
-                  res.pagadoInstructor === true ||
-                  res.esReservaCompartida === true
+                  (res.esReservaCompartida === true && !res.pagosInstructorDia)
                 }
               >
                 Reasignar / Relevo
@@ -1106,12 +1364,26 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
                 <p className="text-[10px] text-gray-500 mb-2">No hay tutores disponibles para reasignar.</p>
               )}
 
-              {res.esReservaCompartida === true && (
+              {res.esReservaCompartida === true && !res.pagosInstructorDia && (
                 <p className="text-[10px] text-gray-500 mb-2">Esta reserva ya es compartida. Función avanzada próximamente.</p>
               )}
 
-              {res.pagadoInstructor === true && (
-                <p className="text-[10px] text-gray-500 mb-2">La comisión ya fue pagada. No se puede reasignar.</p>
+              {res.pagadoInstructor === true && !res.pagosInstructorDia && (
+                <p className="text-[10px] text-gray-500 mb-2">La comisión ya fue pagada: el relevo conservará su D1 y generará deuda si hay exceso.</p>
+              )}
+
+              {res.pagosInstructorDia && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 mb-2 text-[10px] text-indigo-800">
+                  <p className="font-black">Relevo de tutor registrado</p>
+                  {['d1', 'd2', 'unico'].filter((dia) => res.pagosInstructorDia[dia]).map((dia) => {
+                    const asignacion = res.pagosInstructorDia[dia];
+                    return (
+                      <p key={dia} className="mt-0.5">
+                        {dia === 'unico' ? 'Comisión' : dia.toUpperCase()}: {asignacion.nombre || asignacion.instructorId} · USD {Number(asignacion.monto || 0).toFixed(2)} · {asignacion.pagado ? 'pagado' : 'pendiente'}
+                      </p>
+                    );
+                  })}
+                </div>
               )}
 
               {/* Cambio de proveedor / moto (deriva proveedor automáticamente) */}
@@ -1145,6 +1417,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
                 variant="outline" 
                 className="!py-1.5 !text-[10px] w-full"
                 icon={Calendar}
+                disabled={res.estadoPago === 'Cancelado'}
               >
                 Cambiar Horario
               </Button>
@@ -1246,14 +1519,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           reserva={res}
           instructoresDisponibles={availableInstructors}
           instructorActual={instructorActual}
-          instructorInicioCurso={Boolean(
-            res.sesionTotalInicio ||
-            res.sesionDiariaInicio ||
-            res.moduloEnProgreso ||
-            (typeof res.tiempoEfectivo === 'number' && res.tiempoEfectivo > 0) ||
-            res.pausaActiva ||
-            (res.modulosEstado && Object.values(res.modulosEstado).some(v => v === true || v?.completado === true))
-          )}
+          instructorInicioCurso={cursoIniciadoParaRelevo(res)}
           onConfirmar={reasignarInstructor}
           onCancelar={() => setMostrarReasignar(false)}
         />

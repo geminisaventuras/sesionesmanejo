@@ -31,7 +31,7 @@ export default function InstructorPanel() {
   }, [activas, filtroFecha]);
 
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
-  const guardarPerfil = useCallback(async () => { await saveInstructor({ ...user.data, ...perfil }); showToast('Perfil actualizado', 'success'); setEditandoPerfil(false); }, [saveInstructor, user, perfil, showToast]);
+    const guardarPerfil = useCallback(async () => { await saveInstructor({ ...user.data, ...perfil }, { merge: true }); showToast('Perfil actualizado', 'success'); setEditandoPerfil(false); }, [saveInstructor, user, perfil, showToast]);
   const abrirAula = (r) => navigate(`/aula/${r.id}`);
 
   if (!user) return <Spinner message="Cargando perfil..." />;

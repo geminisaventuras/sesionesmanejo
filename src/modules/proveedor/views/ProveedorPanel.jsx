@@ -2,60 +2,98 @@ import { useContext, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { Spinner } from '../../../components/UI';
-import { LogOut, Bike, DollarSign, Activity, Clock, Calendar, BookOpen } from 'lucide-react';
+import { LogOut, Bike, DollarSign, Activity, Clock, Calendar, BookOpen, AlertTriangle } from 'lucide-react';
 import ProveedorMotos from '../components/ProveedorMotos';
 import ProveedorCalendario from '../components/ProveedorCalendario';
 import ProveedorActividad from '../components/ProveedorActividad';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../firebase';
-import { comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { construirAsignacionesProveedor } from '../../shared/utils/finanzasHelpers';
+import { DeudasProveedorService } from '../../shared/services/DeudasProveedorService';
+import ModalCobrarDeuda from '../../admin/finance/ModalCobrarDeuda';
 import { formatearMonto } from '../../shared/utils/currency';
 const ProveedorPanel = () => {
   const { user, motos, config, isReservaActiva, logoutUser } = useContext(AppContext);
 const [ocupacionConfirmada, setOcupacionConfirmada] = useState([]);
+const [ocupacionReposicion, setOcupacionReposicion] = useState([]);
+const [deudasProveedor, setDeudasProveedor] = useState([]);
+const [solicitudesPago, setSolicitudesPago] = useState([]);
+const [deudaPago, setDeudaPago] = useState(null);
 const [cargandoOcupacion, setCargandoOcupacion] = useState(true);
 
 useEffect(() => {
   if (!user?.uid) {
     setOcupacionConfirmada([]);
+    setOcupacionReposicion([]);
     setCargandoOcupacion(false);
     return;
   }
 
-  // DECISIÓN ARQUITECTÓNICA (2026-10-14):
-  // Migración de getDocs a onSnapshot para tiempo real.
-  // Contexto: FIX-030 cambió a getDocs para resolver bug de datos (contadores en cero)
-  // causado por uso incorrecto de useOcupacionConfirmada sin fecha.
-  // Esta migración a onSnapshot NO revierte FIX-030, porque:
-  // 1. El bug de datos ya está resuelto
-  // 2. Este es un contexto diferente (panel agregado, no por fecha)
-  // 3. Impacto en Plan Spark: +0.5% del límite (medido 2026-10-14)
-  // Ver: BITACORA entrada "PROVEEDOR-ONSSNAPSHOT-V1"
+  // D2-FINANZAS: el proveedor de reposición también debe ver la reserva y su D2.
   setCargandoOcupacion(true);
+  const base = collection(db, 'ocupacionConfirmada');
+  const q1 = query(base, where('proveedorId', '==', user.uid), limit(500));
+  const q2 = query(base, where('proveedorReposicionId', '==', user.uid), limit(500));
+  let cargadas = 0;
 
-  const q = query(
-    collection(db, 'ocupacionConfirmada'),
-    where('proveedorId', '==', user.uid),
-    limit(500)
-  );
+  const marcarCargada = () => {
+    cargadas += 1;
+    if (cargadas >= 2) setCargandoOcupacion(false);
+  };
 
-  const unsubscribe = onSnapshot(
-    q,
+  const unsub1 = onSnapshot(
+    q1,
     (snapshot) => {
       setOcupacionConfirmada(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargandoOcupacion(false);
+      marcarCargada();
     },
     (error) => {
-      console.error('[ProveedorPanel] Error en onSnapshot:', error);
+      console.error('[ProveedorPanel] Error en onSnapshot proveedorId:', error);
       setOcupacionConfirmada([]);
-      setCargandoOcupacion(false);
+      marcarCargada();
+    }
+  );
+
+  const unsub2 = onSnapshot(
+    q2,
+    (snapshot) => {
+      setOcupacionReposicion(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      marcarCargada();
+    },
+    (error) => {
+      console.error('[ProveedorPanel] Error en onSnapshot proveedorReposicionId:', error);
+      setOcupacionReposicion([]);
+      marcarCargada();
     }
   );
 
   return () => {
-    unsubscribe();
+    unsub1();
+    unsub2();
   };
-}, [user?.uid]);  const navigate = useNavigate();
+}, [user?.uid]);
+
+useEffect(() => {
+  if (!user?.uid) {
+    setDeudasProveedor([]);
+    return () => {};
+  }
+  return DeudasProveedorService.suscribirDeudasProveedor(user.uid, (data) => {
+    setDeudasProveedor(data || []);
+  });
+}, [user?.uid]);
+
+useEffect(() => {
+  if (!user?.uid) {
+    setSolicitudesPago([]);
+    return () => {};
+  }
+  return DeudasProveedorService.suscribirSolicitudesProveedor(user.uid, (data) => {
+    setSolicitudesPago(data || []);
+  });
+}, [user?.uid]);
+
+const navigate = useNavigate();
   const [tab, setTab] = useState('inicio');
 
   const misMotos = useMemo(() => {
@@ -67,20 +105,45 @@ useEffect(() => {
   // Sustituimos reservas (privada) por ocupacionConfirmada (pública con proveedorId)
   const misReservas = useMemo(() => {
     if (!user?.uid) return [];
-    return (ocupacionConfirmada || []).filter(r => r.proveedorId === user.uid);
-  }, [ocupacionConfirmada, user?.uid]);
+    const uid = String(user.uid);
+    const mapa = new Map();
+    [...(ocupacionConfirmada || []), ...(ocupacionReposicion || [])].forEach((r) => {
+      if (String(r.proveedorId) !== uid && String(r.proveedorReposicionId) !== uid) return;
+      mapa.set(String(r.id), r);
+    });
+    return Array.from(mapa.values());
+  }, [ocupacionConfirmada, ocupacionReposicion, user?.uid]);
 
   const { activas, completadas, gananciaCobrada, gananciaPorCobrar } = useMemo(() => {
     const act = misReservas.filter(r => isReservaActiva(r) && r.estadoCurso !== 'Aprobado');
     const comp = misReservas.filter(r => r.estadoCurso === 'Aprobado');
-    const cobrada = misReservas.filter(r => r.estadoPago === 'Aprobado' && r.pagadoProveedor === true).reduce((acc, r) => acc + comisionProveedorReserva(r, config), 0);
-    const porCobrar = misReservas.filter(r => r.estadoPago === 'Aprobado' && !r.pagadoProveedor).reduce((acc, r) => acc + comisionProveedorReserva(r, config), 0);
+    let cobrada = 0;
+    let porCobrar = 0;
+
+    misReservas.forEach((r) => {
+      if (r.estadoPago !== 'Aprobado') return;
+      construirAsignacionesProveedor(r, config)
+        .filter(a => String(a.proveedorId) === String(user?.uid))
+        .forEach((a) => {
+          if (a.pagado) cobrada += Number(a.monto) || 0;
+          else porCobrar += Number(a.monto) || 0;
+        });
+    });
+
     return { activas: act, completadas: comp, gananciaCobrada: cobrada, gananciaPorCobrar: porCobrar };
-  }, [misReservas, isReservaActiva, config]);
+  }, [misReservas, isReservaActiva, config, user?.uid]);
+
+  const deudaTotal = useMemo(
+    () => (deudasProveedor || []).reduce((acc, d) => acc + (Number(d.saldo) || 0), 0),
+    [deudasProveedor]
+  );
 
   const usoPorMoto = useMemo(() => {
     return misMotos.map(moto => {
-      const reservasMoto = misReservas.filter(r => String(r.motoAsignadaId) === String(moto.id));
+      const reservasMoto = misReservas.filter(r =>
+        String(r.motoAsignadaId) === String(moto.id) ||
+        String(r.motoReposicionId) === String(moto.id)
+      );
       const activasMoto = reservasMoto.filter(r => isReservaActiva(r) && r.estadoCurso !== 'Aprobado').length;
       const completadasMoto = reservasMoto.filter(r => r.estadoCurso === 'Aprobado').length;
       return { ...moto, activas: activasMoto, completadas: completadasMoto, total: reservasMoto.length };
@@ -105,6 +168,42 @@ useEffect(() => {
           <>
             <div className="bg-green-600 text-white p-5 rounded-3xl shadow-xl"><p className="text-green-200 text-[10px] font-bold uppercase">Ingresos Cobrados</p><h2 className="text-3xl font-black break-words tabular-nums">{formatearMonto(gananciaCobrada, config.monedaPagoStaff)}</h2></div>
             {gananciaPorCobrar > 0 && (<div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3"><Clock size={20} className="text-orange-500" /><div><p className="text-sm font-bold text-orange-800">Por Cobrar</p><p className="text-lg font-black text-orange-600 break-words tabular-nums">{formatearMonto(gananciaPorCobrar, config.monedaPagoStaff)}</p></div></div>)}
+            {deudaTotal > 0 && (
+              <div className="bg-red-50 border border-red-200 p-4 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle size={20} className="text-red-500" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-red-800">Deuda con la app</p>
+                    <p className="text-lg font-black text-red-600 break-words tabular-nums">{formatearMonto(deudaTotal, config.monedaPagoStaff)}</p>
+                  </div>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {deudasProveedor.slice(0, 5).map((deuda) => {
+                    const solicitudPendiente = solicitudesPago.some((s) => s.deudaId === deuda.id);
+                    return (
+                      <div key={deuda.id} className="flex items-center justify-between gap-2 text-[10px] text-red-700">
+                        <span className="truncate">
+                          Reserva {deuda.reservaId || '—'} · {formatearMonto(deuda.saldo, config.monedaPagoStaff)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDeudaPago(deuda)}
+                          disabled={solicitudPendiente}
+                          className={`shrink-0 rounded-lg px-2 py-1 font-bold ${
+                            solicitudPendiente
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-white text-red-700 border border-red-200'
+                          }`}
+                        >
+                          {solicitudPendiente ? 'En revisión' : 'Pagar'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-red-600 mt-2">Se descuenta automáticamente de tus próximos pagos.</p>
+              </div>
+            )}
             <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest">Motos en Uso</h2>
             {usoPorMoto.length === 0 && <p className="text-gray-500 text-sm text-center py-4">No tienes motos registradas.</p>}
             {usoPorMoto.map(moto => (
@@ -137,6 +236,16 @@ useEffect(() => {
         <button onClick={() => setTab('calendario')} className={`flex flex-col items-center text-xs font-bold ${tab === 'calendario' ? 'text-blue-600' : 'text-gray-400'}`}><Calendar size={20} />Calendario</button>
         <button onClick={() => setTab('actividad')} className={`flex flex-col items-center text-xs font-bold ${tab === 'actividad' ? 'text-blue-600' : 'text-gray-400'}`}><BookOpen size={20} />Actividad</button>
       </div>
+
+      {deudaPago && (
+        <ModalCobrarDeuda
+          deuda={deudaPago}
+          proveedorNombre={`${user?.nombre || ''} ${user?.apellido || ''}`.trim() || user?.email || 'Proveedor'}
+          modo="solicitud"
+          onClose={() => setDeudaPago(null)}
+          onSuccess={() => setDeudaPago(null)}
+        />
+      )}
     </div>
   );
 };

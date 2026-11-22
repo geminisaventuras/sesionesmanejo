@@ -139,3 +139,65 @@ export function getMotoIdOcupacion(doc, fechaBuscada) {
 
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────
+// D2: conflicto por fecha usando bloque/moto EFECTIVOS
+// ─────────────────────────────────────────────────────────────
+// Comparan la ocupación de `fechaBuscada` resolviendo horaIdReposicion /
+// motoReposicionId (no solo horaId / motoAsignadaId). Puras: sin Firestore.
+
+export const ESTADOS_OCUPAN = ['Aprobado', 'Pendiente'];
+
+export function estaReservaCancelada(reserva) {
+  return reserva?.estadoPago === 'Cancelado';
+}
+
+// Deriva el proveedor de una moto de reposición desde el catálogo `motos`.
+// No toca proveedorId de D1.
+export function derivarProveedorReposicion(motoId, motos) {
+  if (!motoId) return null;
+  const moto = (motos || []).find(m => String(m.id) === String(motoId));
+  return moto?.proveedorId ?? null;
+}
+
+// true si OTRA reserva ocupa el mismo bloque efectivo del mismo instructor
+// en `fechaBuscada`. Excluye la propia reserva por id.
+export function detectarConflictoBloquePorFecha(
+  reserva,
+  fechaBuscada,
+  ocupacionConfirmada,
+  excluirReservaId
+) {
+  if (!reserva || !fechaBuscada) return false;
+  const bloque = getHoraIdOcupacion(reserva, fechaBuscada);
+  if (!bloque) return false;
+  const excluir = excluirReservaId ?? reserva.id;
+
+  return (ocupacionConfirmada || []).some(r => {
+    if (r?.id != null && String(r.id) === String(excluir)) return false;
+    if (!ESTADOS_OCUPAN.includes(r?.estadoPago)) return false;
+    if (String(r.instructorId) !== String(reserva.instructorId)) return false;
+    const bloqueR = getHoraIdOcupacion(r, fechaBuscada);
+    return bloqueR != null && String(bloqueR) === String(bloque);
+  });
+}
+
+// true si OTRA reserva ocupa `motoId` en el bloque efectivo de `fechaBuscada`.
+export function detectarConflictoMotoPorFecha(
+  reserva,
+  motoId,
+  fechaBuscada,
+  ocupacionConfirmada,
+  excluirReservaId
+) {
+  if (!motoId || !fechaBuscada) return false;
+  const excluir = excluirReservaId ?? reserva?.id;
+
+  return (ocupacionConfirmada || []).some(r => {
+    if (r?.id != null && String(r.id) === String(excluir)) return false;
+    if (r?.traeMoto === 'Sí') return false;
+    if (!ESTADOS_OCUPAN.includes(r?.estadoPago)) return false;
+    const motoR = getMotoIdOcupacion(r, fechaBuscada);
+    return motoR != null && String(motoR) === String(motoId);
+  });
+}

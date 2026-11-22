@@ -5,6 +5,7 @@ import {
   resolverTraeMoto,
   seleccionarValoresCurso,
   sumarProrrateados,
+  packBloqueaNuevaCompra,
 } from '../../src/modules/inscripcion/utils/packPricing.js';
 
 const curso = (id, precioBase, comisionInstructor = 0, comisionProveedor = 0, extra = {}) => ({
@@ -84,4 +85,17 @@ test('resolverTraeMoto usa la configuración congelada, no el cliente', () => {
   assert.equal(resolverTraeMoto(sinMoto, 0, 'a', { a: 'No' }), 'Sí');
   const soloEscuela = { motoIncluidaPorCurso: [true], permiteTraerMotoPropiaPorCurso: [false] };
   assert.equal(resolverTraeMoto(soloEscuela, 0, 'a', { a: 'Sí' }), 'No');
+});
+
+test('packBloqueaNuevaCompra: solo sesiones activas/pendientes/aprobadas', () => {
+  const base = { packSnapshot: { cursoIds: ['a'] }, estado: 'activo', estadoPago: 'Pendiente' };
+  assert.equal(packBloqueaNuevaCompra(base), true);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estadoPago: 'Aprobado' }), true);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estado: undefined }), true);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estadoPago: 'Rechazado' }), false);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estadoPago: 'Cancelado' }), false);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estado: 'completado' }), false);
+  assert.equal(packBloqueaNuevaCompra({ ...base, estado: 'vencido' }), false);
+  assert.equal(packBloqueaNuevaCompra({ ...base, packSnapshot: { cursoIds: [] } }), false);
+  assert.equal(packBloqueaNuevaCompra(null), false);
 });

@@ -7,11 +7,14 @@ import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { LockService } from './LockService';
 import { construirSlotsObjetivo, construirLockIds, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
 import { consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
-import { resolverTraeMoto, seleccionarValoresCurso } from '../utils/packPricing.js';
+import { resolverTraeMoto, seleccionarValoresCurso, packBloqueaNuevaCompra } from '../utils/packPricing.js';
+import { calcularPrecioIndividual, resolverTraeMotoIndividual, resolverTasaFXVigente, calcularPagoTotalVES } from '../utils/precioIndividual.js';
+import { resumenAccesoId } from '../../shared/utils/accesoTeoricoResumen';
+import { validarCorreccionPago } from '../utils/pagoHelpers';
 
 const appId = 'motoescuela-pro-v1';
 
-const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId'];
+const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId', 'sedeId'];
 
 // ⚠️ NO DESACTIVAR EN PROD: previene solapamiento de reservas (BUG-2).
 // Kill-switch de build: si se desactiva, el cross-check se omite (solo para rollback operativo).
@@ -270,8 +273,73 @@ export const ReservaService = {
       console.error('[crearReserva] Error validando prereqs:', err);
     }
 
+    if (!cursoData) {
+      return { success: false, error: { code: 'course-not-found', message: 'El curso seleccionado no existe o no está disponible.' } };
+    }
+
+    // B-RESERVA-PRECIOS-CLIENTE: el precio individual se calcula desde el
+    // catálogo (curso + configuración + sede) y se congela en la reserva.
+    // Nunca se usa el monto ni las comisiones que envía el navegador.
+    let configData = null;
+    let sedeData = null;
+    try {
+      const [configSnap, sedeSnap] = await Promise.all([
+        getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'configuraciones', 'main')),
+        getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sedes', String(reservaData.sedeId)))
+      ]);
+      if (!configSnap.exists() || !sedeSnap.exists()) {
+        return {
+          success: false,
+          error: { code: 'price-config-missing', message: 'No pudimos validar el precio del curso. Intenta de nuevo o contacta a soporte.' }
+        };
+      }
+      configData = configSnap.data();
+      sedeData = { id: sedeSnap.id, ...sedeSnap.data() };
+    } catch (err) {
+      console.error('[crearReserva] Error cargando catálogo de precios:', err);
+      return {
+        success: false,
+        error: { code: 'price-config-unavailable', message: 'No pudimos validar el precio del curso. Revisa tu conexión e intenta de nuevo.' }
+      };
+    }
+
+    const traeMotoResuelto = resolverTraeMotoIndividual(cursoData, reservaData.traeMoto);
+    let precioSnapshot;
+    try {
+      precioSnapshot = calcularPrecioIndividual({
+        curso: cursoData,
+        config: configData,
+        sede: sedeData,
+        sedeId: reservaData.sedeId,
+        sabeBicicleta: reservaData.sabeBicicleta,
+        traeMoto: traeMotoResuelto,
+        calculadoEn: new Date().toISOString(),
+        calculadoPor: reservaData.userId,
+        origen: reservaData.origenReinscripcion || 'nueva'
+      });
+    } catch (err) {
+      console.error('[crearReserva] Precio individual inválido:', err);
+      return {
+        success: false,
+        error: { code: 'invalid-price', message: err.message || 'El precio del curso no es válido.' }
+      };
+    }
+
+    // Si el catálogo cambió mientras el estudiante completaba el formulario,
+    // no se cobra un monto distinto al mostrado: se pide confirmar de nuevo.
+    const precioMostrado = Number(reservaData.pagoTotalMoneda);
+    if (Number.isFinite(precioMostrado) && Math.abs(precioMostrado - precioSnapshot.precioTotal) > 0.009) {
+      return {
+        success: false,
+        error: {
+          code: 'price-changed',
+          message: 'El precio del curso cambió. Revisa el monto actualizado y confirma de nuevo.'
+        }
+      };
+    }
+
     // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
-    const motoObjetivo = (cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null);
+    const motoObjetivo = (traeMotoResuelto === 'Sí' || cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null);
     const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
       fecha: reservaData.fecha,
       fecha2: reservaData.fecha2 || null,
@@ -357,38 +425,38 @@ export const ReservaService = {
           ...validacion.data,
           userId: reservaData.userId,
           cursoId: reservaData.cursoId,
-          tipoCurso: typeof reservaData.tipoCurso === 'string' ? reservaData.tipoCurso.trim() : null,          sedeId: reservaData.sedeId,
+          tipoCurso: typeof reservaData.tipoCurso === 'string' ? reservaData.tipoCurso.trim() : null,
+          sedeId: reservaData.sedeId,
           tipoMoto: reservaData.tipoMoto,
           fecha: reservaData.fecha,
           fecha2: reservaData.fecha2 || null,
           horaId: reservaData.horaId,
           instructorId: reservaData.instructorId,
-                    motoAsignadaId: (cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null),
-          
-          // FIX-PERMITE-TRAER-MOTO: forzar coherencia con la config del curso.
-          // Caso 1: curso sin moto (motoIncluida: false) → 'Sí' obligatorio (el estudiante DEBE traer propia).
-          // Caso 2: curso con moto pero permiteTraerMotoPropia: false (Equilibrio) → 'No' obligatorio (moto escuela).
-          // Caso 3: curso con moto y permiteTraerMotoPropia: true → respetar lo que envíe el cliente.
-          traeMoto: (cursoData?.motoIncluida === false) ? 'Sí'
-                   : (cursoData?.permiteTraerMotoPropia === false) ? 'No'
-                   : (reservaData.traeMoto || 'No'),
+          // Moto propia: sin moto escolar ni proveedor, para cumplir la regla de comisión.
+          motoAsignadaId: (traeMotoResuelto === 'Sí' || cursoData?.motoIncluida === false)
+            ? null
+            : (reservaData.motoAsignadaId || null),
+          // FIX-PERMITE-TRAER-MOTO: la modalidad sale del catálogo, no del payload.
+          traeMoto: traeMotoResuelto,
           sabeBicicleta: reservaData.sabeBicicleta,
           fechaNacimiento: reservaData.fechaNacimiento,
-          pagoTotalMoneda: reservaData.pagoTotalMoneda,
-          pagoTotalVES: reservaData.pagoTotalVES,
+          // Precio y comisiones: snapshot inmutable calculado desde el catálogo.
+          pagoTotalMoneda: precioSnapshot.precioTotal,
+          pagoTotalVES: precioSnapshot.pagoTotalVES,
           pagoBanco: reservaData.pagoBanco,
           pagoTelefono: reservaData.pagoTelefono,
           pagoCedula: reservaData.pagoCedula,
           pagoRef: reservaData.pagoRef,
           id: reservaDoc.id,
-          createdAt: Timestamp.now(),
           estadoPago: 'Pendiente',
           estadoCurso: 'Pendiente',
-          precio: reservaData.pagoTotalMoneda,
-                proveedorId: reservaData.proveedorId || null,
+          precio: precioSnapshot.precioTotal,
+          proveedorId: traeMotoResuelto === 'Sí' ? null : (reservaData.proveedorId || null),
           pin: reservaData.pin || null,
-                 comisionInstructor: typeof reservaData.comisionInstructor === 'number' ? reservaData.comisionInstructor : 0,
-          comisionProveedor: typeof reservaData.comisionProveedor === 'number' ? reservaData.comisionProveedor : 0,
+          comisionInstructor: precioSnapshot.comisionInstructor,
+          comisionProveedor: precioSnapshot.comisionProveedor,
+          deficitComision: precioSnapshot.deficitComision,
+          precioSnapshot,
           origenReinscripcion: reservaData.origenReinscripcion || 'nueva',
           createdAt: serverTimestamp()
         };
@@ -405,8 +473,11 @@ export const ReservaService = {
           motoAsignadaId: datosReserva.motoAsignadaId,
           motoReposicionId: datosReserva.motoReposicionId || null,
           traeMoto: datosReserva.traeMoto,
-          sedeId: datosReserva.sedeId,          
+          sedeId: datosReserva.sedeId,
           estadoPago: 'Pendiente',
+          estadoCurso: datosReserva.estadoCurso || 'Pendiente',
+          pagadoProveedor: false,
+          pagoProveedorId: null,
           proveedorId: datosReserva.proveedorId || null,
           comisionProveedor: Number(datosReserva.comisionProveedor) || 0
         });
@@ -458,11 +529,7 @@ export const ReservaService = {
       const packSnapPre = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId));
       const cursoIdsNuevo = packSnapPre.exists() ? (packSnapPre.data().cursoIds || []) : [];
       if (cursoIdsNuevo.length > 0) {
-        const yaTiene = rpSnap.docs.some(d => {
-          const p = d.data();
-          const cursoIds = p.packSnapshot?.cursoIds || [];
-          return (p.estadoPago === 'Aprobado' || p.estadoPago === 'Pendiente') && (p.estado === 'activo' || p.estado === undefined) && cursoIds.length > 0;
-        });
+        const yaTiene = rpSnap.docs.some(d => packBloqueaNuevaCompra(d.data()));
         if (yaTiene) {
           return { success: false, error: { code: 'pack-sesiones-activo', message: 'Ya tienes un pack de sesiones activo. Termínalo antes de comprar otro.' } };
         }
@@ -485,7 +552,24 @@ export const ReservaService = {
     });
     if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
 
+    // B-FX-CONCILIACION: la tasa del pack se congela desde la configuración,
+    // nunca desde el payload del navegador.
+    let configData = null;
+    try {
+      const configSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'configuraciones', 'main'));
+      if (!configSnap.exists()) {
+        return { success: false, error: { code: 'fx-config-missing', message: 'No pudimos validar la tasa de cambio. Intenta de nuevo o contacta a soporte.' } };
+      }
+      configData = configSnap.data();
+    } catch (err) {
+      console.error('[crearReservaPack] Error cargando tasas:', err);
+      return { success: false, error: { code: 'fx-config-unavailable', message: 'No pudimos validar la tasa de cambio. Revisa tu conexión e intenta de nuevo.' } };
+    }
+    const tasaFX = resolverTasaFXVigente(configData);
+
     const packRef = doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId);
+    // Lock transaccional por usuario: evita doble compra por doble submit.
+    const packLockRef = doc(db, 'packActivo', usuarioActual.uid);
     const maestraRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack'));
     const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', `${maestraRef.id}_sub_0`);
     const lockRef = doc(db, 'locks', lockId);
@@ -505,6 +589,21 @@ export const ReservaService = {
         const pack = packSnap.data();
         if (pack.activo !== true) {
           throw new Error('El pack ya no está disponible');
+        }
+
+        // B-PACK-DOBLE-COMPRA: el lock por usuario se lee y se escribe dentro
+        // de la misma transacción; dos compras concurrentes se serializan.
+        if (cursoIdsNuevo.length > 0) {
+          const lockSnap = await transaction.get(packLockRef);
+          if (lockSnap.exists()) {
+            const prevId = lockSnap.data().packReservaId;
+            if (prevId) {
+              const prevMasterSnap = await transaction.get(doc(db, 'artifacts', appId, 'public', 'data', 'reservasPack', prevId));
+              if (prevMasterSnap.exists() && packBloqueaNuevaCompra(prevMasterSnap.data())) {
+                throw new Error('Ya tienes un pack de sesiones activo. Termínalo antes de comprar otro.');
+              }
+            }
+          }
         }
 
         // 2. Leer y validar lock
@@ -545,6 +644,19 @@ export const ReservaService = {
         ) {
           throw new Error('El snapshot de cursos o precios del pack está incompleto. Recarga e intenta de nuevo.');
         }
+
+        // FX congelado del pack: total USD × tasa vigente, redondeado a centavos.
+        const pagoTotalVESPack = calcularPagoTotalVES(preciosPack.precioTotal, tasaFX);
+        const fxCongelado = {
+          version: 1,
+          monedaBase: 'USD',
+          monedaCobro: String(configData?.monedaCobroClientes || 'EUR'),
+          tasaFX,
+          pagoTotalVES: pagoTotalVESPack,
+          calculadoEn: new Date().toISOString(),
+          calculadoPor: usuarioActual.uid,
+          origen: 'pack-compra'
+        };
 
         const cursoEq = cursosPack[0];
         const precioEqBase = Number(preciosPack.preciosBase?.[0] ?? 0);
@@ -610,7 +722,8 @@ export const ReservaService = {
           tipoMoto: packData.tipoMoto || null,
           traeMotoPorCurso: packData.traeMotoPorCurso || {},
           pagoTotalMoneda: Number(preciosPack.precioTotal) || 0,
-          pagoTotalVES: Number(packData.pagoTotalVES) || 0,
+          pagoTotalVES: pagoTotalVESPack,
+          fxCongelado,
           pagoBanco: packData.pagoBanco || null,
           pagoTelefono: packData.pagoTelefono || null,
           pagoCedula: packData.pagoCedula || null,
@@ -623,6 +736,14 @@ export const ReservaService = {
         };
 
         transaction.set(maestraRef, datosMaestra);
+
+        if (cursoIdsNuevo.length > 0) {
+          transaction.set(packLockRef, {
+            userId: usuarioActual.uid,
+            packReservaId: maestraRef.id,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
 
         // 9. Datos de la CHILD (Equilibrio)
         const datosChild = {
@@ -666,7 +787,8 @@ export const ReservaService = {
           sabeBicicleta: 'No', // implícito por pack
           proveedorId: valoresEq.proveedorId,
           pagoTotalMoneda: valoresEq.precio,
-          pagoTotalVES: Number(packData.pagoTotalVES) || 0,
+          // VES prorrateado del child con la tasa congelada de la maestra.
+          pagoTotalVES: calcularPagoTotalVES(valoresEq.precio, tasaFX),
           pagoBanco: packData.pagoBanco || null,
           pagoTelefono: packData.pagoTelefono || null,
           pagoCedula: packData.pagoCedula || null,
@@ -710,6 +832,9 @@ export const ReservaService = {
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Pendiente',
+          estadoCurso: datosChild.estadoCurso || 'Pendiente',
+          pagadoProveedor: false,
+          pagoProveedorId: null,
           proveedorId: datosChild.proveedorId || null,
           comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
@@ -876,6 +1001,13 @@ export const ReservaService = {
           proveedorId: packData.proveedorId
         });
 
+        // Tasa congelada de la maestra; fallback a la tasa implícita histórica.
+        const tasaFXMaestra = Number(maestra.fxCongelado?.tasaFX) > 0
+          ? Number(maestra.fxCongelado.tasaFX)
+          : (Number(maestra.precioTotalCongelado) > 0
+              ? Number(maestra.pagoTotalVES) / Number(maestra.precioTotalCongelado)
+              : 1);
+
         // 7-bis. FIX-PACK-SEDE-POR-SESION: validar intersección curso ∩ pack.
         // Sedes del pack (fallback legacy: solo sedeId).
         const sedesPack = Array.isArray(maestra.packSnapshot?.sedesPermitidas) && maestra.packSnapshot.sedesPermitidas.length > 0
@@ -941,7 +1073,8 @@ export const ReservaService = {
           proveedorId: valores.proveedorId,
           createdAt: serverTimestamp(),
           pagoTotalMoneda: valores.precio,
-          pagoTotalVES: Number(maestra.pagoTotalVES) || 0,
+          // VES prorrateado del child con la tasa congelada de la maestra.
+          pagoTotalVES: calcularPagoTotalVES(valores.precio, tasaFXMaestra),
           pagoBanco: maestra.pagoBanco || null,
           pagoTelefono: maestra.pagoTelefono || null,
           pagoCedula: maestra.pagoCedula || null,
@@ -995,6 +1128,9 @@ export const ReservaService = {
           traeMoto: datosChild.traeMoto,
           sedeId: datosChild.sedeId,
           estadoPago: 'Aprobado',
+          estadoCurso: datosChild.estadoCurso || 'Pendiente',
+          pagadoProveedor: datosChild.pagadoProveedor === true,
+          pagoProveedorId: datosChild.pagoProveedorId || null,
           proveedorId: datosChild.proveedorId || null,
           comisionProveedor: Number(datosChild.comisionProveedor) || 0
         });
@@ -1032,10 +1168,16 @@ export const ReservaService = {
     if (!packReservaId || !childReservaId) {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan IDs' } };
     }
+    const adminUid = auth.currentUser?.uid;
+    if (!adminUid) {
+      return { success: false, error: { code: 'auth-required', message: 'Sesión de administrador requerida' } };
+    }
 
     const maestraRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservasPack', packReservaId);
     const childRef = doc(db, 'artifacts', appId, 'public', 'data', 'reservas', childReservaId);
     const espejoRef = doc(db, 'ocupacionConfirmada', childReservaId);
+    const movimientoId = `mov_pack_${packReservaId}`;
+    const movimientoRef = doc(db, 'artifacts', appId, 'public', 'data', 'movimientos', movimientoId);
 
     let maestraData = null;
 
@@ -1073,6 +1215,9 @@ export const ReservaService = {
           traeMoto: childSnap.data().traeMoto,
           sedeId: childSnap.data().sedeId,
           estadoPago: 'Aprobado',
+          estadoCurso: 'En Curso',
+          pagadoProveedor: childSnap.data().pagadoProveedor === true,
+          pagoProveedorId: childSnap.data().pagoProveedorId || null,
           proveedorId: childSnap.data().proveedorId || null,
           comisionProveedor: Number(childSnap.data().comisionProveedor) || 0
         }, { merge: true });
@@ -1081,6 +1226,28 @@ export const ReservaService = {
         transaction.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', maestraData.userId), {
           updatedAt: Timestamp.now()
         });
+
+        // B-MOVIMIENTOS-ATOMICOS: un solo ingreso por pack en la aprobación.
+        const montoMovimiento = Number(maestraData.pagoTotalMoneda) ||
+          Number(maestraData.precioTotalCongelado) ||
+          Math.max(0, (Number(maestraData.precioBaseCongelado) || 0) - (Number(maestraData.descuentoCongelado?.monto) || 0));
+        if (montoMovimiento > 0) {
+          transaction.set(movimientoRef, {
+            id: movimientoId,
+            tipo: 'ingreso',
+            categoria: 'ingreso_reserva',
+            origen: 'reserva',
+            origenId: packReservaId,
+            monto: Number(montoMovimiento.toFixed(2)),
+            desc: `Pack C-${String(packReservaId).slice(-4)}`,
+            fecha: new Date().toISOString().split('T')[0],
+            userId: maestraData.userId,
+            createdBy: adminUid,
+            createdAt: Timestamp.now(),
+            estado: 'confirmado',
+            moneda: 'USD'
+          });
+        }
       });
 
       // ────────── Batch post-transacción: accesos teóricos del pack ──────────
@@ -1122,6 +1289,19 @@ export const ReservaService = {
               motivoRechazo: null,
               vencimiento: null,
               createdAt: ahora,
+              updatedAt: ahora
+            }, { merge: true });
+
+            // B-TEORICO-MODULO-BYPASS: índice de acceso vigente para reglas.
+            const resumenRef = doc(db, ...basePath, 'accesosTeoricosResumen', resumenAccesoId(userIdPack, ctId));
+            batch.set(resumenRef, {
+              userId: String(userIdPack),
+              cursoTeoricoId: String(ctId),
+              estado: 'Aprobado',
+              vencimientoMs: null,
+              origen: 'pack',
+              accesoId,
+              packReservaId,
               updatedAt: ahora
             }, { merge: true });
           }
@@ -1206,7 +1386,12 @@ export const ReservaService = {
         });
 
         // Espejo queda con estado Pendiente (sigue bloqueando el horario)
-        transaction.set(espejoRef, { estadoPago: 'Pendiente' }, { merge: true });
+        transaction.set(espejoRef, {
+          estadoPago: 'Pendiente',
+          estadoCurso: childSnap.data().estadoCurso || 'Pendiente',
+          pagadoProveedor: childSnap.data().pagadoProveedor === true,
+          pagoProveedorId: childSnap.data().pagoProveedorId || null
+        }, { merge: true });
 
         // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
         transaction.update(doc(db, 'artifacts', appId, 'public', 'data', 'usuarios', maestraData.userId), {
@@ -1242,11 +1427,23 @@ export const ReservaService = {
         if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
         maestraData = maestraSnap.data();
 
-        transaction.update(maestraRef, {
+        // B-PACK-SUBRESERVAS-METADATA: al cancelar el pack, las sesiones
+        // activas/bloqueadas pasan a 'cancelado'; las completadas se conservan.
+        const subReservasCanceladas = Array.isArray(maestraData.subReservas)
+          ? maestraData.subReservas.map((s) => ({
+              ...s,
+              estado: s?.estado === 'completado' ? 'completado' : 'cancelado'
+            }))
+          : null;
+        const datosCancelacion = {
           estadoPago: 'Cancelado',
           estado: 'cancelado',
           canceladoEn: Timestamp.now()
-        });
+        };
+        if (subReservasCanceladas && subReservasCanceladas.length > 0) {
+          datosCancelacion.subReservas = subReservasCanceladas;
+        }
+        transaction.update(maestraRef, datosCancelacion);
 
         transaction.update(childRef, {
           estadoPago: 'Cancelado',
@@ -1285,6 +1482,10 @@ export const ReservaService = {
                 motivoRechazo: 'Pack cancelado por el administrador',
                 updatedAt: ahora
               });
+            }
+            // B-TEORICO-MODULO-BYPASS: cerrar el módulo al cancelar el pack.
+            if (maestraData?.userId) {
+              batch.delete(doc(db, ...basePath, 'accesosTeoricosResumen', resumenAccesoId(maestraData.userId, ctId)));
             }
           }
 
@@ -1440,6 +1641,15 @@ export const ReservaService = {
         return { success: false, error: { code: 'not-found', message: 'Reserva no encontrada' } };
       }
       const data = snap.data();
+
+      // B-INTENTOS-CORRECCION: el tope de 3 no depende de la UI.
+      const motivoNoCorregible = validarCorreccionPago(data);
+      if (motivoNoCorregible === 'invalid-state') {
+        return { success: false, error: { code: 'invalid-state', message: 'Solo puedes corregir una reserva rechazada.' } };
+      }
+      if (motivoNoCorregible === 'attempts-exhausted') {
+        return { success: false, error: { code: 'attempts-exhausted', message: 'Has alcanzado el límite de intentos. Contacta al administrador.' } };
+      }
 
       // Si es una child de pack, actualizar también la maestra (mismo pago)
       if (data.tipoReserva === 'pack_sub' && data.packReservaId) {

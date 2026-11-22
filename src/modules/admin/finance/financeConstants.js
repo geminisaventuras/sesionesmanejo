@@ -12,7 +12,7 @@ export const FINANZAS_DEFAULT = {
     correo: '',
     numeracion: ''
   },
-  categoriasIngreso: ['ingreso_reserva', 'ingreso_extra', 'ajuste', 'devolucion'],
+  categoriasIngreso: ['ingreso_reserva', 'ingreso_extra', 'recuperacion_deuda_proveedor', 'recuperacion_deuda_instructor', 'ajuste', 'devolucion'],
   categoriasEgreso: [
     'comision_instructor',
     'comision_proveedor',
@@ -27,6 +27,8 @@ export const FINANZAS_DEFAULT = {
 export const CATEGORIAS = {
   ingreso_reserva: { tipo: 'ingreso', label: 'Ingreso por reserva', icono: 'BookOpen' },
   ingreso_extra: { tipo: 'ingreso', label: 'Ingreso extra', icono: 'PlusCircle' },
+  recuperacion_deuda_proveedor: { tipo: 'ingreso', label: 'Recuperación de deuda proveedor', icono: 'RotateCcw' },
+  recuperacion_deuda_instructor: { tipo: 'ingreso', label: 'Recuperación de deuda tutor', icono: 'RotateCcw' },
   comision_instructor: { tipo: 'egreso', label: 'Comisión instructor', icono: 'User' },
   comision_proveedor: { tipo: 'egreso', label: 'Comisión proveedor', icono: 'Truck' },
   pago_extra_personal: { tipo: 'egreso', label: 'Pago extra a personal', icono: 'Wallet' },

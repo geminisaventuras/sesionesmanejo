@@ -136,3 +136,15 @@ export function sumarProrrateados(precios) {
   );
   return fromCents(totalCents);
 }
+
+/**
+ * B-PACK-DOBLE-COMPRA: un pack de sesiones bloquea una nueva compra mientras
+ * esté Pendiente/Aprobado y activo. Los packs de solo teóricos no bloquean.
+ */
+export function packBloqueaNuevaCompra(pack) {
+  if (!pack) return false;
+  const cursoIds = pack.packSnapshot?.cursoIds || [];
+  return (pack.estadoPago === 'Aprobado' || pack.estadoPago === 'Pendiente') &&
+    (pack.estado === 'activo' || pack.estado === undefined) &&
+    cursoIds.length > 0;
+}

@@ -9,3 +9,16 @@ export function filtrarLocksDeOtros(activeLocks, currentUserId) {
 export function eliminarLockLocal(activeLocks, lockId) {
   return (activeLocks || []).filter(lock => lock.id !== lockId);
 }
+
+/**
+ * B-LOCK-PERMISSION-DENIED-GENERICO: distingue un lock propio vigente de uno
+ * ajeno. Un lock vencido no es conflicto: las reglas permiten tomarlo.
+ */
+export function clasificarConflictoLock(lock, userId, nowMs = Date.now()) {
+  if (!lock) return null;
+  const millis = typeof lock.expiresAt?.toMillis === 'function'
+    ? lock.expiresAt.toMillis()
+    : Number(lock.expiresAt?.seconds ? lock.expiresAt.seconds * 1000 : lock.expiresAt) || 0;
+  if (millis <= nowMs) return null;
+  return String(lock.userId) === String(userId) ? 'lock-own-active' : 'lock-owner-mismatch';
+}

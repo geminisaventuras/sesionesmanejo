@@ -44,7 +44,7 @@ const DeudaItem = memo(({ item, moneda, onPagar, onVerDetalle }) => (
 ));
 
 const AdminFinanzas = memo(() => {
-  const { reservas, instructores, proveedores, config, saveMovimiento, showToast, movimientos, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, proveedores, config, showToast, movimientos, user, logoutUser } = useContext(AppContext);
   const navigate = useNavigate();
   const res = reservas || [];
   const instrs = instructores || [];
@@ -96,21 +96,15 @@ const AdminFinanzas = memo(() => {
       moneda: config.monedaPagoStaff || 'USD',
       metodoPago: 'efectivo',
       notas: '',
-      pagadoPor: auth.currentUser?.uid || null
+      pagadoPor: auth.currentUser?.uid || null,
+      config
     });
     if (!resultado.success) {
       showToast('Error al registrar pago: ' + (resultado.error?.message || ''), 'error');
       return;
     }
-    await saveMovimiento({
-      id: Date.now().toString(),
-      tipo: 'egreso',
-      monto,
-      desc: `Comisión: ${nombre}`,
-      fecha: new Date().toISOString().split('T')[0]
-    });
     showToast('Pago registrado correctamente');
-  }, [saveMovimiento, showToast, config]);
+  }, [showToast, config]);
 
   const pctDeudas = gananciaNeta > 0 ? Math.min(100, (deudasPorPagar / gananciaNeta) * 100) : 0;
   const ultimosMovimientos = useMemo(() => movs.slice().reverse().slice(0, 10), [movs]);

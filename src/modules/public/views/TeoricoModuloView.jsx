@@ -8,6 +8,8 @@ import { ChevronLeft, BookOpen, Video, HelpCircle, Check, Lock, ArrowRight, Load
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 import QuizRenderer from '../components/QuizRenderer';
 import ProgresoTeoricoService from '../services/ProgresoTeoricoService';
+import { AccesoTeoricoService } from '../services/AccesoTeoricoService';
+import { esAccesoVigente } from '../../shared/utils/accesoTeoricoResumen';
 import { useToast } from '../../shared/components/ToastProvider';
 
 const APP_ID = 'motoescuela-pro-v1';
@@ -37,17 +39,36 @@ export default function TeoricoModuloView() {
     setCargando(true);
     setError(null);
     try {
-      // 1. Cargar módulo actual
+      // 1. Curso primero (catálogo público) para saber si es gratis.
+      const cursoSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'cursosTeoricos', cursoId));
+      if (!cursoSnap.exists()) { setError('Curso no encontrado'); setCargando(false); return; }
+      const cursoData = { id: cursoSnap.id, ...cursoSnap.data() };
+      setCurso(cursoData);
+      const esGratis = (Number(cursoData.precio) || 0) === 0;
+      const esAdmin = ctx.user?.role === 'admin';
+
+      // 2. B-TEORICO-MODULO-BYPASS: bloquear URL directa sin acceso vigente.
+      if (!esGratis && !esAdmin) {
+        if (!uid) {
+          setError('Inicia sesión para acceder a este módulo.');
+          setCargando(false);
+          return;
+        }
+        const accesoRes = await AccesoTeoricoService.obtenerAcceso(uid, cursoId);
+        if (!accesoRes.success || !esAccesoVigente(accesoRes.data)) {
+          setError('Necesitas una inscripción aprobada y vigente para ver este módulo.');
+          setCargando(false);
+          return;
+        }
+      }
+
+      // 3. Cargar módulo actual
       const modSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'modulosTeoricos', moduloId));
       if (!modSnap.exists()) { setError('Módulo no encontrado'); setCargando(false); return; }
       const modData = { id: modSnap.id, ...modSnap.data() };
       setModulo(modData);
 
-      // 2. Cargar curso (directo de Firestore)
-      const cursoSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'cursosTeoricos', cursoId));
-      if (cursoSnap.exists()) setCurso({ id: cursoSnap.id, ...cursoSnap.data() });
-
-      // 3. Cargar módulos del curso (para navegación secuencial)
+      // 4. Cargar módulos del curso (para navegación secuencial)
       const modsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'modulosTeoricos');
       const modsQ = query(modsRef, where('cursoId', '==', String(cursoId)));
       const modsSnap = await getDocs(modsQ);
@@ -56,24 +77,26 @@ export default function TeoricoModuloView() {
         .sort((a, b) => (Number(a.orden) || 99) - (Number(b.orden) || 99));
       setModulosCurso(modsDocs);
 
-      // 4. Cargar quiz si aplica
+      // 5. Cargar quiz si aplica
       if (modData.tipo === 'quiz' && modData.quizId) {
         const quizSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'quizzesTeoricos', modData.quizId));
         if (quizSnap.exists()) setQuiz({ id: quizSnap.id, ...quizSnap.data() });
       }
 
-      // 5. Cargar progreso si el usuario está logueado
+      // 6. Cargar progreso si el usuario está logueado
       if (uid) {
         const prog = await ProgresoTeoricoService.obtenerProgreso(uid, cursoId);
         if (prog.success) setProgreso(prog.data);
       }
     } catch (err) {
       console.error('[TeoricoModuloView] Error:', err);
-      setError('No se pudo cargar el módulo. Intenta de nuevo.');
+      setError(err?.code === 'permission-denied'
+        ? 'Necesitas una inscripción aprobada y vigente para ver este módulo.'
+        : 'No se pudo cargar el módulo. Intenta de nuevo.');
     } finally {
       setCargando(false);
     }
-  }, [cursoId, moduloId, uid]);
+  }, [cursoId, moduloId, uid, ctx.user?.role]);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 

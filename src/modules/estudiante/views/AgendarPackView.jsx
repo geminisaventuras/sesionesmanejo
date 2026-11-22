@@ -492,7 +492,9 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       showToast('Horario separado. Tienes 10 minutos para confirmar.', 'success');
     } else {
       const c = res.error?.code;
-      if (c === 'permission-denied') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
+      if (c === 'lock-owner-mismatch' || c === 'lock-taken') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
+      else if (c === 'lock-own-active') showToast('Ya tienes este horario separado. Continúa con el pago o espera a que expire.', 'info');
+      else if (c === 'permission-denied') showToast('No pudimos separar el horario. Revisa tu sesión o intenta de nuevo.', 'error');
       else showToast(res.error?.message || 'No se pudo separar el horario', 'error');
     }
     setSelectingBlockId(null);

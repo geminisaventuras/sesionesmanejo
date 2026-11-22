@@ -3,8 +3,8 @@ import {
   comisionInstructorReserva,
   comisionInstructorTotal,
   comisionProveedorReserva,
-  esPendienteInstructor,
-  esPendienteProveedor
+  construirAsignacionesProveedor,
+  esPendienteInstructor
 } from '../../shared/utils/finanzasHelpers.js';
 import { formatearMonto } from '../../shared/utils/currency.js';
 import { CATEGORIAS, FINANZAS_DEFAULT, etiquetaCategoria, tipoCategoria } from './financeConstants.js';
@@ -75,13 +75,34 @@ export const calcularDeudas = ({ reservas = [], instructores = [], proveedores =
     };
   }).filter((i) => i.deuda > 0);
 
+  // D2-FINANZAS: la deuda de proveedor se calcula por asignaciones pendientes,
+  // no por comisión completa. Incluye al proveedor de reposición de D2.
+  const reservasAprobadas = reservas.filter((r) => r.estadoPago === 'Aprobado');
   const deudasProv = proveedores.map((proveedor) => {
-    const pendientes = reservas.filter((r) => esPendienteProveedor(r, proveedor.id));
+    const asignaciones = [];
+    reservasAprobadas.forEach((reserva) => {
+      construirAsignacionesProveedor(reserva, config).forEach((asignacion) => {
+        if (asignacion.pagado === true) return;
+        if (asignacion.proveedorId == null || asignacion.proveedorId === '') return;
+        if (String(asignacion.proveedorId) !== String(proveedor.id)) return;
+        asignaciones.push({
+          reservaId: reserva.id,
+          dia: asignacion.dia,
+          monto: asignacion.monto
+        });
+      });
+    });
+
+    const deuda = Math.round(
+      asignaciones.reduce((acc, asignacion) => acc + (Number(asignacion.monto) || 0), 0) * 100
+    ) / 100;
+
     return {
       ...proveedor,
       tipo: 'proveedor',
-      deuda: pendientes.reduce((acc, r) => acc + comisionProveedorReserva(r, config), 0),
-      reservaIds: pendientes.map((r) => r.id)
+      deuda,
+      reservaIds: [...new Set(asignaciones.map((asignacion) => asignacion.reservaId))],
+      asignaciones
     };
   }).filter((p) => p.deuda > 0);
 

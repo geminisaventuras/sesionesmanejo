@@ -30,7 +30,7 @@ export default function PerfilTab({ user, saveInstructor }) {
     setGuardando(true);
 
     try {
-      await saveInstructor({ ...user.data, ...perfil });
+      await saveInstructor({ ...user.data, ...perfil }, { merge: true });
       showToast('Perfil actualizado correctamente', 'success');
       setEditando(false);
     } catch (error) {

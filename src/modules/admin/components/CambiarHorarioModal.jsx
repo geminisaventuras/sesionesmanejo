@@ -2,7 +2,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Calendar, Clock, AlertTriangle, X, Repeat } from 'lucide-react';
 import { obtenerLocksActivos, verificarDisponibilidadInstructor, verificarDisponibilidadMoto } from '../utils/reservaHorarioHelpers';
-import { isPastBlock, getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { isPastBlock, getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
@@ -77,12 +77,14 @@ export default function CambiarHorarioModal({
       if (horaOcupada === null || String(horaOcupada) !== String(horaId)) return false;
 
       // La propia reserva ocupa el slot actual (para no ofrecer el mismo bloque).
-      if (r.id === reserva.id) return true;
+      if (String(r.id) === String(reserva.id)) return true;
 
       // Solo bloquea si comparte instructor o moto con la reserva actual.
+      // D2: la moto de `r` se resuelve por fecha (motoReposicionId en fecha2).
       const motoActual = modo === 'reponer_d2' ? (motoReposicionId || reserva.motoAsignadaId) : reserva.motoAsignadaId;
+      const motoR = getMotoIdOcupacion(r, fechaParaFiltrar);
       const mismaInstructor = String(r.instructorId) === String(reserva.instructorId);
-      const mismaMoto = motoActual && String(r.motoAsignadaId) === String(motoActual);
+      const mismaMoto = motoActual && motoR && String(motoR) === String(motoActual);
       return mismaInstructor || mismaMoto;
     };
 
@@ -124,9 +126,9 @@ export default function CambiarHorarioModal({
   }, [nuevaFecha, nuevaFecha2, modo, horarios, ocupacionConfirmada, reserva.id, reserva.sedeId, motoReposicionId, reserva.motoAsignadaId, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2, motos]);
 
   // ── Validaciones al seleccionar ─────────────────────────────
-  const validarSeleccion = useCallback(async () => {
+  const validarSeleccion = useCallback(async (override = {}) => {
     const fechaValidar = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha;
-    const horaValidar = modo === 'reponer_d2' ? horaIdReposicion : nuevoHoraId;
+    const horaValidar = override.horaId ?? (modo === 'reponer_d2' ? horaIdReposicion : nuevoHoraId);
     if (!fechaValidar || !horaValidar) return;
 
     setValidando(true);
@@ -155,8 +157,9 @@ export default function CambiarHorarioModal({
       });
     }
 
+    const motoEfectiva = override.motoId === undefined ? motoReposicionId : override.motoId;
     const motoValidarB = modo === 'reponer_d2'
-      ? (motoReposicionId || reserva.motoAsignadaId)
+      ? (motoEfectiva || reserva.motoAsignadaId)
       : reserva.motoAsignadaId;
     if (motoValidarB && labelValidar) {
       const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
@@ -174,7 +177,7 @@ export default function CambiarHorarioModal({
     const fechaOriginal = modo === 'reponer_d2' ? reserva.fecha : nuevaFecha;
     const fecha2Final = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha2Calculada;
     const motoValidar = modo === 'reponer_d2'
-      ? (motoReposicionId || reserva.motoAsignadaId)
+      ? (motoEfectiva || reserva.motoAsignadaId)
       : reserva.motoAsignadaId;
 
     const instructorDisponible = verificarDisponibilidadInstructor(
@@ -215,8 +218,14 @@ export default function CambiarHorarioModal({
     setValidando(false);
   }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada, horarios, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2, motos]);
 
+  // ── Guardia de cancelada ─────────────────────────────────────
+  // Una reserva cancelada no puede reprogramarse: no se escribe reserva,
+  // espejo, locks ni auditoría.
+  const reservaCancelada = reserva?.estadoPago === 'Cancelado';
+
   // ── Confirmar ────────────────────────────────────────────────
   const handleConfirmar = () => {
+    if (reservaCancelada) return;
     // SSOT-BLOQUEOS: freno táctico. Si el usuario seleccionó un horario bloqueado
     // (por race condition o porque no revalidó), no dejamos confirmar.
     const horaFinal = modo === 'reponer_d2' ? horaIdReposicion : nuevoHoraId;
@@ -270,9 +279,9 @@ export default function CambiarHorarioModal({
     }
   };
 
-  const puedeConfirmar = modo === 'reponer_d2'
+  const puedeConfirmar = !reservaCancelada && (modo === 'reponer_d2'
     ? (!!nuevaFecha2 && !!horaIdReposicion && !!motivo && !validando)
-    : (!!nuevaFecha && !!nuevoHoraId && !!motivo && !validando);
+    : (!!nuevaFecha && !!nuevoHoraId && !!motivo && !validando));
 
   const motosDisponibles = (motos || []).filter(m => m.activo !== false);
 
@@ -290,6 +299,14 @@ export default function CambiarHorarioModal({
         </div>
 
         <div className="p-4 space-y-4">
+          {reservaCancelada && (
+            <div className="bg-gray-100 border-2 border-gray-300 rounded-xl p-3">
+              <p className="text-xs font-black text-gray-800">
+                🚫 Esta reserva está cancelada. No se puede reprogramar.
+              </p>
+            </div>
+          )}
+
           {/* Selector de modo (solo si aplica) */}
           {puedeReponerD2 && (
             <div className="bg-blue-50 border border-blue-200 p-2 rounded-xl">
@@ -376,7 +393,7 @@ export default function CambiarHorarioModal({
                   value={horaIdReposicion}
                   onChange={(e) => {
                     setHoraIdReposicion(e.target.value);
-                    validarSeleccion();
+                    validarSeleccion({ horaId: e.target.value });
                   }}
                   disabled={!nuevaFecha2}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500 disabled:opacity-50"
@@ -406,6 +423,7 @@ export default function CambiarHorarioModal({
                     onChange={(e) => {
                       setMotoReposicionId(e.target.value);
                       setAdvertencias([]);
+                      validarSeleccion({ motoId: e.target.value });
                     }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500"
                   >
@@ -455,7 +473,7 @@ export default function CambiarHorarioModal({
                   value={nuevoHoraId}
                   onChange={(e) => {
                     setNuevoHoraId(e.target.value);
-                    validarSeleccion();
+                    validarSeleccion({ horaId: e.target.value });
                   }}
                   disabled={!nuevaFecha}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500 disabled:opacity-50"

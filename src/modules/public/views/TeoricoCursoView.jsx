@@ -6,6 +6,7 @@ import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { ChevronLeft, BookOpen, Video, HelpCircle, Check, Lock, Play, Loader2, AlertCircle } from 'lucide-react';
 import LegalFooter from '../../shared/components/LegalFooter';
+import { esAccesoVigente } from '../../shared/utils/accesoTeoricoResumen';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -51,7 +52,12 @@ export default function TeoricoCursoView() {
         where('cursoId', '==', String(cursoId))
       );
 
-      const promises = [getDocs(modsQuery)];
+      // Si el usuario no tiene acceso, la regla de módulos devuelve
+      // permission-denied; lo tratamos como lista vacía para mostrar el CTA.
+      const promises = [getDocs(modsQuery).catch(err => {
+        if (err.code === 'permission-denied') return { docs: [] };
+        throw err;
+      })];
 
       if (uid) {
         const progRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'logrosUsuario', uid);
@@ -79,7 +85,7 @@ export default function TeoricoCursoView() {
       const setAccesos = new Set();
       (accSnap?.docs || []).forEach(d => {
         const a = d.data();
-        if (a.estadoPago === 'Aprobado') setAccesos.add(String(a.cursoTeoricoId));
+        if (esAccesoVigente(a)) setAccesos.add(String(a.cursoTeoricoId));
       });
       setAccesosAprobados(setAccesos);
     } catch (err) {
@@ -130,7 +136,8 @@ export default function TeoricoCursoView() {
   }
 
   const esGratis = (Number(curso?.precio) || 0) === 0;
-  const tieneAcceso = esGratis || accesosAprobados.has(String(cursoId));
+  const esAdmin = ctx.user?.role === 'admin';
+  const tieneAcceso = esAdmin || esGratis || accesosAprobados.has(String(cursoId));
 
   if (!tieneAcceso) {
     return (

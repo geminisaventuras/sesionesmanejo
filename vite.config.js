@@ -7,7 +7,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      injectRegister: null,
       includeAssets: ['icon-192-v2.png', 'icon-512-v2.png', 'apple-touch-icon-v2.png'],
       manifest: false,
       workbox: {
@@ -34,6 +35,14 @@ export default defineConfig({
     }),
   ],
   server: {
+    watch: {
+      ignored: [
+        '**/tests/.auth/**',
+        '**/test-results/**',
+        '**/playwright-report/**',
+        '**/blob-report/**'
+      ]
+    },
     headers: {
       'Cache-Control': 'no-store',
     },

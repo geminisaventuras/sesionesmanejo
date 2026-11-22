@@ -25,7 +25,6 @@ export default function AdminAccesoTeoricoDetalle() {
   const { accesoId } = useParams();
   const navigate = useNavigate();
   const ctx = useContext(AppContext);
-  const { saveMovimiento } = ctx;
   const { showToast } = useToast();
 
   const [acceso, setAcceso] = useState(null);
@@ -81,25 +80,6 @@ export default function AdminAccesoTeoricoDetalle() {
     );
     setProcesando(false);
     if (res.success) {
-      // FASE-5D: movimiento contable con ID determinístico (idempotente)
-      try {
-        const cursoNombre = curso?.nombre || 'Módulo formativo';
-        await saveMovimiento({
-          id: `mov_acc_${acceso.id}`,
-          tipo: 'ingreso',
-          categoria: 'ingreso_reserva',
-          origen: 'sistema',
-          origenId: acceso.id,
-          monto: Number(acceso.precio) || 0,
-          desc: `Módulo formativo - ${cursoNombre} - A-${String(acceso.id).slice(-4)}`,
-          fecha: new Date().toISOString().split('T')[0],
-          referenciaId: acceso.id,
-          referenciaTipo: 'acceso_teorico'
-        });
-      } catch (err) {
-        console.warn('[AdminAccesoTeoricoDetalle] Error guardando movimiento:', err);
-        showToast('Acceso aprobado. Falló el registro contable. Agregalo manual en Finanzas.', 'info');
-      }
       showToast('Acceso aprobado correctamente.', 'success');
       navigate('/admin/reservas');
     } else {

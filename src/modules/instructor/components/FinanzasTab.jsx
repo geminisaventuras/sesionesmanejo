@@ -8,6 +8,10 @@ import { formatearFechaSinAnio } from '../../shared/utils/fechas';
 import EmptyState from '../../shared/components/EmptyState';
 import { Spinner } from '../../../components/UI';
 import { PagosStaffService } from '../../../services/PagosStaffService';
+import {
+  comisionInstructorReserva,
+  esPendienteInstructor
+} from '../../shared/utils/finanzasHelpers';
 
 const TABS = [
   { id: 'cobrar', label: 'Por Cobrar' },
@@ -53,9 +57,11 @@ function calcularComision(reserva, curso) {
   return 0;
 }
 
-// A2.1: comisión fraccionada cuando la reserva es compartida.
-// Si la reserva no es compartida, delega en calcularComision (mismo comportamiento).
+// T-025 / FT-001: el mapa D1/D2 manda; cada tutor cobra solo su asignación.
 function calcularComisionInstructor(reserva, curso, userId) {
+  if (reserva?.pagosInstructorDia) {
+    return comisionInstructorReserva(reserva, userId);
+  }
   const total = calcularComision(reserva, curso);
   if (!reserva?.esReservaCompartida) return total;
   const inv = (reserva.instructoresInvolucrados || []).find(
@@ -65,9 +71,13 @@ function calcularComisionInstructor(reserva, curso, userId) {
   return total * (inv.porcentaje / 100);
 }
 
-// A2.1: chequea si la parte del instructor ya fue pagada
+// T-025 / FT-001: con mapa, "pagado" significa que mi asignación está pagada.
 function estaPagadoMiParte(reserva, userId) {
-  if (!reserva?.esReservaCompartida) return reserva?.pagadoInstructor === true;
+  if (!reserva) return false;
+  if (reserva.pagosInstructorDia) {
+    return !esPendienteInstructor(reserva, userId);
+  }
+  if (!reserva.esReservaCompartida) return reserva?.pagadoInstructor === true;
   const inv = (reserva.instructoresInvolucrados || []).find(
     i => String(i.id) === String(userId)
   );

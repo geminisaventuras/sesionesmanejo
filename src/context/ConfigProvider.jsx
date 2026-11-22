@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { normalizarConfigNumerica } from '../modules/shared/utils/configNumerica';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -16,19 +17,20 @@ export function useConfigProvider(authReady, fbUser) {
   useEffect(() => {
     if (!db || !authReady || !fbUser) return;
     const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main');
-    const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setConfig(snap.data()); });
+    const unsub = onSnapshot(docRef, (snap) => { if (snap.exists()) setConfig(normalizarConfigNumerica(snap.data())); });
     return () => unsub();
   }, [authReady, fbUser]);
 
   const saveConfig = async (newCfg) => {
+    const payload = normalizarConfigNumerica(newCfg);
     if (db && fbUser) {
       try {
-       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), newCfg, { merge: true });
+       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), payload, { merge: true });
       } catch (err) {
         console.warn('[ConfigProvider] Error al guardar configuración:', err.code);
       }
     } else {
-      setConfig(newCfg);
+      setConfig(payload);
     }
   };
 

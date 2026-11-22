@@ -5,6 +5,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { GraduationCap, BookOpen, FileText, Play, ExternalLink, Sparkles, Loader2, Zap, AlertCircle } from 'lucide-react';
+import { resumirAccesosTeoricos } from '../../shared/utils/accesoTeoricoResumen';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -19,6 +20,19 @@ const formatearPrecio = (precio, moneda) => {
   const p = Number(precio) || 0;
   if (p === 0) return 'Gratis';
   return `$${p} ${moneda || 'USD'}`;
+};
+
+const formatearVencimiento = (ms) => {
+  if (!ms) return null;
+  try {
+    return new Date(ms).toLocaleDateString('es-VE', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  } catch {
+    return null;
+  }
 };
 
 export function VistaFormacion({ showToast }) {
@@ -49,13 +63,14 @@ export function VistaFormacion({ showToast }) {
 
   useEffect(() => { cargarAccesos(); }, [cargarAccesos]);
 
+  const resumenAccesos = useMemo(
+    () => resumirAccesosTeoricos(accesos, cursosTeoricos),
+    [accesos, cursosTeoricos]
+  );
+
   const accesosAprobados = useMemo(() => {
-    const set = new Set();
-    (accesos || []).forEach(a => {
-      if (a.estadoPago === 'Aprobado') set.add(String(a.cursoTeoricoId));
-    });
-    return set;
-  }, [accesos]);
+    return new Set(resumenAccesos.map((acceso) => acceso.cursoId));
+  }, [resumenAccesos]);
 
   // FIX-T2.6: accesos rechazados (detección legacy + nuevo flujo T2).
   const accesosRechazados = useMemo(() => {
@@ -69,9 +84,7 @@ export function VistaFormacion({ showToast }) {
 
   const todosCursos = useMemo(() => (cursosTeoricos || []).filter(c => c.activo !== false), [cursosTeoricos]);
 
-  const misModulos = useMemo(() => {
-    return todosCursos.filter(c => accesosAprobados.has(String(c.id)));
-  }, [todosCursos, accesosAprobados]);
+  const misModulos = resumenAccesos;
 
   const modulosGratuitos = useMemo(() => {
     return todosCursos
@@ -155,20 +168,37 @@ export function VistaFormacion({ showToast }) {
           <div className="space-y-2">
             {misModulos.map(c => (
               <button
-                key={c.id}
-                onClick={() => handleAbrirModulo(c.id)}
-                className="w-full text-left bg-white rounded-2xl p-4 shadow-sm border border-gray-100 hover:border-teal-300 hover:shadow-md transition-all active:scale-[0.98] flex items-center gap-3"
+                key={c.cursoId}
+                onClick={() => handleAbrirModulo(c.cursoId)}
+                className={`w-full text-left bg-white rounded-2xl p-4 shadow-sm border transition-all active:scale-[0.98] flex items-center gap-3 ${
+                  c.vigente
+                    ? 'border-gray-100 hover:border-teal-300 hover:shadow-md'
+                    : 'border-rose-200 hover:border-rose-300'
+                }`}
               >
-                <div className="w-11 h-11 rounded-2xl bg-teal-50 flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={20} className="text-teal-600" />
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                  c.vigente ? 'bg-teal-50' : 'bg-rose-50'
+                }`}>
+                  <BookOpen size={20} className={c.vigente ? 'text-teal-600' : 'text-rose-600'} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-sm text-gray-900 truncate">{c.nombre}</p>
                   <p className="text-xs text-gray-500 truncate">
-                    {c.totalModulos || 0} módulos · {c.totalQuizzes || 0} retos
+                    {c.totalModulos || 0} módulos habilitados · {c.totalQuizzes || 0} retos
+                  </p>
+                  <p className={`text-[10px] font-bold mt-0.5 ${c.vigente ? 'text-green-700' : 'text-rose-600'}`}>
+                    {c.vigente
+                      ? (c.vitalicio ? 'Acceso vitalicio' : `Vence ${formatearVencimiento(c.vencimientoMs)}`)
+                      : `Vencido ${formatearVencimiento(c.vencimientoMs) || ''}`.trim()}
                   </p>
                 </div>
-                <Sparkles size={18} className="text-teal-500 flex-shrink-0" />
+                <span className={`text-[10px] font-bold px-2 py-1 rounded flex-shrink-0 ${
+                  c.vigente
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-rose-100 text-rose-700'
+                }`}>
+                  {c.vigente ? (c.vitalicio ? 'Vitalicio' : 'Activo') : 'Vencido'}
+                </span>
               </button>
             ))}
           </div>

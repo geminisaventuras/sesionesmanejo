@@ -138,6 +138,12 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
       alert('Debes agregar al menos un curso al pack');
       return;
     }
+    // B-PACK-SUBRESERVAS-METADATA: tope técnico para validar los índices
+    // no actuales en reglas sin recorrer listas.
+    if (form.cursoIds.length > 8) {
+      alert('Un pack puede tener como máximo 8 cursos de sesiones.');
+      return;
+    }
     if (!form.sedesPermitidas || form.sedesPermitidas.length === 0) {
       alert('Debes habilitar al menos una sede para el pack');
       return;

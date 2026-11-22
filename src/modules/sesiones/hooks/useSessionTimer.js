@@ -1,6 +1,6 @@
 // @build: 2026-09-04 | id: OPTIMIZACION-HEARTBEAT-PRESENCIA | backup: useSessionTimer.backup-20260904-000000 | desc: Heartbeat de presencia solo en mount/visibility/online/unmount. Lógica D1/D2 intacta.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
 import { SGTA_DEFAULTS } from '../constants';
 import { alertas } from '../../shared/utils/alertas';
@@ -8,6 +8,37 @@ import { reproducirBeepModuloCompletado } from '../../shared/utils/audio';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
 
 const APP_ID = 'motoescuela-pro-v1';
+
+// B-PACK-AVANCE-FIRE-AND-FORGET: reintentos con backoff para el avance de la
+// maestra. Solo reintenta errores transitorios; los estados terminales
+// (child no aprobada, pack no encontrado) se devuelven de inmediato.
+const AVANCE_PACK_DELAYS_MS = [0, 1000, 3000];
+const AVANCE_PACK_ERRORES_TRANSITORIOS = new Set([
+  'unavailable',
+  'deadline-exceeded',
+  'resource-exhausted',
+  'aborted',
+  'internal',
+  'transaction-failed',
+  'network-error'
+]);
+
+async function avanzarPackConReintentos(packReservaId, childId, cursoActualIndex) {
+  let ultimo = null;
+  for (const delay of AVANCE_PACK_DELAYS_MS) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const res = await ReservaService.avanzarPackTrasCompletarCurso(packReservaId, childId, cursoActualIndex);
+      if (res?.success) return res;
+      ultimo = res;
+      if (!AVANCE_PACK_ERRORES_TRANSITORIOS.has(res?.error?.code)) return res;
+    } catch (error) {
+      ultimo = { success: false, error: { code: error?.code, message: error?.message } };
+      if (!AVANCE_PACK_ERRORES_TRANSITORIOS.has(error?.code)) return ultimo;
+    }
+  }
+  return ultimo || { success: false };
+}
 
 function parseHora(str) {
   const match = str.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -277,6 +308,13 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     }
   }, [reserva, showToast]);
 
+  // B-PROVEEDOR-MIRROR-PAGOS: el portal del proveedor lee estadoCurso del
+  // espejo. Solo se actualiza ese campo (la regla lo permite al dueño/instructor).
+  const sincronizarEspejoEstadoCurso = useCallback((estadoCurso) => {
+    if (!reserva?.id || !estadoCurso) return;
+    setDoc(doc(db, 'ocupacionConfirmada', reserva.id), { estadoCurso }, { merge: true }).catch(() => {});
+  }, [reserva?.id]);
+
   const iniciarModulo = useCallback(async (nombre) => {
     if (!reserva) return;
     const curso = opcionesRef.current?.curso;
@@ -393,21 +431,26 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
        alertas.moduloCompletado();
     reproducirBeepModuloCompletado();
     await actualizar(campos);
+    if (campos.estadoCurso) sincronizarEspejoEstadoCurso(campos.estadoCurso);
 
     showToast(todosCompletados ? 'Sesión completada exitosamente' : `"${nombre}" completado (${dur} min)`, 'success');
 
     // Fase 5.2c: si el curso es parte de un pack y se completó, avanzar la maestra
     // en fire-and-forget. La idempotencia está garantizada dentro del método.
     if (todosCompletados && reserva.packReservaId && reserva.packCursoIndex !== undefined) {
-      ReservaService.avanzarPackTrasCompletarCurso(
+      avanzarPackConReintentos(
         reserva.packReservaId,
         reserva.id,
         reserva.packCursoIndex
-      ).catch(err => {
+      ).then(res => {
+        if (!res?.success) {
+          showToast('El curso se completó, pero no pudimos actualizar el pack. Contacta a soporte si el siguiente curso sigue bloqueado.', 'error');
+        }
+      }).catch(err => {
         console.warn('[finalizarModulo] Error avanzando pack:', err);
       });
     }
-  }, [reserva, opcionesRef, showToast, actualizar]);
+  }, [reserva, opcionesRef, showToast, actualizar, sincronizarEspejoEstadoCurso]);
 
   const pausarSesion = useCallback(async (motivo) => {
     if (!reserva || sgtaRef.current.pausaActiva) return;
@@ -556,15 +599,20 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
       }
 
         await actualizar({ modulosEstado: nuevoModulosEstado, moduloEnProgreso: null, estadoCurso: 'Aprobado' });
+      sincronizarEspejoEstadoCurso('Aprobado');
 
       // Fase 5.2c-bis: si el curso es parte de un pack, avanzar la maestra
       // en fire-and-forget. Idempotencia interna.
       if (reserva.packReservaId && reserva.packCursoIndex !== undefined) {
-        ReservaService.avanzarPackTrasCompletarCurso(
+        avanzarPackConReintentos(
           reserva.packReservaId,
           reserva.id,
           reserva.packCursoIndex
-        ).catch(err => {
+        ).then(res => {
+          if (!res?.success) {
+            showToast('El curso se completó, pero no pudimos actualizar el pack. Contacta a soporte si el siguiente curso sigue bloqueado.', 'error');
+          }
+        }).catch(err => {
           console.warn('[completarCursoManualmente] Error avanzando pack:', err);
         });
       }
@@ -574,7 +622,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
       console.error('[completarCursoManualmente] Error:', error);
       return { success: false, modulosCompletados: 0, error };
     }
-  }, [reserva, actualizar, opcionesRef]);
+  }, [reserva, actualizar, opcionesRef, showToast, sincronizarEspejoEstadoCurso]);
 
   const detenerReserva = useCallback(async () => {
     const restanteActual = sgtaRef.current.reservaRestante || 0;

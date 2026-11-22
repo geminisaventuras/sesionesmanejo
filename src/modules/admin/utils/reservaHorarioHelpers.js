@@ -1,6 +1,7 @@
 // @build: 2026-08-28.16-00-00 | id: BXX-BYY | backup: reservaHorarioHelpers.js.backup-20260828-160000 | desc: Utilidades para validación de cambio de horario
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers';
 
 /**
  * Obtiene locks activos para una fecha y horario
@@ -37,17 +38,22 @@ export function verificarDisponibilidadInstructor(
   excluirReservaId
 ) {
   if (!instructorId) return true;
-  
+
+  // D2: comparar el bloque EFECTIVO de cada fecha candidata
+  // (horaIdReposicion en fecha2), no solo r.horaId.
+  const fechas = [fecha, fecha2].filter(Boolean);
+
   const conflictos = (ocupacionConfirmada || []).filter(r => {
-    if (r.id === excluirReservaId) return false;
-    if (r.instructorId !== instructorId) return false;
+    if (String(r.id) === String(excluirReservaId)) return false;
+    if (String(r.instructorId) !== String(instructorId)) return false;
     if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
-    if (r.horaId !== horaId) return false;
-    
-    return r.fecha === fecha || r.fecha === fecha2 || 
-           r.fecha2 === fecha || r.fecha2 === fecha2;
+
+    return fechas.some(f => {
+      const bloqueR = getHoraIdOcupacion(r, f);
+      return bloqueR != null && String(bloqueR) === String(horaId);
+    });
   });
-  
+
   return conflictos.length === 0;
 }
 
@@ -63,17 +69,23 @@ export function verificarDisponibilidadMoto(
   excluirReservaId
 ) {
   if (!motoId) return true;
-  
+
+  // D2: comparar la moto EFECTIVA de cada fecha candidata
+  // (motoReposicionId en fecha2), no solo r.motoAsignadaId.
+  const fechas = [fecha, fecha2].filter(Boolean);
+
   const conflictos = (ocupacionConfirmada || []).filter(r => {
-    if (r.id === excluirReservaId) return false;
-    if (r.motoAsignadaId !== motoId) return false;
+    if (String(r.id) === String(excluirReservaId)) return false;
     if (r.traeMoto === 'Sí') return false;
     if (r.estadoPago !== 'Aprobado' && r.estadoPago !== 'Pendiente') return false;
-    if (r.horaId !== horaId) return false;
-    
-    return r.fecha === fecha || r.fecha === fecha2 || 
-           r.fecha2 === fecha || r.fecha2 === fecha2;
+
+    return fechas.some(f => {
+      const motoR = getMotoIdOcupacion(r, f);
+      if (motoR == null || String(motoR) !== String(motoId)) return false;
+      const bloqueR = getHoraIdOcupacion(r, f);
+      return bloqueR != null && String(bloqueR) === String(horaId);
+    });
   });
-  
+
   return conflictos.length === 0;
 }

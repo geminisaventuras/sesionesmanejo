@@ -95,6 +95,156 @@ service cloud.firestore {
         (pc.permiteTraerMotoPropiaPorCurso[d.packCursoIndex] == true || d.traeMoto == 'No');
     }
 
+    // B-RESERVA-PRECIOS-CLIENTE: precio individual contra catálogo (cursos +
+    // configuraciones + sedes). Tolerancia 0.02 por redondeo a centavos.
+    function cercaNumero(a, b) {
+      return a is number && b is number && (a - b) * (a - b) < 0.0004;
+    }
+
+    function configApp() {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/configuraciones/main).data;
+    }
+
+    function cursoApp(cursoId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/cursos/$(cursoId)).data;
+    }
+
+    function cursoTeoricoPre(cursoTeoricoId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/cursosTeoricos/$(cursoTeoricoId)).data;
+    }
+
+    function cursoTeoricoGratis(cursoId) {
+      return cursoTeoricoPre(cursoId).get('precio', 1) == 0;
+    }
+
+    // B-TEORICO-MODULO-BYPASS / VENCIMIENTO: acceso vigente por usuario/curso.
+    function accesoTeoricoVigente(cursoId) {
+      let a = get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/accesosTeoricosResumen/$(request.auth.uid + '_' + cursoId)).data;
+      let venc = a.get('vencimientoMs', null);
+      return a.estado == 'Aprobado' && (venc == null || venc > request.time.toMillis());
+    }
+
+    function sedeApp(sedeId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/sedes/$(sedeId)).data;
+    }
+
+    function tasaFXVigente(cfg) {
+      let tasa = cfg.get('monedaCobroClientes', 'EUR') == 'USD'
+        ? cfg.get('tasaUSD', 1)
+        : cfg.get('tasaEUR', 1);
+      return tasa > 0 ? tasa : 1;
+    }
+
+    function precioIndividualEsperado(curso, cfg, sede, d) {
+      let base = curso.get('precioBase', 0) > 0 ? curso.get('precioBase', 0) : cfg.get('precioBase', 0);
+      let total = base
+        + (sede.get('nombre', '') == 'Guarenas' ? cfg.get('recargoGuarenas', 0) : 0)
+        + (d.sabeBicicleta == 'No' ? cfg.get('recargoSinBici', 0) : 0)
+        - (d.traeMoto == 'Sí' ? cfg.get('descuentoMotoPropia', 0) : 0)
+        + (d.traeMoto != 'Sí' && curso.get('motoIncluida', true) != false ? curso.get('precioAlquilerMoto', 0) : 0)
+        - cfg.get('descuentoPromo', 0);
+      return total > 0 ? total : 0;
+    }
+
+    function comisionProveedorEsperada(curso, d) {
+      return d.traeMoto == 'Sí' ? 0 : (
+        d.sedeId in curso.get('comisionProveedorPorSede', {})
+          ? curso.get('comisionProveedorPorSede', {})[d.sedeId]
+          : curso.get('comisionProveedor', 0)
+      );
+    }
+
+    function traeMotoIndividualPermitido(curso, d) {
+      return (curso.get('motoIncluida', true) != false || d.traeMoto == 'Sí') &&
+             (curso.get('permiteTraerMotoPropia', true) != false || d.traeMoto == 'No');
+    }
+
+    function precioIndividualValido(curso, cfg, sede, d) {
+      let total = precioIndividualEsperado(curso, cfg, sede, d);
+      return d.precio is number &&
+        d.pagoTotalMoneda is number &&
+        d.pagoTotalVES is number &&
+        d.pagoTotalVES > 0 &&
+        d.precio > 0 &&
+        d.precioSnapshot is map &&
+        d.precioSnapshot.version == 1 &&
+        d.precioSnapshot.moneda == 'USD' &&
+        d.precioSnapshot.cursoId == d.cursoId &&
+        d.precioSnapshot.sedeId == d.sedeId &&
+        d.precioSnapshot.traeMoto == d.traeMoto &&
+        d.precioSnapshot.sabeBicicleta == d.sabeBicicleta &&
+        cercaNumero(d.precio, total) &&
+        cercaNumero(d.pagoTotalMoneda, total) &&
+        cercaNumero(d.precioSnapshot.precioTotal, total) &&
+        cercaNumero(d.comisionInstructor, curso.get('comisionInstructor', 0)) &&
+        cercaNumero(d.precioSnapshot.comisionInstructor, d.comisionInstructor) &&
+        cercaNumero(d.comisionProveedor, comisionProveedorEsperada(curso, d)) &&
+        cercaNumero(d.precioSnapshot.comisionProveedor, d.comisionProveedor) &&
+        cercaNumero(d.precioSnapshot.tasaFX, tasaFXVigente(cfg)) &&
+        cercaNumero(d.pagoTotalVES, d.precio * tasaFXVigente(cfg)) &&
+        cercaNumero(d.precioSnapshot.pagoTotalVES, d.pagoTotalVES) &&
+        (d.traeMoto != 'Sí' || (
+          d.comisionProveedor == 0 &&
+          d.proveedorId == null &&
+          d.motoAsignadaId == null
+        )) &&
+        traeMotoIndividualPermitido(curso, d);
+    }
+
+    // B-PACK-SUBRESERVAS-METADATA: el dueño solo puede tocar el índice actual
+    // (y únicamente su reservaId). Los demás índices deben quedar idénticos.
+    function subReservasAjenasSinCambios(actual) {
+      return (actual == 0 || resource.data.subReservas.size() <= 0 || request.resource.data.subReservas[0] == resource.data.subReservas[0]) &&
+        (actual == 1 || resource.data.subReservas.size() <= 1 || request.resource.data.subReservas[1] == resource.data.subReservas[1]) &&
+        (actual == 2 || resource.data.subReservas.size() <= 2 || request.resource.data.subReservas[2] == resource.data.subReservas[2]) &&
+        (actual == 3 || resource.data.subReservas.size() <= 3 || request.resource.data.subReservas[3] == resource.data.subReservas[3]) &&
+        (actual == 4 || resource.data.subReservas.size() <= 4 || request.resource.data.subReservas[4] == resource.data.subReservas[4]) &&
+        (actual == 5 || resource.data.subReservas.size() <= 5 || request.resource.data.subReservas[5] == resource.data.subReservas[5]) &&
+        (actual == 6 || resource.data.subReservas.size() <= 6 || request.resource.data.subReservas[6] == resource.data.subReservas[6]) &&
+        (actual == 7 || resource.data.subReservas.size() <= 7 || request.resource.data.subReservas[7] == resource.data.subReservas[7]);
+    }
+
+    // B-ESPEJO-FANTASMA: el espejo debe coincidir campo a campo con la reserva.
+    function espejoCoincideReserva(r) {
+      return r.data.userId == request.auth.uid &&
+        request.resource.data.userId == r.data.userId &&
+        request.resource.data.fecha == r.data.fecha &&
+        request.resource.data.get('fecha2', null) == r.data.get('fecha2', null) &&
+        request.resource.data.horaId == r.data.horaId &&
+        request.resource.data.instructorId == r.data.instructorId &&
+        request.resource.data.get('motoAsignadaId', null) == r.data.get('motoAsignadaId', null) &&
+        request.resource.data.get('horaIdReposicion', null) == r.data.get('horaIdReposicion', null) &&
+        request.resource.data.get('motoReposicionId', null) == r.data.get('motoReposicionId', null) &&
+        request.resource.data.get('proveedorReposicionId', null) == r.data.get('proveedorReposicionId', null) &&
+        request.resource.data.traeMoto == r.data.traeMoto &&
+        request.resource.data.sedeId == r.data.sedeId &&
+        request.resource.data.get('tipoCurso', null) == r.data.get('tipoCurso', null) &&
+        request.resource.data.estadoPago == r.data.estadoPago &&
+        (
+          request.resource.data.get('estadoCurso', null) == r.data.get('estadoCurso', null) ||
+          // Compatibilidad PWA vieja: el espejo puede omitir estadoCurso solo
+          // cuando la reserva recién creada sigue en Pendiente.
+          (!('estadoCurso' in request.resource.data) && r.data.get('estadoCurso', 'Pendiente') == 'Pendiente')
+        ) &&
+        request.resource.data.get('pagadoProveedor', false) == r.data.get('pagadoProveedor', false) &&
+        request.resource.data.get('pagoProveedorId', null) == r.data.get('pagoProveedorId', null) &&
+        request.resource.data.get('proveedorId', null) == r.data.get('proveedorId', null) &&
+        request.resource.data.get('comisionProveedor', 0) == r.data.get('comisionProveedor', 0);
+    }
+
+    // B-FX-CONCILIACION: la maestra congela la tasa y el VES desde la configuración.
+    function fxMasterValido(cfg, m) {
+      let fx = m.get('fxCongelado', null);
+      let tasa = tasaFXVigente(cfg);
+      return fx is map &&
+        fx.version == 1 &&
+        fx.monedaBase == 'USD' &&
+        fx.monedaCobro == cfg.get('monedaCobroClientes', 'EUR') &&
+        cercaNumero(fx.tasaFX, tasa) &&
+        cercaNumero(fx.pagoTotalVES, m.pagoTotalVES) &&
+        cercaNumero(m.pagoTotalVES, m.precioTotalCongelado * tasa);
+    }
+
     function esLockCorrupto(lockData) {
       return !(
         'userId' in lockData &&
@@ -120,9 +270,19 @@ service cloud.firestore {
                         !exists(/databases/$(database)/documents/locks/$(lockId)) ||
                         get(/databases/$(database)/documents/locks/$(lockId)).data.expiresAt < request.time
                       ); 
-      allow update: if isAuth() &&
-                      resource.data.userId == request.auth.uid &&
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt']);
+      allow update: if isAuth() && (
+        (
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+        ) ||
+        (
+          // B-LOCKS-EXPIRADOS-BLOQUEAN: toma de un lock vencido de otro usuario.
+          resource.data.expiresAt < request.time &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.expiresAt is timestamp &&
+          request.resource.data.expiresAt <= request.time + duration.value(900, 's')
+        )
+      );
       allow delete: if isAuth() && (
         ('userId' in resource.data && resource.data.userId == request.auth.uid) ||
         isAdmin()
@@ -135,10 +295,21 @@ service cloud.firestore {
                       request.resource.data.expiresAt is timestamp &&
                       request.resource.data.expiresAt <= request.time + duration.value(900, 's') &&
                       getAfter(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid;
-      allow update: if isAuth() &&
-                      exists(/databases/$(database)/documents/locks/$(lockId)) &&
-                      get(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid &&
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt']);
+      allow update: if isAuth() && (
+        (
+          exists(/databases/$(database)/documents/locks/$(lockId)) &&
+          get(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid &&
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+        ) ||
+        (
+          // Toma del espejo temporal cuando el lock ya venció.
+          resource.data.expiresAt < request.time &&
+          getAfter(/databases/$(database)/documents/locks/$(lockId)).data.userId == request.auth.uid &&
+          request.resource.data.expiresAt is timestamp &&
+          request.resource.data.expiresAt <= request.time + duration.value(900, 's')
+        )
+      );
       allow delete: if isAuth() && (
         ('userId' in resource.data && resource.data.userId == request.auth.uid) ||
         isAdmin()
@@ -148,26 +319,27 @@ service cloud.firestore {
     match /ocupacionConfirmada/{docId} {
       allow read: if isAuth();
       allow create: if isAdmin() || (
-        isAuth() && 
-        request.resource.data.userId == request.auth.uid &&
-        getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.userId == request.auth.uid &&
-        (
-          getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.get('tipoReserva', null) != 'pack_sub' ||
-          (
-            request.resource.data.fecha == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.fecha &&
-            request.resource.data.fecha2 == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.fecha2 &&
-            request.resource.data.horaId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.horaId &&
-            request.resource.data.instructorId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.instructorId &&
-            request.resource.data.motoAsignadaId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.motoAsignadaId &&
-            request.resource.data.traeMoto == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.traeMoto &&
-            request.resource.data.sedeId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.sedeId &&
-            request.resource.data.tipoCurso == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.tipoCurso &&
-            request.resource.data.estadoPago == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.estadoPago &&
-            request.resource.data.proveedorId == getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)).data.proveedorId
-          )
-        )
+        isAuth() &&
+        espejoCoincideReserva(getAfter(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(docId)))
       );
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuth() &&
+        (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.instructorId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estadoCurso']) &&
+        request.resource.data.estadoCurso in ['Pendiente', 'En Curso', 'Aprobado', 'Completado', 'Cancelado']
+      );
+      allow delete: if isAdmin();
+    }
+
+    // B-PACK-DOBLE-COMPRA: lock por usuario para el pack de sesiones activo.
+    // El servicio lo escribe dentro de la transacción de compra.
+    match /packActivo/{uid} {
+      allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+      allow create, update: if isAuth() &&
+        request.auth.uid == uid &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.packReservaId is string;
+      allow delete: if isAdmin();
     }
 
     match /artifacts/{appId}/public/data {
@@ -178,11 +350,27 @@ service cloud.firestore {
       match /cursos/{docId} { allow read: if true; allow write: if isAdmin(); }
       match /instructores/{docId} {
         allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
-        allow create, update, delete: if isAdmin();
+        allow create, delete: if isAdmin();
+        // B-INSTRUCTOR-PERFIL-RULES: el propio instructor puede editar solo
+        // su perfil visible. Cédula, rol, permisos y flags siguen en admin.
+        allow update: if isAdmin() || (
+          isAuth() &&
+          docId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nombre', 'apellido', 'telefono', 'especialidad', 'bio', 'foto', 'updatedAt'
+          ])
+        );
       }
       match /instructoresPublicos/{docId} {
         allow read: if isAuth();
-        allow create, update, delete: if isAdmin();
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (
+          isAuth() &&
+          docId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nombre', 'apellido', 'especialidad', 'bio', 'foto', 'updatedAt'
+          ])
+        );
       }
       match /proveedores/{docId} {
         allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
@@ -217,7 +405,15 @@ service cloud.firestore {
                         (
                           !('tipoReserva' in request.resource.data) &&
                           request.resource.data.userId == request.auth.uid &&
-                          request.resource.data.estadoPago == 'Pendiente'
+                          request.resource.data.estadoPago == 'Pendiente' &&
+                          request.resource.data.cursoId is string &&
+                          request.resource.data.sedeId is string &&
+                          precioIndividualValido(
+                            cursoApp(request.resource.data.cursoId),
+                            configApp(),
+                            sedeApp(request.resource.data.sedeId),
+                            request.resource.data
+                          )
                         ) ||
                         (
                           request.resource.data.tipoReserva == 'pack_sub' &&
@@ -241,6 +437,7 @@ service cloud.firestore {
                               maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
                               maestraAfter(request.resource.data.packReservaId).subReservas[0].reservaId == docId &&
                               preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
+                              cercaNumero(request.resource.data.pagoTotalVES, request.resource.data.precio * maestraAfter(request.resource.data.packReservaId).fxCongelado.tasaFX) &&
                               maestraAfter(request.resource.data.packReservaId).subReservas.size() == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
                               maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() > 0 &&
                               request.resource.data.cursoId == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds[0] &&
@@ -268,6 +465,7 @@ service cloud.firestore {
                               maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
                               maestraAfter(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex].reservaId == docId &&
                               preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
+                              cercaNumero(request.resource.data.pagoTotalVES, request.resource.data.precio * maestraAfter(request.resource.data.packReservaId).fxCongelado.tasaFX) &&
                               (
                                 !isAdmin() ||
                                 (
@@ -312,18 +510,20 @@ service cloud.firestore {
           (
             resource.data.userId == request.auth.uid &&
             request.resource.data.precio == resource.data.precio &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'pagoRef',
+              'pagoBanco',
+              'pagoTelefono',
+              'pagoCedula',
+              'estadoPago'
+            ]) &&
             (
+              (resource.data.estadoPago == 'Pendiente' && request.resource.data.estadoPago == 'Pendiente') ||
               (
-                request.resource.data.estadoPago == resource.data.estadoPago ||
-                (resource.data.estadoPago == 'Rechazado' && request.resource.data.estadoPago == 'Pendiente')
-              ) &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'pagoRef',
-                'pagoBanco',
-                'pagoTelefono',
-                'pagoCedula',
-                'estadoPago'
-              ])
+                resource.data.estadoPago == 'Rechazado' &&
+                request.resource.data.estadoPago == 'Pendiente' &&
+                (!('intentosCorreccion' in resource.data) || resource.data.intentosCorreccion < 3)
+              )
             )
           ) ||
           (
@@ -398,7 +598,10 @@ service cloud.firestore {
           request.resource.data.subReservas.size() > 0 &&
           request.resource.data.precioTotalCongelado > 0 &&
           request.resource.data.packId is string &&
-          preciosMasterValidos(packPre(request.resource.data.packId), request.resource.data);
+          request.resource.data.pagoTotalVES is number &&
+          request.resource.data.pagoTotalVES > 0 &&
+          preciosMasterValidos(packPre(request.resource.data.packId), request.resource.data) &&
+          fxMasterValido(configApp(), request.resource.data);
         allow update: if isAuth() && (
           isAdmin() ||
           (
@@ -411,6 +614,8 @@ service cloud.firestore {
             resource.data.get('cursoActual', 0) >= 0 &&
             resource.data.get('cursoActual', 0) < resource.data.subReservas.size() &&
             request.resource.data.subReservas.size() == resource.data.subReservas.size() &&
+            subReservasAjenasSinCambios(resource.data.get('cursoActual', 0)) &&
+            request.resource.data.subReservas[resource.data.get('cursoActual', 0)].diff(resource.data.subReservas[resource.data.get('cursoActual', 0)]).affectedKeys().hasOnly(['reservaId']) &&
             request.resource.data.subReservas[resource.data.get('cursoActual', 0)].cursoId == resource.data.subReservas[resource.data.get('cursoActual', 0)].cursoId &&
             (
               (
@@ -441,7 +646,10 @@ service cloud.firestore {
               'pagoRef', 'estadoPago', 'rechazadoEn'
             ]) &&
             request.resource.data.pagoRef is string &&
-            request.resource.data.pagoRef.size() == 4
+            request.resource.data.pagoRef.size() == 4 &&
+            resource.data.cursoReservaId != null &&
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(resource.data.cursoReservaId)).data.estadoPago == 'Rechazado' &&
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservas/$(resource.data.cursoReservaId)).data.get('intentosCorreccion', 0) < 3
           ) ||
           (
             // RAMA 3 - TUTOR ASIGNADO: avance y vencimiento
@@ -473,12 +681,20 @@ service cloud.firestore {
       }
 
       match /modulosTeoricos/{moduloId} {
-        allow read: if isAuth();
+        allow read: if isAuth() && (
+          isAdmin() ||
+          cursoTeoricoGratis(resource.data.cursoId) ||
+          accesoTeoricoVigente(resource.data.cursoId)
+        );
         allow write: if isAdmin();
       }
 
       match /quizzesTeoricos/{quizId} {
-        allow read: if isAuth();
+        allow read: if isAuth() && (
+          isAdmin() ||
+          cursoTeoricoGratis(resource.data.cursoId) ||
+          accesoTeoricoVigente(resource.data.cursoId)
+        );
         allow write: if isAdmin();
       }
 
@@ -499,8 +715,17 @@ service cloud.firestore {
           // Rama 1: usuario compra su propio acceso standalone
           (
             request.resource.data.userId == request.auth.uid &&
+            request.resource.data.cursoTeoricoId is string &&
+            request.resource.data.origen == 'standalone' &&
+            request.resource.data.packReservaId == null &&
             request.resource.data.estadoPago == 'Pendiente' &&
+            request.resource.data.precio is number &&
             request.resource.data.precio > 0 &&
+            request.resource.data.comisionInstructor == 0 &&
+            request.resource.data.comisionProveedor == 0 &&
+            cercaNumero(request.resource.data.precio, cursoTeoricoPre(request.resource.data.cursoTeoricoId).precio) &&
+            request.resource.data.moneda == cursoTeoricoPre(request.resource.data.cursoTeoricoId).get('moneda', 'USD') &&
+            request.resource.data.esAccesoVitalicio == (cursoTeoricoPre(request.resource.data.cursoTeoricoId).get('duracionAcceso', '') == 'vida') &&
             !('logrosCurso' in request.resource.data) &&
             !('progreso' in request.resource.data)
           ) ||
@@ -549,6 +774,12 @@ service cloud.firestore {
           )
         );
         allow delete: if false;
+      }
+      // B-TEORICO-MODULO-BYPASS: índice admin-only que usan las reglas de
+      // módulos/quizzes. No es escribible por el estudiante.
+      match /accesosTeoricosResumen/{resumenId} {
+        allow read: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
+        allow write: if isAdmin();
       }
       match /usuarios/{uid} {
         allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
@@ -601,6 +832,83 @@ service cloud.firestore {
     match /audit_logs/{logId} {
       allow create: if isAuth() && request.auth.token.email == 'armandoaventurasve@gmail.com';
       allow read, update, delete: if false;
+    }
+
+    // B-D2-AUDITORIA: bitácora append-only de reprogramaciones.
+    // Solo admin lee y crea; update/delete siempre denegados.
+    match /auditoriaReprogramaciones/{eventoId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.reservaId is string &&
+        request.resource.data.tipo is string &&
+        request.resource.data.autorId is string &&
+        request.resource.data.antes is map &&
+        request.resource.data.despues is map &&
+        request.resource.data.inmutable == true &&
+        request.resource.data.createdAt is timestamp;
+      allow update, delete: if false;
+    }
+
+    // D2-FINANZAS: deuda del proveedor con la app y ledger append-only.
+    // El proveedor lee solo sus documentos; el admin crea/actualiza; nunca delete.
+    match /deudasProveedor/{deudaId} {
+      allow read: if isAdmin() || (
+        isAuth() &&
+        'proveedorId' in resource.data &&
+        resource.data.proveedorId == request.auth.uid
+      );
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /ledgerProveedor/{asientoId} {
+      allow read: if isAdmin() || (
+        isAuth() &&
+        'proveedorId' in resource.data &&
+        resource.data.proveedorId == request.auth.uid
+      );
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // T-025 / FT-001: deuda del tutor saliente por relevo post-pago y ledger
+    // append-only. El tutor lee solo sus documentos; el admin crea/actualiza.
+    match /deudasInstructor/{deudaId} {
+      allow read: if isAdmin() || (
+        isAuth() &&
+        'instructorId' in resource.data &&
+        resource.data.instructorId == request.auth.uid
+      );
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /ledgerInstructor/{asientoId} {
+      allow read: if isAdmin() || (
+        isAuth() &&
+        'instructorId' in resource.data &&
+        resource.data.instructorId == request.auth.uid
+      );
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // El proveedor reporta un pago de deuda; el admin lo confirma.
+    match /solicitudesPagoDeuda/{solicitudId} {
+      allow read: if isAdmin() || (
+        isAuth() &&
+        'proveedorId' in resource.data &&
+        resource.data.proveedorId == request.auth.uid
+      );
+      allow create: if isAuth() &&
+        request.resource.data.proveedorId == request.auth.uid &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.estado == 'pendiente' &&
+        request.resource.data.deudaId is string &&
+        request.resource.data.monto is number &&
+        request.resource.data.monto > 0;
+      allow update: if isAdmin();
+      allow delete: if false;
     }
 
     match /bloqueosGlobales/{bloqueoId} {

@@ -1,7 +1,7 @@
 // @build: 2026-11-19 | id: STAFF-RESUMEN-FINANZAS | desc: Resumen histórico y pendiente por staff
 import { useMemo } from 'react';
 import { BookOpen, CheckCircle, Clock, DollarSign } from 'lucide-react';
-import { comisionInstructorReserva, comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { comisionInstructorReserva, montoPendienteProveedor } from '../../shared/utils/finanzasHelpers';
 import { formatearMonto } from '../../shared/utils/currency';
 
 const StaffResumenTab = ({
@@ -25,7 +25,7 @@ const StaffResumenTab = ({
     const comisionPendiente = (r) => (
       tipoStaff === 'instructor'
         ? comisionInstructorReserva(r, staffId, { permitirColaboracion: true })
-        : comisionProveedorReserva(r, config)
+        : montoPendienteProveedor(r, staffId, config)
     );
 
     const pendientePorCurso = new Map();

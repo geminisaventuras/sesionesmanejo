@@ -9,6 +9,7 @@ import { Mail, Phone, BookOpen, Award, MapPin, MessageCircle } from 'lucide-reac
 import { doc, getDoc, collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
+import { comisionInstructorReserva } from '../../shared/utils/finanzasHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -64,14 +65,9 @@ export default function AdminInstructorDetalle() {
     reservas.forEach(r => {
       if (getEstadoLogico(r) === 'completado') {
         sesionesCompletadas++;
-        let comisionBase = Number(r.comisionInstructor) || 0;
-        let porcentaje = 100;
-        if (r.esReservaCompartida && r.instructoresInvolucrados) {
-          const involucrado = r.instructoresInvolucrados.find(i => idsValidos.includes(String(i.id)));
-          if (involucrado) porcentaje = involucrado.porcentaje;
-          else porcentaje = 0;
-        }
-        totalGanado += comisionBase * (porcentaje / 100);
+        // T-025 / FT-001: con mapa D1/D2 cada tutor cobra solo su asignación.
+        const idStaff = idsValidos.find((id) => String(r.instructorId) === String(id)) || uid;
+        totalGanado += comisionInstructorReserva(r, idStaff, { permitirColaboracion: true });
       }
     });
     return { totalGanado, sesionesTotales: reservas.length, sesionesCompletadas };

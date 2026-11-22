@@ -1,6 +1,7 @@
 import { doc, setDoc, query, collection, where, Timestamp, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
 import { construirLockIds } from '../utils/solapamientoHelpers';
+import { clasificarConflictoLock } from '../utils/locksHelpers';
 
 const MAX_LIMPIEZA = 10;
 const LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -27,6 +28,21 @@ export const LockService = {
       motoAsignadaId: metadata.motoAsignadaId || null
     };
     const lockIds = construirLockIds({ lockId, ...metadata });
+
+    // B-LOCK-PERMISSION-DENIED-GENERICO: leer solo los locks que el usuario
+    // puede ver (propios/admin). Si el conflicto es suyo, mensaje específico;
+    // si es ajeno, las reglas no dejan leerlo y el batch devolverá el genérico.
+    const lecturas = await Promise.allSettled(lockIds.map(id => getDoc(doc(db, 'locks', id))));
+    for (const lectura of lecturas) {
+      if (lectura.status !== 'fulfilled' || !lectura.value.exists()) continue;
+      const conflicto = clasificarConflictoLock(lectura.value.data(), userId);
+      if (conflicto === 'lock-own-active') {
+        return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
+      }
+      if (conflicto === 'lock-owner-mismatch') {
+        return { success: false, error: { code: 'lock-owner-mismatch', message: 'Este horario acaba de ser separado por otro usuario.' } };
+      }
+    }
 
     // Batch atómico: si cualquiera de los IDs por recurso ya existe (mismo
     // instructor o misma moto en el mismo bloque), Firestore rechaza el lote

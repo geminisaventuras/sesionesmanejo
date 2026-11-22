@@ -1,7 +1,7 @@
 // @build: 2026-09-16 | id: TAB-CUENTA-POR-COBRAR | desc: Tabla de reservas pendientes con filtros y checkboxes
 import { useMemo, useState } from 'react';
 import { Calendar } from 'lucide-react';
-import { comisionInstructorReserva, comisionProveedorReserva } from '../../shared/utils/finanzasHelpers';
+import { comisionInstructorReserva, montoPendienteProveedor } from '../../shared/utils/finanzasHelpers';
 import { formatearMonto } from '../../shared/utils/currency';
 
 const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
@@ -67,7 +67,7 @@ export default function TabCuentaPorCobrar({
     if (tipoStaff === 'instructor') {
       return comisionInstructorReserva(r, staffId, { permitirColaboracion: true });
     }
-    return comisionProveedorReserva(r, config);
+    return montoPendienteProveedor(r, staffId, config);
   };
 
   const totalSeleccionado = useMemo(() =>

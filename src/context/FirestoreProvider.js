@@ -30,14 +30,16 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [notifications, setNotifications] = useState([]);
   const [reservas, setReservas] = useState([]);
 
-  const pickInstructorPublic = (data, id) => {
+  const pickInstructorPublic = (data, id, opciones = {}) => {
     const out = { id: String(id) };
     ['nombre', 'apellido', 'esPrincipal', 'sedes', 'activo', 'especialidad', 'bio'].forEach((k) => {
       if (data[k] !== undefined) out[k] = data[k];
     });
-    if (!Array.isArray(out.sedes)) out.sedes = [];
-    if (typeof out.esPrincipal !== 'boolean') out.esPrincipal = false;
-    if (typeof out.activo !== 'boolean') out.activo = true;
+    if (!opciones.onlyPresent) {
+      if (!Array.isArray(out.sedes)) out.sedes = [];
+      if (typeof out.esPrincipal !== 'boolean') out.esPrincipal = false;
+      if (typeof out.activo !== 'boolean') out.activo = true;
+    }
     return out;
   };
 
@@ -101,15 +103,16 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const savePack = saveCatalogo(setPacks);  const saveCurso = saveCatalogo(setCursos);
   const saveCursoTeorico = saveCatalogo(setCursosTeoricos);
   const saveRecurso = saveCatalogo(setRecursos);
-  const saveInstructor = useCallback(async (datos) => {
+  const saveInstructor = useCallback(async (datos, opciones = {}) => {
     const safe = { ...(datos || {}) };
     delete safe.password;
     if (!safe.id) throw new Error('No se puede guardar un instructor sin id');
     const id = String(safe.id);
-    const publico = pickInstructorPublic(safe, id);
+    const merge = opciones.merge === true;
+    const publico = pickInstructorPublic(safe, id, { onlyPresent: merge });
     const batch = writeBatch(db);
-    batch.set(doc(db, buildPath('instructores'), id), safe);
-    batch.set(doc(db, buildPath('instructoresPublicos'), id), publico);
+    batch.set(doc(db, buildPath('instructores'), id), safe, merge ? { merge: true } : undefined);
+    batch.set(doc(db, buildPath('instructoresPublicos'), id), publico, merge ? { merge: true } : undefined);
     await batch.commit();
     setInstructores(prev => prev.find(i => String(i.id) === id)
       ? prev.map(i => String(i.id) === id ? safe : i)

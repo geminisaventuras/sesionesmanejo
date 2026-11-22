@@ -1,9 +1,12 @@
 // @build: 2026-09-16 | id: MODAL-REGISTRAR-PAGO | desc: Modal para registrar pagos a staff con método, referencia y banco
-import { useContext, useState, useMemo } from 'react';
+import { useContext, useEffect, useState, useMemo } from 'react';
 import { X, DollarSign } from 'lucide-react';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Spinner } from '../../../components/UI';
+import { useToast } from '../../shared/components/ToastProvider';
 import { PagosStaffService } from '../../../services/PagosStaffService';
+import { DeudasProveedorService } from '../../shared/services/DeudasProveedorService';
+import { DeudasInstructorService } from '../../shared/services/DeudasInstructorService';
 import { auth } from '../../../firebase';
 
 export default function ModalRegistrarPago({
@@ -15,7 +18,8 @@ export default function ModalRegistrarPago({
   onClose,
   onSuccess
 }) {
-  const { metodosPago, config, showToast } = useContext(AppContext);
+  const { metodosPago, config } = useContext(AppContext);
+  const { showToast } = useToast();
 
   const metodosActivos = useMemo(() => {
     return (metodosPago || [])
@@ -32,20 +36,49 @@ export default function ModalRegistrarPago({
   const [banco, setBanco] = useState(metodoPreferidoValido ? (config?.bancoDefaultStaff || '') : '');
   const [notas, setNotas] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deudaPendiente, setDeudaPendiente] = useState(0);
 
   const metodoSeleccionado = metodosActivos.find(m => String(m.id) === String(metodoPagoId));
 
-  const montoVES = useMemo(() => {
-    if (!metodoSeleccionado?.requiereBanco) return null;
+  useEffect(() => {
+    let activo = true;
+    if (!staffId || (tipoStaff !== 'proveedor' && tipoStaff !== 'instructor')) {
+      setDeudaPendiente(0);
+      return () => { activo = false; };
+    }
+    const consulta = tipoStaff === 'proveedor'
+      ? DeudasProveedorService.obtenerDeudasProveedor(staffId)
+      : DeudasInstructorService.obtenerDeudasInstructor(staffId);
+    consulta.then((res) => {
+      if (!activo) return;
+      const total = res.success
+        ? (res.data || []).reduce((acc, deuda) => acc + (Number(deuda.saldo) || 0), 0)
+        : 0;
+      setDeudaPendiente(total);
+    });
+    return () => { activo = false; };
+  }, [tipoStaff, staffId]);
+
+  const bruto = Number(monto) || 0;
+  const descuentoPreview = Math.min(deudaPendiente, bruto);
+  const netoPreview = Math.max(0, bruto - descuentoPreview);
+
+  const { montoVESBruto, montoVESNeto } = useMemo(() => {
+    if (!metodoSeleccionado?.requiereBanco) return { montoVESBruto: null, montoVESNeto: null };
     const moneda = config?.monedaPagoStaff || 'USD';
-    if (moneda === 'VES') return monto;
+    if (moneda === 'VES') return { montoVESBruto: bruto, montoVESNeto: netoPreview };
+
     let tasa = null;
     if (moneda === 'EUR') tasa = config?.tasaEUR;
     else if (moneda === 'USDT') tasa = config?.tasaUSDT;
     else tasa = config?.tasaUSD;
-    if (!tasa || Number(tasa) <= 0) return null;
-    return monto * Number(tasa);
-  }, [metodoSeleccionado, monto, config]);
+    if (!tasa || Number(tasa) <= 0) return { montoVESBruto: null, montoVESNeto: null };
+
+    return {
+      montoVESBruto: bruto * Number(tasa),
+      montoVESNeto: netoPreview * Number(tasa)
+    };
+  }, [metodoSeleccionado, bruto, netoPreview, config]);
 
   const handleConfirmar = async () => {
     if (!metodoPagoId) {
@@ -79,9 +112,10 @@ export default function ModalRegistrarPago({
         banco: banco.trim(),
         notas: notas.trim(),
         pagadoPor: auth.currentUser?.uid || null,
-        montoTotalVES: montoVES,
+        montoTotalVES: montoVESBruto,
         tasaAplicada,
-        monedaTasa
+        monedaTasa,
+        config
       });
 
       if (!result.success) {
@@ -89,7 +123,15 @@ export default function ModalRegistrarPago({
         return;
       }
 
-      showToast('Pago registrado correctamente', 'success');
+      const descuento = Number(result.data?.descuentoDeuda) || 0;
+      if (descuento > 0) {
+        showToast(
+          `Pago registrado. Neto $${Number(result.data.montoTotal || 0).toFixed(2)} (deuda descontada $${descuento.toFixed(2)}).`,
+          'success'
+        );
+      } else {
+        showToast('Pago registrado correctamente', 'success');
+      }
       if (onSuccess) onSuccess(result.data);
     } catch (error) {
       showToast('Error: ' + error.message, 'error');
@@ -122,15 +164,34 @@ export default function ModalRegistrarPago({
           <p className="text-sm font-bold text-blue-900">{staffNombre}</p>
           <div className="flex justify-between items-center mt-2">
             <span className="text-xs text-blue-700">{reservaIds.length} reservas</span>
-            <span className="text-2xl font-black text-blue-900">${monto}</span>
+            <span className="text-2xl font-black text-blue-900">${bruto.toFixed(2)}</span>
           </div>
 
-          {montoVES !== null && (
-            <div className="mt-3 pt-3 border-t border-blue-200">
-              <p className="text-xs text-blue-700 font-bold uppercase">Equivalente a transferir</p>
-              <p className="text-xl font-black text-blue-900">
-                Bs. {montoVES.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {deudaPendiente > 0 && (
+            <div className="mt-3 pt-3 border-t border-blue-200 space-y-1">
+              <p className="text-[11px] font-bold text-rose-700">
+                Deuda pendiente con la app: ${deudaPendiente.toFixed(2)}
               </p>
+              <p className="text-[11px] text-blue-800">
+                Descuento automático: ${descuentoPreview.toFixed(2)} · Neto a pagar: ${netoPreview.toFixed(2)}
+              </p>
+            </div>
+          )}
+
+          {montoVESNeto !== null && (
+            <div className="mt-3 pt-3 border-t border-blue-200">
+              <p className="text-xs text-blue-700 font-bold uppercase">
+                {descuentoPreview > 0 ? 'Neto a transferir' : 'Equivalente a transferir'}
+              </p>
+              <p className="text-xl font-black text-blue-900">
+                Bs. {montoVESNeto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              {descuentoPreview > 0 && (
+                <p className="text-[10px] text-blue-700 mt-1">
+                  Bruto Bs. {montoVESBruto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {' · '}descontado Bs. {(montoVESBruto - montoVESNeto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              )}
               <p className="text-[10px] text-blue-600 mt-1">
                 {(() => {
                   const moneda = config?.monedaPagoStaff || 'USD';
@@ -153,6 +214,7 @@ export default function ModalRegistrarPago({
               value={metodoPagoId}
               onChange={e => setMetodoPagoId(e.target.value)}
               disabled={isSubmitting}
+              data-testid="pago-metodo"
               className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 outline-none text-sm"
             >
               <option value="">Selecciona un método</option>
@@ -172,6 +234,7 @@ export default function ModalRegistrarPago({
                 value={banco}
                 onChange={e => setBanco(e.target.value)}
                 disabled={isSubmitting}
+                data-testid="pago-banco"
                 placeholder="Ej: Banesco"
                 className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 outline-none text-sm"
               />
@@ -188,6 +251,7 @@ export default function ModalRegistrarPago({
                 value={referencia}
                 onChange={e => setReferencia(e.target.value)}
                 disabled={isSubmitting}
+                data-testid="pago-referencia"
                 placeholder="Ej: 00123456"
                 className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 outline-none text-sm"
               />

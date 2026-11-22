@@ -162,14 +162,11 @@ export function InscripcionTeoricoView() {
       const res = await AccesoTeoricoService.crearAcceso({
         userId: uid,
         cursoTeoricoId: cursoTeorico.id,
-        precio: precioCurso,
-        moneda: cursoTeorico.moneda || 'USD',
         metodoPagoId: 'pago_movil',
         pagoBanco: form.pagoBanco,
         pagoTelefono: form.pagoTelefono,
         pagoCedula: form.pagoCedula,
-        pagoRef: form.pagoRef,
-        esAccesoVitalicio: cursoTeorico.duracionAcceso === 'vida'
+        pagoRef: form.pagoRef
       });
       setIsSubmitting(false);
 

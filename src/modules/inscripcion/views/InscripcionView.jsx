@@ -38,6 +38,7 @@ import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/
 import { EmailService } from '../../shared/services/EmailService';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros, eliminarLockLocal } from '../utils/locksHelpers';
+import { calcularPrecioIndividual } from '../utils/precioIndividual';
 import { enriquecerDiasConRoles } from '../utils/disponibilidadRoles';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
@@ -1241,8 +1242,6 @@ const disponibilidad = useMemo(() => {
   }, [step, form.fecha1, form.horaId, lockId, isSelectingHorario, disponibilidad, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista, todayStr, cargandoBloqueos, cargandoProveedor, cargandoInstructor, cargandoOcupacion, fechaConsultada, showToast]);
 
     
-    const baseUSD = ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
-
   // Fase 3 Pack: cuando es pack, el precio total se calcula desde packActivo
   const packPrecioBase = useMemo(() => {
     if (!esPack || !packActivo) return 0;
@@ -1272,22 +1271,52 @@ const disponibilidad = useMemo(() => {
     ? Number(packActivo.precios.precioTotal)
     : Math.max(0, packPrecioBase - packDescuentoMonto);
 
+  const sedeActual = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
+
+  // Precio individual: mismo cálculo puro que usa ReservaService (SSOT + snapshot).
+  const precioIndividualSnapshot = useMemo(() => {
+    if (esPack || !cursoSeleccionado) return null;
+    try {
+      return calcularPrecioIndividual({
+        curso: cursoSeleccionado,
+        config: ctx.config,
+        sede: sedeActual,
+        sedeId: form.sedeId,
+        sabeBicicleta: form.sabeBicicleta,
+        traeMoto: form.traeMoto
+      });
+    } catch (error) {
+      console.warn('[InscripcionView] No se pudo calcular el precio individual:', error.message);
+      return null;
+    }
+  }, [esPack, cursoSeleccionado, ctx.config, sedeActual, form.sedeId, form.sabeBicicleta, form.traeMoto]);
+
+  const baseUSD = precioIndividualSnapshot?.precioTotal
+    ?? ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
+
   // Precio efectivo a cobrar (pack o curso individual)
   const baseUSDFinal = esPack ? packPrecioFinal : baseUSD;
 
   const precioBaseMostrar = esPack
     ? packPrecioFinal
     : (cursoSeleccionado?.precioBase ?? ctx.config.precioBase ?? 0);
-    const sedeActual = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
-  const recargoSede = sedeActual?.nombre === 'Guarenas' ? (Number(ctx.config.recargoGuarenas) || 0) : 0;
-  const recargoSinBici = form.sabeBicicleta === 'No' ? (Number(ctx.config.recargoSinBici) || 0) : 0;
-  const descuentoMotoPropia = form.traeMoto === 'Sí' ? (Number(ctx.config.descuentoMotoPropia) || 0) : 0;
-  const descuentoPromo = Number(ctx.config.descuentoPromo) || 0;
-   const recargoAlquilerMoto = (form.traeMoto !== 'Sí' && cursoSeleccionado?.motoIncluida !== false)
-    ? (Number(cursoSeleccionado?.precioAlquilerMoto) || 0)
-    : 0;
-    const tasaCobro = ctx.config.monedaCobroClientes === 'USD' ? ctx.config.tasaUSD : ctx.config.tasaEUR;
-  const precioFinalVES = (baseUSDFinal * (Number(tasaCobro) || 1)).toFixed(2);  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
+  const recargoSede = precioIndividualSnapshot?.recargoSede
+    ?? (sedeActual?.nombre === 'Guarenas' ? (Number(ctx.config.recargoGuarenas) || 0) : 0);
+  const recargoSinBici = precioIndividualSnapshot?.recargoSinBici
+    ?? (form.sabeBicicleta === 'No' ? (Number(ctx.config.recargoSinBici) || 0) : 0);
+  const descuentoMotoPropia = precioIndividualSnapshot?.descuentoMotoPropia
+    ?? (form.traeMoto === 'Sí' ? (Number(ctx.config.descuentoMotoPropia) || 0) : 0);
+  const descuentoPromo = precioIndividualSnapshot?.descuentoPromo
+    ?? (Number(ctx.config.descuentoPromo) || 0);
+  const recargoAlquilerMoto = precioIndividualSnapshot?.recargoAlquilerMoto
+    ?? ((form.traeMoto !== 'Sí' && cursoSeleccionado?.motoIncluida !== false)
+      ? (Number(cursoSeleccionado?.precioAlquilerMoto) || 0)
+      : 0);
+  const tasaCobro = ctx.config.monedaCobroClientes === 'USD' ? ctx.config.tasaUSD : ctx.config.tasaEUR;
+  const precioFinalVES = esPack
+    ? (baseUSDFinal * (Number(tasaCobro) || 1)).toFixed(2)
+    : (precioIndividualSnapshot?.pagoTotalVES ?? (baseUSDFinal * (Number(tasaCobro) || 1))).toFixed(2);
+  const fechaNacimiento = (form.diaNac && form.mesNac && form.anoNac) ? form.anoNac + '-' + String(form.mesNac).padStart(2,'0') + '-' + String(form.diaNac).padStart(2,'0') : '';
 
     const handleConfirmarPago = useCallback(async () => {
     const uid = auth.currentUser?.uid;
@@ -1389,20 +1418,13 @@ const disponibilidad = useMemo(() => {
       fecha: form.fecha1,
       fecha2: disponibilidad?.fecha2Calc || null,
       fechaNacimiento,
-      pagoTotalMoneda: baseUSD,
-      pagoTotalVES: parseFloat(precioFinalVES),
+      pagoTotalMoneda: precioIndividualSnapshot?.precioTotal ?? baseUSD,
+      pagoTotalVES: precioIndividualSnapshot?.pagoTotalVES ?? parseFloat(precioFinalVES),
       proveedorId: form.proveedorId || null,
       tipoCurso: cursoSeleccionado?.tipoCurso || null,
       terminosAceptados: true,
       fechaAceptacionTerminos: new Date().toISOString(),
       pin: pinParaMostrar,
-           comisionInstructor: typeof cursoSeleccionado?.comisionInstructor === 'number' ? cursoSeleccionado.comisionInstructor : 0,
-          comisionProveedor: (() => {
-        const mapa = cursoSeleccionado?.comisionProveedorPorSede || {};
-        const sedeId = form.sedeId;
-        if (sedeId && typeof mapa[sedeId] === 'number') return mapa[sedeId];
-        return typeof cursoSeleccionado?.comisionProveedor === 'number' ? cursoSeleccionado.comisionProveedor : 0;
-      })(),
         // A2.6: trazabilidad del origen de la inscripción para métricas
       origenReinscripcion: esRecompra ? 'recompra' : (esReintento ? 'reintento' : 'nueva')
       }, lockId);
@@ -1497,11 +1519,14 @@ const disponibilidad = useMemo(() => {
         showToast(result.error.message || 'Ese horario acaba de ser ocupado. Elige otro bloque.', 'error');
       } else if (codigo === 'invalid-data') {
         showToast(result.error.message || 'Datos inválidos', 'error');
+      } else if (codigo === 'price-changed') {
+        ctx.refreshCatalogos?.().catch(() => {});
+        showToast(result.error.message || 'El precio del curso cambió. Revisa el monto y confirma de nuevo.', 'error');
       } else {
         showToast(result.error.message || 'Error al crear la reserva', 'error');
       }
     }
-    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, navigate, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista, setStep]);
+    }, [lockId, form, disponibilidad, fechaNacimiento, baseUSD, baseUSDFinal, precioFinalVES, precioIndividualSnapshot, limpiarSesion, showToast, generatedPin, esRecompra, esReintento, esPack, packActivo, ctx.cursos, ctx.refreshCatalogos, navigate, updateForm, updateLockId, updateLockExpiresAt, limpiarLockPropioOptimista, setStep]);
   const handleIrAlPanel = useCallback(async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) { showToast('Error de sesión. No se puede acceder al panel.', 'error'); return; }
@@ -1663,7 +1688,9 @@ if (necesitaMoto) {
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success');
     } else {
       const codigo = result.error?.code;
-      if (codigo === 'permission-denied') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
+      if (codigo === 'lock-owner-mismatch' || codigo === 'lock-taken') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
+      else if (codigo === 'lock-own-active') showToast('Ya tienes este horario separado. Continúa con el pago o espera a que expire.', 'info');
+      else if (codigo === 'permission-denied') showToast('No pudimos separar el horario. Revisa tu sesión o intenta de nuevo.', 'error');
       else if (codigo === 'network-error' || codigo === 'unavailable') showToast('Error de conexión. Intente de nuevo.', 'error');
       else showToast(result.error?.message || 'No se pudo bloquear el horario', 'error');
     }

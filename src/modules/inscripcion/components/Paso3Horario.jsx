@@ -109,6 +109,7 @@ export function Paso3Horario({
                 data-segundo-dia={esD2 ? 'true' : 'false'}
                 data-inicio={esInicio ? 'true' : 'false'}
                 aria-pressed={isSelected}
+                disabled={bloqueada}
                 aria-label={
                   esInicio
                     ? `${label}: día de inicio disponible${esInicioYRango ? ', también es el Día 2 del rango actual' : ''}`
