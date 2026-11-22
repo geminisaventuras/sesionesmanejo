@@ -11,6 +11,17 @@ const ROLE_LABELS = {
   estudiante: 'Estudiante',
 };
 
+const BUILD_ID = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : '';
+
+function TituloConVersion({ children, className = '' }) {
+  return (
+    <div className={`flex flex-col min-w-0 ${className}`}>
+      <span className="text-sm font-bold text-white truncate">{children}</span>
+      {BUILD_ID && <span className="text-[8px] leading-tight text-white/50 truncate">{BUILD_ID}</span>}
+    </div>
+  );
+}
+
 export default function DashboardHeader({ nombre, children, onBack, title, onLogout, notifications = [], showNotifications = true }) {
   const { user } = useContext(AppContext);
   const [mostrarNotificaciones, setMostrarNotificaciones] = useState(false);
@@ -41,16 +52,16 @@ export default function DashboardHeader({ nombre, children, onBack, title, onLog
               <button onClick={onBack} className="p-2 bg-white/10 rounded-full">
                 <ChevronLeft size={20} className="text-white" />
               </button>
-              <span className="text-sm font-bold text-white truncate">{title}</span>
+              <TituloConVersion>{title}</TituloConVersion>
             </div>
           ) : (
             <div className="flex items-center gap-2 flex-1 relative z-10">
               {title ? (
-                <span className="text-sm font-bold text-white truncate">{title}</span>
+                <TituloConVersion>{title}</TituloConVersion>
               ) : (
                 <>
                   <User size={18} className="text-gray-400" />
-                  <span className="text-sm font-bold text-gray-200">{nombreMostrar}</span>
+                  <TituloConVersion>{nombreMostrar}</TituloConVersion>
                 </>
               )}
             </div>
