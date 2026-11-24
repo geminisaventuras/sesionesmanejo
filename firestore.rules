@@ -1056,6 +1056,74 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isAdmin();
       }
+
+      // Evaluación Vial: último resultado del estudiante. Sin PII ni respuestas.
+      // Anónimos no escriben (la vista pública usa localStorage).
+      match /evaluacionesViales/{uid} {
+        allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+        allow create, update: if isAuth()
+          && request.auth.uid == uid
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasOnly([
+            'userId', 'porcentaje', 'modo', 'tipoIntento', 'mejorDiagnostico',
+            'rachaMaxima', 'tiempoSegundos', 'intentos', 'actualizadoEn'
+          ])
+          && request.resource.data.porcentaje is int
+          && request.resource.data.porcentaje >= 0
+          && request.resource.data.porcentaje <= 100
+          && request.resource.data.modo in ['integral', 'ley_ve', 'tecnica_msf', 'reintento']
+          && request.resource.data.tipoIntento in ['practica', 'diagnostico']
+          && request.resource.data.mejorDiagnostico is int
+          && request.resource.data.mejorDiagnostico >= 0
+          && request.resource.data.mejorDiagnostico <= 100
+          && request.resource.data.rachaMaxima is int
+          && request.resource.data.rachaMaxima >= 0
+          && request.resource.data.rachaMaxima <= 100
+          && request.resource.data.tiempoSegundos is int
+          && request.resource.data.tiempoSegundos >= 0
+          && request.resource.data.tiempoSegundos <= 86400
+          && request.resource.data.intentos is int
+          && request.resource.data.intentos >= 1
+          && request.resource.data.intentos <= 10000
+          && request.resource.data.actualizadoEn == request.time;
+        allow delete: if isAdmin();
+
+        // Historial append-only: un documento por intento. Sin PII ni respuestas.
+        match /intentos/{intentoId} {
+          allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+          allow create: if isAuth()
+            && request.auth.uid == uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.keys().hasOnly([
+              'userId', 'intento', 'porcentaje', 'modo', 'tipoIntento',
+              'rachaMaxima', 'tiempoSegundos', 'aciertos', 'total', 'fecha'
+            ])
+            && request.resource.data.intento is int
+            && request.resource.data.intento >= 1
+            && request.resource.data.intento <= 10000
+            && request.resource.data.porcentaje is int
+            && request.resource.data.porcentaje >= 0
+            && request.resource.data.porcentaje <= 100
+            && request.resource.data.modo in ['integral', 'ley_ve', 'tecnica_msf', 'reintento']
+            && request.resource.data.tipoIntento in ['practica', 'diagnostico']
+            && request.resource.data.rachaMaxima is int
+            && request.resource.data.rachaMaxima >= 0
+            && request.resource.data.rachaMaxima <= 100
+            && request.resource.data.tiempoSegundos is int
+            && request.resource.data.tiempoSegundos >= 0
+            && request.resource.data.tiempoSegundos <= 86400
+            && request.resource.data.aciertos is int
+            && request.resource.data.aciertos >= 0
+            && request.resource.data.aciertos <= 40
+            && request.resource.data.total is int
+            && request.resource.data.total >= 1
+            && request.resource.data.total <= 40
+            && request.resource.data.aciertos <= request.resource.data.total
+            && request.resource.data.fecha == request.time;
+          allow update, delete: if isAdmin();
+        }
+      }
+
       match /accesosTeoricos/{accesoId} {
         allow read: if isAuth() && (
           isAdmin() || resource.data.userId == request.auth.uid

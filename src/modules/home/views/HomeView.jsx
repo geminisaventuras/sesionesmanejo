@@ -22,7 +22,7 @@ const HomeView = () => {
         <div className="bg-[#0f172a] text-white flex-1 min-h-[190px] max-h-[52vh] [@media(max-height:620px)]:min-h-[168px] flex flex-col items-center justify-center px-6 rounded-b-[40px] relative z-0 pt-6 pb-14">
           <div
             role="img"
-            aria-label="Motoescuela Logo"
+            aria-label="Moto App Logo"
             className="h-12 w-[86px] bg-no-repeat mb-3"
             style={{
               backgroundImage: "url('/logo.png')",

@@ -1,10 +1,12 @@
 // @build: 2026-10-10 | id: VISTA-INICIO | desc: Hub dinámico del panel del cliente
 import { useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { BookOpen, Package, GraduationCap, Compass, Zap } from 'lucide-react';
 
 export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, metricas: metricasProp }) {
   const ctx = useContext(AppContext);
+  const navigate = useNavigate();
   const { user } = ctx;
   const capacidades = user?.data?.capacidades || {};
   // FASE 2: metricas viene por prop del hook useMetricasUsuario, con fallback al SSOT
@@ -18,6 +20,23 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
   const curso = reservaActual ? (cursos || []).find(c => String(c.id) === String(reservaActual.cursoId)) : null;
   const tieneSesionAprobada = reservaActual?.estadoPago === 'Aprobado';
   const tienePackActivo = packExistente?.estado === 'activo' && packExistente?.estadoPago === 'Aprobado';
+
+  // FT-051: acceso directo a la Evaluación Vial desde el Inicio (antes solo en Servicios → Retos).
+  const tarjetaRetos = (
+    <button
+      onClick={() => navigate('/evaluacion')}
+      className="w-full bg-white rounded-2xl border border-yellow-200 shadow-sm p-4 flex items-center gap-3 text-left hover:border-yellow-400 hover:shadow-md active:scale-[0.98] transition-all"
+    >
+      <span className="w-10 h-10 rounded-xl bg-yellow-500 text-white flex items-center justify-center flex-shrink-0">
+        <Zap size={20} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-bold text-sm text-gray-900">Reto Vial</span>
+        <span className="block text-[11px] text-gray-500">Gratis · Ley VE y técnicas MSF</span>
+      </span>
+      <span className="text-yellow-700 flex-shrink-0">→</span>
+    </button>
+  );
 
   // FEATURE-RESUMEN-SIEMPRE-VISIBLE: cinta de resumen reutilizable en ambos escenarios.
   // Antes vivía duplicada dentro de ESCENARIO 2. Ahora se define una sola vez y se
@@ -86,6 +105,8 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
             <p className="text-xs text-indigo-100 mt-0.5">Combos con descuento exclusivo</p>
           </button>
         </div>
+
+        {tarjetaRetos}
       </div>
     );
   }
@@ -112,6 +133,8 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
       </div>
 
       {resumenCinta}
+
+      {tarjetaRetos}
 
       <button
         onClick={() => onNavigate?.('servicios')}

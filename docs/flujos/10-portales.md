@@ -37,7 +37,9 @@ No cubre el aula (FLUJO-09), finanzas detalladas (FLUJO-11) ni administración (
 - Ver sesión actual, materiales y progreso.
 - Corregir pago rechazado (`/corregir-pago/reserva/:id` o `/pack/:id`) (`:422-465`).
 - Ver packs, agendar siguiente curso (`VistaPacks`, `PackDetalleEstudiante`).
+- **Reto Vial desde Inicio (FT-051):** `VistaInicio` muestra la tarjeta “Reto Vial” → `/evaluacion` en ambos escenarios (vitrina y hub); se suma a Servicios → Retos, que conserva el último puntaje.
 - Cambiar PIN desde Perfil: valida 6 dígitos y usa `AuthService.updatePassword` (`:859-882`); puede fallar por `recent-login`.
+- **Sede y dirección en Perfil (FT-050/T-113):** la fila “Sede” muestra **“nombre de la sede - ciudad”** (`formatearSede` con catálogos) y debajo la **dirección completa** con enlace “Abrir en el mapa” (`linkMapaSede`, pines reales). Es el único lugar del portal del estudiante donde se muestra la dirección; el resto de la UI usa la etiqueta corta.
 
 ## 4. Portal del instructor (`InstructorPanel.jsx`)
 ### 4.1 Datos

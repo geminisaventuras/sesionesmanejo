@@ -67,6 +67,8 @@ No cubre el aula práctica (FLUJO-09) ni los accesos incluidos en packs (FLUJO-0
 | Documento | Campos clave |
 |---|---|
 | `accesosTeoricos` | `userId`, `cursoTeoricoId`, `estadoPago`, `precio`, `origen`, `packReservaId`, `pagoRef`, `intentosCorreccion`, `historialRechazos`, `esAccesoVitalicio`, `aprobadoEn`, `rechazadoEn`, `vencimiento` |
+| `evaluacionesViales/{uid}` | último resultado del Reto Vial: `userId`, `porcentaje`, `modo`, `tipoIntento` (`practica`\|`diagnostico`), `mejorDiagnostico`, `rachaMaxima`, `tiempoSegundos`, `intentos`, `actualizadoEn` |
+| `evaluacionesViales/{uid}/intentos/{n}` | historial append-only: `userId`, `intento`, `porcentaje`, `modo`, `tipoIntento`, `rachaMaxima`, `tiempoSegundos`, `aciertos`, `total`, `fecha` |
 | `cursosTeoricos` | `precio`, `duracionAcceso`, `modulos`, `activo` |
 | `modulosTeoricos` | `cursoId`, `tipo` (`leccion`/`video`/`quiz`), `contenido`, `videoUrl`, `quizId`, `orden` |
 | `quizzesTeoricos` | `preguntas` |
@@ -88,6 +90,8 @@ No cubre el aula práctica (FLUJO-09) ni los accesos incluidos en packs (FLUJO-0
 | `accesosTeoricos.create` | dueño, `Pendiente`, `precio > 0`, sin progreso; o admin con `origen pack`, `Aprobado`, `precio 0` y pack del mismo dueño (`:283-302`) |
 | `accesosTeoricos.update` | admin; dueño solo `progreso/logrosCurso/streak`; o corrección `Rechazado → Pendiente` con `intentos < 3` y solo campos de pago/`updatedAt` (`:303-335`) |
 | `accesosTeoricos.delete` | denegado (`:336`) |
+| `evaluacionesViales.write` | dueño con allowlist y rangos; `tipoIntento` y `mejorDiagnostico` validados; `modoLabel` **rechazado** desde FT-053; anónimos no escriben |
+| `evaluacionesViales/{uid}/intentos` | lectura dueño/admin; `create` solo dueño (allowlist, rangos, `fecha == request.time`, `tipoIntento` válido); `update`/`delete` solo admin — append-only (FT-052/FT-053) |
 | `logrosUsuario` | dueño create/update; admin read (`:368-380`) |
 
 ## 9. Invariantes
@@ -150,6 +154,9 @@ No cubre el aula práctica (FLUJO-09) ni los accesos incluidos en packs (FLUJO-0
 - **`B-TEORICO-MOV-ATOMICO`:** el movimiento de ingreso se registra después de aprobar; si falla, el acceso queda aprobado sin ingreso (`AdminAccesoTeoricoDetalle.jsx:84-99`).
 - **`B-TEORICO-APROBACION-DOBLE`:** aprobar dos veces puede duplicar la notificación; el movimiento determinístico evita el duplicado contable.
 - **`B-TEORICO-CAPACIDAD`:** `capacidades.modulosTeoricos` se activa globalmente con un solo acceso (`:132-141`); el gate por curso sigue dependiendo de `accesosTeoricos`.
+- **FT-053 / T-116 (24/11/2026, DEV):** el historial distingue `diagnostico` (examen integral sin ayudas) de `practica`; el “Mejor diagnóstico” solo considera los primeros y el cliente ya no puede escribir la etiqueta del modo. Sigue sin haber validación server-side: alguien puede enviar un porcentaje o un `tipoIntento` falsos (las reglas solo restringen formato y rangos).
+- **FT-052 / T-115 (24/11/2026, DEV):** cada intento del **Reto Vial** (nombre visible; la ruta sigue siendo `/evaluacion`) se guarda en `evaluacionesViales/{uid}/intentos` (append-only, sin PII ni respuestas) junto al resumen, en una sola transacción. Da trazabilidad y mejores puntajes, pero **no** valida respuestas en servidor: un cliente manipulado puede inflar el porcentaje. Una calificación oficial requeriría quiz server-side (Cloud Functions o colección de respuestas validada), fuera de alcance.
+- **FT-051 / T-114 (24/11/2026, DEV):** Evaluación Vial independiente en `/evaluacion` con 16 preguntas propias, **no** es el quiz oficial del curso. El último resultado se guarda en `evaluacionesViales/{uid}` (solo dueño/admin; sin PII ni respuestas) y los anónimos usan `localStorage`. El puntaje se calcula en el cliente y es orientativo; no otorga acceso ni se mezcla con `progresoTeorico`. Entradas: Inicio del portal, Servicios → Retos y `/teorico`. El nombre del reporte es editable y se **precarga desde el perfil** (`usuarios/{uid}`) sin persistirse (ERR-064). ADR-020.
 
 ## 17. Supuestos / por verificar
 - [SUPUESTO] El contenido pago debe protegerse; si es intencionalmente público, el gate del curso sobra.
@@ -169,6 +176,10 @@ No cubre el aula práctica (FLUJO-09) ni los accesos incluidos en packs (FLUJO-0
 ## 20. Changelog
 | Fecha | Cambio | Verificado por |
 |---|---|---|
+| 24/11/2026 | FT-054/T-117: menú **Emulado** en el Reto con 4 simuladores (carril 1-2-3, T-CLOCS 360, SLPR y cabina) en overlay con carga diferida; ERR-066: preguntas compactas y acción sticky en móvil | Deek |
+| 24/11/2026 | FT-053/T-116: `tipoIntento` diagnóstico/práctica, `mejorDiagnostico` transaccional, `modoLabel` fuera del cliente, historial local anónimo (5), orden barajado en ley/técnica y alias `/reto-vial` | Deek |
+| 24/11/2026 | FT-052/T-115: historial append-only de intentos en `evaluacionesViales/{uid}/intentos` (transacción resumen+intento, reglas dueño/admin, UI de últimos 5 y mejor puntaje). El puntaje sigue siendo del cliente: trazable, no antifraude | Deek |
+| 24/11/2026 | FT-051/T-114: Evaluación Vial en `/evaluacion`; persistencia `evaluacionesViales/{uid}` para autenticados, localStorage para anónimos; entrada en **Inicio del portal**, Servicios → Retos y `/teorico`. ADR-020 | Deek |
 | 19/11/2026 | Creación (lectura de código) | Deek |
 
 

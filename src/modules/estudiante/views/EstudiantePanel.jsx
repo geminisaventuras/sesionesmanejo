@@ -966,7 +966,7 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
         {tab === 'retos' && !modoCorreccion && <VistaFormacion showToast={showToast} />}
         {tab === 'packs' && !modoCorreccion && <VistaPacks />}
 
-        <LegalFooter />
+        <LegalFooter compact />
       </div>
     </AppShell>
   );

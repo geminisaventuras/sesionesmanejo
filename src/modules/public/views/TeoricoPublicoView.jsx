@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
-import { BookOpen, Clock, ChevronLeft, GraduationCap, BookMarked, Sparkles } from 'lucide-react';
+import { BookOpen, Clock, ChevronLeft, ChevronRight, GraduationCap, BookMarked, Sparkles, Target } from 'lucide-react';
 import ModalDetalleTeorico from '../components/ModalDetalleTeorico';
 import LegalFooter from '../../shared/components/LegalFooter';
 
@@ -68,6 +68,28 @@ export default function TeoricoPublicoView() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-12">
+        <div className="mb-8 bg-white rounded-xl shadow-md border border-teal-100 p-5 flex flex-col sm:flex-row sm:items-center gap-4 sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-teal-600 text-white flex items-center justify-center flex-shrink-0">
+              <Target size={22} />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-teal-700">Reto gratuito</p>
+              <h2 className="text-xl font-bold text-gray-900">Reto Vial</h2>
+              <p className="text-sm text-gray-600">
+                16 preguntas de Ley Venezolana y técnicas MSF. No necesitas cuenta.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/evaluacion')}
+            className="flex-shrink-0 bg-teal-600 text-white px-5 py-3 rounded-lg hover:bg-teal-700 transition-colors font-medium flex items-center justify-center gap-2"
+          >
+            Comenzar reto
+            <ChevronRight size={18} />
+          </button>
+        </div>
+
         {modulos.length === 0 ? (
           <div className="text-center py-12">
             <BookMarked size={48} className="text-gray-400 mx-auto mb-4" />

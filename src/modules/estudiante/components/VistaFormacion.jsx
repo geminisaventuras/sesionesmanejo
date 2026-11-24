@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
-import { GraduationCap, BookOpen, FileText, Play, ExternalLink, Sparkles, Loader2, Zap, AlertCircle } from 'lucide-react';
+import { GraduationCap, BookOpen, FileText, Play, ExternalLink, Sparkles, Loader2, Zap, AlertCircle, ChevronRight } from 'lucide-react';
 import { resumirAccesosTeoricos } from '../../shared/utils/accesoTeoricoResumen';
+import { cargarEvaluacionVial } from '../../teorico/evaluacionVialService';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -43,6 +44,7 @@ export function VistaFormacion({ showToast }) {
 
   const [accesos, setAccesos] = useState([]);
   const [cargandoAccesos, setCargandoAccesos] = useState(true);
+  const [ultimoReto, setUltimoReto] = useState(null);
 
   const cargarAccesos = useCallback(async () => {
     if (!uid) { setAccesos([]); setCargandoAccesos(false); return; }
@@ -62,6 +64,24 @@ export function VistaFormacion({ showToast }) {
   }, [uid]);
 
   useEffect(() => { cargarAccesos(); }, [cargarAccesos]);
+
+  useEffect(() => {
+    if (!uid) {
+      setUltimoReto(null);
+      return undefined;
+    }
+    let activo = true;
+    cargarEvaluacionVial(uid)
+      .then((resultado) => {
+        if (activo) setUltimoReto(resultado || null);
+      })
+      .catch(() => {
+        if (activo) setUltimoReto(null);
+      });
+    return () => {
+      activo = false;
+    };
+  }, [uid]);
 
   const resumenAccesos = useMemo(
     () => resumirAccesosTeoricos(accesos, cursosTeoricos),
@@ -314,12 +334,33 @@ export function VistaFormacion({ showToast }) {
         <div className="flex items-center gap-2 mb-3">
           <Zap size={20} className="text-yellow-600" />
           <h3 className="font-black text-base text-gray-900">Retos</h3>
+          {ultimoReto && (
+            <span className="ml-auto text-[10px] font-bold text-yellow-700 bg-yellow-100 px-2 py-1 rounded">
+              Último: {Number(ultimoReto.porcentaje) || 0}%
+            </span>
+          )}
         </div>
-        <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-2xl p-6 text-center border border-yellow-200">
-          <Zap size={40} className="text-yellow-500 mx-auto mb-3" />
-          <p className="font-bold text-sm text-gray-900 mb-1">Próximamente</p>
-          <p className="text-xs text-gray-600">Pruebas teóricas para medir tu conocimiento.</p>
-        </div>
+        <button
+          onClick={() => navigate('/evaluacion')}
+          className="w-full text-left bg-gradient-to-br from-yellow-50 to-amber-50 rounded-2xl p-5 border border-yellow-200 hover:border-yellow-300 hover:shadow-md transition-all active:scale-[0.99] flex items-center gap-4"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-yellow-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+            <Zap size={22} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-black text-sm text-gray-900">Reto Vial</p>
+            <p className="text-xs text-gray-600">
+              {ultimoReto
+                ? `${Number(ultimoReto.intentos) || 1} intento(s)${
+                    Number(ultimoReto.mejorDiagnostico) > 0
+                      ? ` · Mejor: ${Number(ultimoReto.mejorDiagnostico)}%`
+                      : ''
+                  }`
+                : 'Mide tu conocimiento de Ley VE y técnicas MSF. Gratis.'}
+            </p>
+          </div>
+          <ChevronRight size={20} className="text-yellow-700 flex-shrink-0" />
+        </button>
       </section>
     </div>
   );

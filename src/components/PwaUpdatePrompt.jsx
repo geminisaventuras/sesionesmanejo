@@ -118,7 +118,7 @@ export default function PwaUpdatePrompt() {
     >
       <p className="text-sm font-black text-gray-900">Nueva versión disponible</p>
       <p className="text-xs text-gray-600 mt-1">
-        Actualiza para cargar la última versión de Motoescuela.
+        Actualiza para cargar la última versión de Moto App.
       </p>
       <div className="mt-3 flex gap-2">
         <button

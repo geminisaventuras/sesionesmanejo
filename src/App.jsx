@@ -57,6 +57,7 @@ const TeoricoPublicoView = React.lazy(() => import('./modules/public/views/Teori
 const TeoricoCursoView = React.lazy(() => import('./modules/public/views/TeoricoCursoView'));
 const TeoricoModuloView = React.lazy(() => import('./modules/public/views/TeoricoModuloView'));
 const InscripcionTeoricoView = React.lazy(() => import('./modules/inscripcion/views/InscripcionTeoricoView').then(m => ({ default: m.InscripcionTeoricoView })));
+const EvaluacionVialView = React.lazy(() => import('./modules/teorico/EvaluacionVialView'));
 const CorregirPagoView = React.lazy(() => import('./modules/shared/views/CorregirPagoView'));
 // Fallback de carga
 const PageLoader = () => (
@@ -104,6 +105,8 @@ function App() {
           <Route path="/teorico/:cursoId" element={<TeoricoCursoView />} />
           <Route path="/teorico/:cursoId/modulo/:moduloId" element={<TeoricoModuloView />} />
           <Route path="/teorico/:cursoId/comprar" element={<InscripcionTeoricoView />} />
+          <Route path="/evaluacion" element={<EvaluacionVialView />} />
+          <Route path="/reto-vial" element={<Navigate to="/evaluacion" replace />} />
 
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />
