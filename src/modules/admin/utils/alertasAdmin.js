@@ -47,7 +47,28 @@ const descripcionMoto = (moto) => {
   return [modelo, placa].filter(Boolean).join(' · ') || `Moto ${moto?.id || TEXTO_SIN_DATO}`;
 };
 
-const estaActiva = (reserva) => reserva?.estadoPago === 'Aprobado' || reserva?.estadoPago === 'Pendiente';
+/**
+ * Rechazo legacy: el pago quedó en 'Pendiente' pero ya tiene motivo y fecha de
+ * rechazo. Se exige que no haya intentos de corrección: al corregir una reserva
+ * rechazada vuelve a 'Pendiente' conservando el motivo, y en ese caso sí debe
+ * alertar (solo el flujo antiguo, previo a intentosCorreccion, queda excluido).
+ */
+export const esRechazoLegacy = (reserva) =>
+  Boolean(reserva?.motivoRechazo)
+  && Boolean(reserva?.rechazadoEn)
+  && !(Number(reserva?.intentosCorreccion) > 0);
+
+/** Cancelación operativa: el curso se anuló aunque el pago siga en un estado previo. */
+export const esCancelada = (reserva) => reserva?.estadoCurso === 'Cancelado';
+
+/** Reserva que todavía espera una decisión real del admin (ERR-058). */
+export const esPendienteAccionable = (reserva) =>
+  reserva?.estadoPago === 'Pendiente' && !esRechazoLegacy(reserva) && !esCancelada(reserva);
+
+const estaActiva = (reserva) =>
+  (reserva?.estadoPago === 'Aprobado' || reserva?.estadoPago === 'Pendiente')
+  && !esRechazoLegacy(reserva)
+  && !esCancelada(reserva);
 
 /**
  * Construye la lista de alertas actuales del admin.
@@ -57,41 +78,46 @@ const estaActiva = (reserva) => reserva?.estadoPago === 'Aprobado' || reserva?.e
 export function construirAlertas({ reservas = [], motos = [], ahora = Date.now() } = {}) {
   const lista = [];
 
+  // Los listeners de reservas y de pendientes pueden traer el mismo documento.
+  const vistas = new Set();
+  const unicas = [];
   (reservas || []).forEach((reserva) => {
-    if (!reserva?.id) return;
-    const creadaMs = msDeFecha(reserva.createdAt);
-    const pendienteVieja = reserva.estadoPago === 'Pendiente'
-      && creadaMs !== null
-      && ahora - creadaMs > UMBRAL_PENDIENTE_MS;
-
-    if (pendienteVieja) {
-      lista.push({
-        id: `reserva-pendiente-${reserva.id}`,
-        tipo: 'reserva',
-        severidad: 'alta',
-        titulo: 'Reserva pendiente de aprobación',
-        mensaje: `${nombreDeReserva(reserva)} espera aprobación desde hace más de 24 h.`,
-        contexto: contextoReserva(reserva),
-        fechaMs: creadaMs,
-        ruta: `/admin/reserva/${reserva.id}`,
-      });
-    }
+    if (!reserva?.id || vistas.has(reserva.id)) return;
+    vistas.add(reserva.id);
+    unicas.push(reserva);
   });
 
-  (reservas || []).forEach((reserva) => {
-    if (!reserva?.id) return;
-    if (estaActiva(reserva) && !reserva.instructorId) {
-      lista.push({
-        id: `curso-sin-instructor-${reserva.id}`,
-        tipo: 'curso',
-        severidad: 'media',
-        titulo: 'Curso sin instructor',
-        mensaje: `${nombreDeReserva(reserva)} todavía no tiene instructor asignado.`,
-        contexto: contextoReserva(reserva),
-        fechaMs: msDeFecha(reserva.fecha) ?? msDeFecha(reserva.createdAt),
-        ruta: `/admin/reserva/${reserva.id}`,
-      });
-    }
+  unicas.forEach((reserva) => {
+    if (!esPendienteAccionable(reserva)) return;
+    const creadaMs = msDeFecha(reserva.createdAt);
+    const pendienteVieja = creadaMs !== null && ahora - creadaMs > UMBRAL_PENDIENTE_MS;
+
+    lista.push({
+      id: `reserva-pendiente-${reserva.id}`,
+      tipo: 'reserva',
+      severidad: pendienteVieja ? 'alta' : 'media',
+      titulo: 'Reserva pendiente de aprobación',
+      mensaje: pendienteVieja
+        ? `${nombreDeReserva(reserva)} espera aprobación hace más de 24 h.`
+        : `${nombreDeReserva(reserva)} espera aprobación del pago.`,
+      contexto: contextoReserva(reserva),
+      fechaMs: creadaMs,
+      ruta: `/admin/reserva/${reserva.id}`,
+    });
+  });
+
+  unicas.forEach((reserva) => {
+    if (!estaActiva(reserva) || reserva.instructorId) return;
+    lista.push({
+      id: `curso-sin-instructor-${reserva.id}`,
+      tipo: 'curso',
+      severidad: 'media',
+      titulo: 'Curso sin instructor',
+      mensaje: `${nombreDeReserva(reserva)} todavía no tiene instructor asignado.`,
+      contexto: contextoReserva(reserva),
+      fechaMs: msDeFecha(reserva.fecha) ?? msDeFecha(reserva.createdAt),
+      ruta: `/admin/reserva/${reserva.id}`,
+    });
   });
 
   (motos || []).forEach((moto) => {

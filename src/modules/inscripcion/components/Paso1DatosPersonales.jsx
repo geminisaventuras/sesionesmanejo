@@ -1,17 +1,46 @@
 // src/modules/inscripcion/components/Paso1DatosPersonales.jsx
 //@build: 2026-06-24 | desc: Espaciado reducido para eliminar scroll vertical
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
 import { User, Contact, Calendar, Phone, Mail, Users, MapPin, Heart } from 'lucide-react';
 import { validarPaso1 } from '../../shared/schemas/validations';
+import { AppContext } from '../../../context/AppContextValue';
+import { opcionesCatalogo, resolverUbicacionInscripcion } from '../../shared/utils/geografiaHelpers';
 
-const ESTADOS_VZLA = ['Distrito Capital', 'Miranda', 'La Guaira', 'Aragua', 'Carabobo', 'Zulia', 'Táchira'];
 const SEXOS = ['Masculino', 'Femenino'];
 
 export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFechaNacimiento, fbUser }) {  
   const [errores, setErrores] = useState({});
   const [tocados, setTocados] = useState({});
+  const { estados = [], municipios = [], ciudades = [] } = useContext(AppContext);
+  const catalogs = { estados, municipios, ciudades };
+  const ubicacion = resolverUbicacionInscripcion(form, catalogs);
+  const estadosOpciones = useMemo(() => opcionesCatalogo('estados', catalogs), [estados]);
+  const municipiosOpciones = useMemo(
+    () => opcionesCatalogo('municipios', catalogs, ubicacion.estadoId),
+    [municipios, ubicacion.estadoId]
+  );
+  const ciudadesOpciones = useMemo(
+    () => opcionesCatalogo('ciudades', catalogs, ubicacion.municipioId),
+    [ciudades, ubicacion.municipioId]
+  );
+  const hidratadoRef = useRef(false);
   const cedulaBloqueada = !!fbUser && !!form.cedula;
   const correoBloqueado = !!fbUser && !!form.correo;
+
+  // Recompra/SSOT legacy: si el usuario solo tiene nombres de texto, se
+  // completan los IDs del catálogo por nombre normalizado una sola vez.
+  useEffect(() => {
+    if (hidratadoRef.current || estados.length === 0) return;
+    hidratadoRef.current = true;
+    const resuelta = resolverUbicacionInscripcion(form, catalogs);
+    const cambios = {};
+    ['estadoId', 'estado', 'municipioId', 'municipio', 'ciudadId', 'ciudad'].forEach((campo) => {
+      if (resuelta[campo] && resuelta[campo] !== form[campo]) cambios[campo] = resuelta[campo];
+    });
+    if (Object.keys(cambios).length > 0) updateForm(cambios);
+    // Solo debe ejecutarse cuando llegan los catálogos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estados, municipios, ciudades]);
 
   useEffect(() => {
     if (Object.keys(tocados).length > 0) {
@@ -37,6 +66,36 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
   const handleChange = (campo, valor) => {
     updateForm({ [campo]: valor });
     marcarTocado(campo);
+  };
+
+  const handleEstado = (estadoId) => {
+    const estado = estadosOpciones.find((e) => e.id === estadoId);
+    updateForm({
+      estadoId,
+      estado: estado?.nombre || '',
+      municipioId: '',
+      municipio: '',
+      ciudadId: '',
+      ciudad: ''
+    });
+    marcarTocado('estadoId');
+  };
+
+  const handleMunicipio = (municipioId) => {
+    const municipio = municipiosOpciones.find((m) => m.id === municipioId);
+    updateForm({
+      municipioId,
+      municipio: municipio?.nombre || '',
+      ciudadId: '',
+      ciudad: ''
+    });
+    marcarTocado('municipioId');
+  };
+
+  const handleCiudad = (ciudadId) => {
+    const ciudad = ciudadesOpciones.find((c) => c.id === ciudadId);
+    updateForm({ ciudadId, ciudad: ciudad?.nombre || '' });
+    marcarTocado('ciudadId');
   };
 
   return (
@@ -94,17 +153,38 @@ export function Paso1DatosPersonales({ form, updateForm, onOpenSalud, onOpenFech
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Estado</label>
-          <select value={form.estado} onChange={e => handleChange('estado', e.target.value)} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.estado ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="address-level1">
-            <option value="" disabled>Seleccionar</option>
-            {ESTADOS_VZLA.map(e => <option key={e} value={e}>{e}</option>)}
+          <select value={ubicacion.estadoId} onChange={e => handleEstado(e.target.value)} disabled={estadosOpciones.length === 0} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none disabled:opacity-60 ${errores.estadoId || errores.estado ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="address-level1">
+            <option value="" disabled>{estadosOpciones.length === 0 ? 'Cargando…' : 'Seleccionar'}</option>
+            {estadosOpciones.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
           </select>
-          {errores.estado && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.estado}</p>}
+          {(errores.estadoId || errores.estado) && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.estadoId || errores.estado}</p>}
         </div>
         <div>
-          <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Zona</label>
-          <input type="text" value={form.zona} onChange={e => handleChange('zona', e.target.value)} placeholder="Ej: Petare" maxLength={100} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.zona ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="address-level2" />
+          <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Municipio</label>
+          <select value={ubicacion.municipioId} onChange={e => handleMunicipio(e.target.value)} disabled={!ubicacion.estadoId || municipiosOpciones.length === 0} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none disabled:opacity-60 ${errores.municipioId ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="address-level2">
+            <option value="" disabled>{!ubicacion.estadoId ? 'Elige el estado' : 'Seleccionar'}</option>
+            {municipiosOpciones.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+          </select>
+          {errores.municipioId && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.municipioId}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Ciudad</label>
+          <select value={ubicacion.ciudadId} onChange={e => handleCiudad(e.target.value)} disabled={!ubicacion.municipioId || ciudadesOpciones.length === 0} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none disabled:opacity-60 ${errores.ciudadId ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="address-level3">
+            <option value="" disabled>{!ubicacion.municipioId ? 'Elige el municipio' : 'Seleccionar'}</option>
+            {ciudadesOpciones.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          {errores.ciudadId && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.ciudadId}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><MapPin size={14} className="text-gray-500" /> Zona/Dirección</label>
+          <input type="text" value={form.zona} onChange={e => handleChange('zona', e.target.value)} placeholder="Ej: Petare, calle 5" maxLength={100} className={`w-full bg-gray-50 border-2 rounded-xl py-2 px-3 text-sm outline-none ${errores.zona ? 'border-red-500' : 'border-gray-200 focus:border-blue-500'}`} required autoComplete="street-address" />
           {errores.zona && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.zona}</p>}
         </div>
+        {estados.length === 0 && (
+          <p className="col-span-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            No pudimos cargar la geografía. Revisa tu conexión y recarga la página para continuar.
+          </p>
+        )}
       </div>
 
       <button

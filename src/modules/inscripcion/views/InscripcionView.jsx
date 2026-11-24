@@ -29,6 +29,7 @@ import { ModalExpiracion } from '../components/ModalExpiracion';
 import { ArrowRight, Check, Award, Bike } from 'lucide-react';
 import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { resolverUbicacionInscripcion } from '../../shared/utils/geografiaHelpers';
 
 
 import { useBloqueosProveedorEstado } from '../../../hooks/useBloqueosProveedor';
@@ -737,6 +738,11 @@ const {
           anoNac: r.fechaNacimiento ? String(Number(r.fechaNacimiento.split('-')[0]) || '') : '',
           sexo: r.sexo || '',
           estado: r.estado || '',
+          estadoId: r.estadoId || '',
+          municipio: r.municipio || '',
+          municipioId: r.municipioId || '',
+          ciudad: r.ciudad || '',
+          ciudadId: r.ciudadId || '',
           zona: r.zona || '',
           sabeBicicleta: 'Sí',
           // FIX-RECOMPRA-MOTO: si el curso no permite traer propia, forzar 'No'
@@ -823,6 +829,11 @@ const {
           anoNac: r.fechaNacimiento ? String(Number(r.fechaNacimiento.split('-')[0]) || '') : '',
           sexo: r.sexo || '',
           estado: r.estado || '',
+          estadoId: r.estadoId || '',
+          municipio: r.municipio || '',
+          municipioId: r.municipioId || '',
+          ciudad: r.ciudad || '',
+          ciudadId: r.ciudadId || '',
           zona: r.zona || '',
           condicionMedica: r.condicionMedica || '',
           detalleCondicion: r.detalleCondicion || '',
@@ -927,6 +938,11 @@ const {
       anoNac: partesFecha[0] ? String(Number(partesFecha[0])) : '',
       sexo: ssot.sexo || '',
       estado: ssot.estado || '',
+      estadoId: ssot.estadoId || '',
+      municipio: ssot.municipio || '',
+      municipioId: ssot.municipioId || '',
+      ciudad: ssot.ciudad || '',
+      ciudadId: ssot.ciudadId || '',
       zona: ssot.zona || '',
       condicionMedica: ssot.condicionMedica || '',
       detalleCondicion: ssot.detalleCondicion || '',
@@ -1393,7 +1409,15 @@ const disponibilidad = useMemo(() => {
     }
 
     // ✅ PASO 4: Crear reserva incluyendo el PIN
-    const { esRecompra: _esRecompra, ...formLimpio } = form;
+    const { esRecompra: _esRecompra, ...restoForm } = form;
+    // FT-048: los IDs/nombres del catálogo mandan; si el formulario venía de un
+    // registro legacy se reconstruye la cadena por nombre antes de guardar.
+    const ubicacionEnvio = resolverUbicacionInscripcion(form, {
+      estados: ctx.estados,
+      municipios: ctx.municipios,
+      ciudades: ctx.ciudades
+    });
+    const formLimpio = { ...restoForm, ...ubicacionEnvio };
     let result;
 
     if (esPack && packActivo) {
@@ -1413,9 +1437,14 @@ const disponibilidad = useMemo(() => {
         telefono: form.telefono,
         contactoEmergencia: form.contactoEmergencia,
         fechaNacimiento,
-        sexo: form.sexo,
-        estado: form.estado,
-        zona: form.zona,
+        sexo: formLimpio.sexo,
+        estado: formLimpio.estado,
+        estadoId: formLimpio.estadoId,
+        municipio: formLimpio.municipio,
+        municipioId: formLimpio.municipioId,
+        ciudad: formLimpio.ciudad,
+        ciudadId: formLimpio.ciudadId,
+        zona: formLimpio.zona,
         condicionMedica: form.condicionMedica,
         detalleCondicion: form.detalleCondicion,
         sedeId: form.sedeId,
@@ -2182,7 +2211,9 @@ if (necesitaMoto) {
               recursosListos={ctx.instructores?.length > 0 && ctx.motos?.length > 0}
               showToast={showToast} cargando={!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length}
               cursoNombre={(ctx.cursos || []).find(c => String(c.id) === String(form.cursoId))?.nombre || 'Curso'}
-              sedeNombre={formatearSede((ctx.sedes || []).find(s => String(s.id) === String(form.sedeId)))}
+              sedeNombre={formatearSede((ctx.sedes || []).find(s => String(s.id) === String(form.sedeId)), {
+                catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades },
+              })}
               tipoMoto={form.tipoMoto}
               traeMoto={form.traeMoto}
               esCursoDosDias={!cursoUnDia}

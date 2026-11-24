@@ -1,10 +1,11 @@
 // @build: 2026-09-25.A2.14 | id: HOOK-ADMIN-RESERVAS-V2 | desc: Agrega listener a reservasPack para packs comerciales
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebase';
 
-export function useAdminReservas() {
+export function useAdminReservas({ incluirPendientes = false } = {}) {
   const [reservas, setReservas] = useState([]);
+  const [reservasPendientes, setReservasPendientes] = useState([]);
   const [packs, setPacks] = useState([]);
   const [accesosTeoricos, setAccesosTeoricos] = useState([]);
   const [cargandoReservas, setCargandoReservas] = useState(true);
@@ -39,6 +40,39 @@ export function useAdminReservas() {
       unsubscribe();
     };
   }, []);
+
+  // Listener 1-bis: reservas pendientes por estado (ERR-058). Opt-in: solo las
+  // pantallas que muestran alertas lo activan, para no sumar lecturas en el resto.
+  // El listener principal ordena por `fecha` de curso y limita a 100, así que una
+  // reserva nueva con clase lejana/pasada puede quedar fuera del top; este filtra
+  // por estadoPago para que el centro de alertas no dependa de ese orden.
+  useEffect(() => {
+    if (!incluirPendientes) {
+      setReservasPendientes([]);
+      return undefined;
+    }
+    const q = query(
+      collection(db, 'artifacts', 'motoescuela-pro-v1', 'public', 'data', 'reservas'),
+      where('estadoPago', '==', 'Pendiente'),
+      limit(100)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setReservasPendientes(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.error('[useAdminReservas] Error reservas pendientes:', err);
+        setReservasPendientes([]);
+      }
+    );
+
+    return () => {
+      console.log('[useAdminReservas] Cleanup reservas pendientes');
+      unsubscribe();
+    };
+  }, [incluirPendientes]);
 
   // Listener 2: reservasPack (maestras de pack)
   useEffect(() => {
@@ -95,6 +129,7 @@ export function useAdminReservas() {
 
   return {
     reservas,
+    reservasPendientes,
     packs,
     accesosTeoricos,
     cargando: cargandoReservas || cargandoPacks || cargandoAccesos,

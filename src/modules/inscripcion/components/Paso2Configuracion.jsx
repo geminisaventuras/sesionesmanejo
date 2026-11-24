@@ -1,10 +1,12 @@
 // @build: 2026-09-14 | id: LEGAL-TERMINOLOGIA-PASO2-CONFIG | desc: Validacion de compatibilidad curso-caracteristicas + auto-ajuste segun campos del curso
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useContext } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
-import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { etiquetaCortaSede } from '../../shared/utils/sedesHelpers';
+import { filtrarSedesPorUbicacion } from '../../shared/utils/geografiaHelpers';
+import { AppContext } from '../../../context/AppContextValue';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
   const tipoCurso = curso.tipoCurso;
@@ -192,6 +194,27 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
     return activas.filter(s => permitidas.includes(s.id));
   }, [sedes, cursoSeleccionado]);
 
+  // FT-048 fase 2: filtro por la ubicación del paso 1 y sedes cercanas.
+  // El control es estado local para no añadir campos al formulario ni a la reserva.
+  const { estados, municipios, ciudades } = useContext(AppContext) || {};
+  const [mostrarCercanas, setMostrarCercanas] = useState(false);
+  const catalogosGeo = useMemo(
+    () => ({ estados: estados || [], municipios: municipios || [], ciudades: ciudades || [] }),
+    [estados, municipios, ciudades]
+  );
+  const ubicacionSedes = useMemo(
+    () => filtrarSedesPorUbicacion(sedesPermitidas, {
+      ciudadId: form.ciudadId,
+      estadoId: form.estadoId,
+      catalogos: catalogosGeo,
+      incluirCercanas: mostrarCercanas,
+      radioKm: 50,
+    }),
+    [sedesPermitidas, form.ciudadId, form.estadoId, mostrarCercanas, catalogosGeo]
+  );
+  const sedesVisibles = ubicacionSedes.sedes;
+  const etiquetaSede = (s) => etiquetaCortaSede(s, catalogosGeo);
+
   return (
     <div className="space-y-4">
       {form.esRecompra ? (
@@ -368,11 +391,25 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
           className="w-full bg-gray-50 border-2 border-gray-200 focus:border-blue-500 rounded-xl py-3 px-4 outline-none"
         >
           <option value="">Selecciona sede</option>
-          {sedesPermitidas.map(s => (
-            <option key={s.id} value={s.id}>{formatearSede(s)}</option>
+          {sedesVisibles.map(s => (
+            <option key={s.id} value={s.id}>{etiquetaSede(s)}</option>
           ))}
         </select>
-        {cursoSeleccionado?.sedesPermitidas?.length > 0 && sedesPermitidas.length === 0 && (
+        <label className="mt-2 ml-1 flex items-center gap-2 text-xs font-semibold text-gray-700">
+          <input
+            type="checkbox"
+            checked={mostrarCercanas}
+            onChange={e => setMostrarCercanas(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Mostrar sedes cercanas (50 km)
+        </label>
+        {ubicacionSedes.aviso && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-1 ml-1">
+            {ubicacionSedes.aviso}
+          </p>
+        )}
+        {cursoSeleccionado?.sedesPermitidas?.length > 0 && sedesVisibles.length === 0 && (
           <p className="text-xs text-red-700 mt-1 ml-1">
             Esta sesión no está disponible en ninguna sede activa.
           </p>

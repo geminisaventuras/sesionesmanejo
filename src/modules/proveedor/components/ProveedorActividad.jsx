@@ -7,7 +7,7 @@ import { getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reser
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 
 const ProveedorActividad = () => {
-  const { user, motos, horarios, sedes, instructores } = useContext(AppContext);
+  const { user, motos, horarios, sedes, instructores, estados, municipios, ciudades } = useContext(AppContext);
   const [actividad, setActividad] = useState([]);
   const [cargando, setCargando] = useState(false);
 
@@ -101,7 +101,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <MapPin size={14} />
-                  {formatearSede(sede)}
+                  {formatearSede(sede, { catalogos: { estados, municipios, ciudades } })}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <User size={14} />

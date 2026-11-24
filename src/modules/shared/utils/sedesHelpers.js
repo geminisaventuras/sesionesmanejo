@@ -4,6 +4,16 @@
 // de sedes en DEV. NO reemplaza la migración de datos: el catálogo real puede traer
 // IDs/nombres históricos distintos. No muta los objetos recibidos.
 
+// T-048 / FT-031: la jerarquía geográfica vive en helpers puros y se reexporta
+// aquí para que los consumidores de sedes tengan un único punto de entrada.
+export {
+  agruparSedesPorCiudad,
+  etiquetaUbicacionSede,
+  resolverCadenaSede,
+} from './geografiaHelpers.js';
+
+import { resolverCadenaSede } from './geografiaHelpers.js';
+
 export const SEDES_CANONICOS = Object.freeze({
   sede1: 'Guarenas',
   sede2: 'Caracas Ciudad Universitaria',
@@ -37,12 +47,39 @@ export function nombreSedeCanonico(sede) {
   return '—';
 }
 
+// FT-050: la ciudad de la sede sale del catálogo (ciudadId) o del propio doc.
+// No se usa `zona`: es la referencia física (barrio/edificio), no la ciudad.
+export function ciudadSede(sede, catalogos = {}) {
+  if (!sede || typeof sede !== 'object') return '';
+  const { ciudad } = resolverCadenaSede(sede, catalogos);
+  return String(ciudad?.nombre ?? sede.ciudad ?? '').trim();
+}
+
+// FT-050: etiqueta por defecto "nombre de la sede - ciudad", sin calle ni avenida.
+// Usa el nombre real de la sede (el que administra el Operador) y cae al canónico
+// si el doc no lo trae. Si la ciudad ya está contenida en el nombre, no se repite.
+// La dirección completa queda como opt-in (mensajes).
+export function etiquetaCortaSede(sede, catalogos = {}) {
+  if (!sede || typeof sede !== 'object') return '—';
+
+  const nombreReal = typeof sede.nombre === 'string' ? sede.nombre.trim() : '';
+  const nombre = nombreReal || nombreSedeCanonico(sede);
+  if (!nombre || nombre === '—') return '—';
+
+  const ciudad = ciudadSede(sede, catalogos);
+  if (!ciudad) return nombre;
+  if (normalizarTexto(nombre).includes(normalizarTexto(ciudad))) return nombre;
+  return `${nombre} - ${ciudad}`;
+}
+
 export function formatearSede(sede, opciones = {}) {
   if (!sede) return '—';
 
-  const nombre = nombreSedeCanonico(sede);
-  const incluirDireccion = opciones.incluirDireccion !== false;
+  // Uso explícito para mensajes y sitios que requieren la dirección exacta.
+  if (opciones.incluirDireccion === true) {
+    const nombre = nombreSedeCanonico(sede);
+    return sede.direccion ? `${nombre} - ${sede.direccion}` : nombre;
+  }
 
-  if (incluirDireccion && sede.direccion) return `${nombre} - ${sede.direccion}`;
-  return nombre;
+  return etiquetaCortaSede(sede, opciones.catalogos);
 }

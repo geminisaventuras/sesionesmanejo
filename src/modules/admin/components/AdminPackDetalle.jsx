@@ -30,7 +30,7 @@ const AdminPackDetalle = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [waModalData, setWaModalData] = useState(null);
-  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user } = useContext(AppContext);  
+  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, estados, municipios, ciudades } = useContext(AppContext);  
   const { reservas, packs } = useAdminReservas();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -280,7 +280,7 @@ const AdminPackDetalle = () => {
             <div className="flex items-center gap-1 col-span-2"><BookOpen size={12} className="text-gray-400" /><span className="font-medium">{cursoEquilibrio?.nombre || '—'}</span></div>
             <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400" /><span>{formatearFecha(child.fecha)}</span></div>
             <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400" /><span>{horario?.label || child.horaId || '—'}</span></div>
-            <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" /><span>Sede: {formatearSede(sede)}</span></div>
+            <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400" /><span>Sede: {formatearSede(sede, { catalogos: { estados, municipios, ciudades } })}</span></div>
             <div className="flex items-center gap-1"><User size={12} className="text-gray-400" /><span className="truncate">Inst: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : '—'}</span></div>
             <div className="flex items-center gap-1 col-span-2"><Users size={12} className="text-gray-400" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
             <div className="flex items-center gap-1 col-span-2"><Bike size={12} className="text-gray-400" /><span>{child.tipoMoto || '—'} · {child.traeMoto === 'Sí' ? 'Propia' : 'Escuela'}</span></div>

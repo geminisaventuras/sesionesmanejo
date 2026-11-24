@@ -7,7 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   BookOpen, MapPin, Clock, Bike, Users, Briefcase, Settings, ChevronRight,
-  Activity, Wallet, Calendar, CreditCard, Package, Library, Contact} from 'lucide-react';
+  Activity, Wallet, Calendar, CreditCard, Package, Library, Contact, Globe } from 'lucide-react';
 import AdminCRUDPage from './AdminCRUDPage';
 
 const AdminConfigHub = memo(() => {
@@ -60,6 +60,9 @@ const AdminConfigHub = memo(() => {
               </button>
               <button type="button" onClick={() => setVista('sedes')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <MapPin size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Sedes</span>
+              </button>
+              <button type="button" onClick={() => navigate('/admin/geografia')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
+                <Globe size={28} className="text-emerald-500" /><span className="font-bold text-sm text-gray-800">Geografía</span>
               </button>
               <button type="button" onClick={() => setVista('horarios')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <Clock size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Horarios</span>

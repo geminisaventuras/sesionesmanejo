@@ -269,7 +269,7 @@ export function ProgresoAcademicoView() {
             {sede && (
               <div className="flex items-center gap-1 col-span-2">
                 <MapPin size={12} className="text-gray-400 flex-shrink-0" />
-                <span className="truncate">Sede: {formatearSede(sede)}</span>
+                <span className="truncate">Sede: {formatearSede(sede, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } })}</span>
               </div>
             )}
           </div>

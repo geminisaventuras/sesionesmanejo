@@ -220,7 +220,8 @@ service cloud.firestore {
       return d.keys().hasOnly([
         // Inscripción (validarInscripcionCompleta aplica .strip()).
         'nombre', 'apellido', 'cedula', 'diaNac', 'mesNac', 'anoNac', 'sexo',
-        'estado', 'zona', 'correo', 'telefono', 'contactoEmergencia',
+        'estado', 'estadoId', 'municipio', 'municipioId', 'ciudad', 'ciudadId',
+        'zona', 'correo', 'telefono', 'contactoEmergencia',
         'sabeBicicleta', 'traeMoto', 'tipoMoto', 'cursoId', 'sedeId',
         'condicionMedica', 'detalleCondicion',
         // Reserva.
@@ -662,6 +663,12 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
       match /sedes/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      // T-048 / FT-031: catálogos geográficos normalizados. Lectura pública
+      // (sin PII, necesaria para el registro anónimo de FT-048) y escritura
+      // exclusiva admin; soft delete vía `activo:false`.
+      match /estados/{docId} { allow read: if true; allow write: if isAdmin(); }
+      match /municipios/{docId} { allow read: if true; allow write: if isAdmin(); }
+      match /ciudades/{docId} { allow read: if true; allow write: if isAdmin(); }
       match /horarios/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
       match /cursos/{docId} { allow read: if true; allow write: if isAdmin(); }
       // T-098 / ADR-015 fase 1: proyección de precio por curso (variantes por
@@ -1131,7 +1138,8 @@ service cloud.firestore {
           request.resource.data.keys().hasOnly([
             'uid', 'correo', 'cedula', 'nombre', 'apellido',
             'telefono', 'contactoEmergencia', 'fechaNacimiento',
-            'sexo', 'estado', 'zona', 'condicionMedica', 'detalleCondicion',
+            'sexo', 'estado', 'estadoId', 'municipio', 'municipioId',
+            'ciudad', 'ciudadId', 'zona', 'condicionMedica', 'detalleCondicion',
             'capacidades', 'contadores', 'metricas', 'createdAt', 'updatedAt'
           ]);
         allow update: if isAuth() && (
@@ -1143,7 +1151,8 @@ service cloud.firestore {
             request.resource.data.correo == resource.data.correo &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'nombre', 'apellido', 'telefono', 'contactoEmergencia',
-              'fechaNacimiento', 'sexo', 'estado', 'zona',
+              'fechaNacimiento', 'sexo', 'estado', 'estadoId',
+              'municipio', 'municipioId', 'ciudad', 'ciudadId', 'zona',
               'condicionMedica', 'detalleCondicion',
               'capacidades', 'contadores', 'metricas', 'updatedAt'
             ])

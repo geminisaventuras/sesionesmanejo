@@ -113,7 +113,7 @@ export default function DisponibilidadTab({ user }) {
               ? `${formatearFecha(b.fechaInicio)} → ${formatearFecha(b.fechaFin)}`
               : formatearFecha(b.fechaInicio);
             const sedeObj = b.sedeId ? (ctx.sedes || []).find(s => String(s.id) === String(b.sedeId)) : null;
-            const sedeNombre = b.sedeId ? formatearSede(sedeObj) : 'Todas las sedes';
+            const sedeNombre = b.sedeId ? formatearSede(sedeObj, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } }) : 'Todas las sedes';
             const horariosTexto = b.todoElDia
               ? 'Todo el día'
               : (b.horarios || []).map(hId => {

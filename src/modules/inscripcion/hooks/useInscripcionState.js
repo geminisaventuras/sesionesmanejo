@@ -6,7 +6,7 @@ export const FLOW_STORAGE_KEY = 'inscripcion_flow';
 const DEFAULT_FORM = {
   cursoId: '', sedeId: '', tipoMoto: '', horaId: '', fecha1: '', fecha2: '',
   nombre: '', apellido: '', cedula: '', diaNac: '', mesNac: '', anoNac: '',
-  sexo: '', estado: '', zona: '', correo: '', telefono: '', contactoEmergencia: '',
+  sexo: '', estado: '', estadoId: '', municipio: '', municipioId: '', ciudad: '', ciudadId: '', zona: '', correo: '', telefono: '', contactoEmergencia: '',
   sabeBicicleta: '', traeMoto: 'No',
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: '',
   condicionMedica: '', detalleCondicion: ''

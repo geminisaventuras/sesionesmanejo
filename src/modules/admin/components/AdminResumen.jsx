@@ -52,7 +52,7 @@ const formatearFechaActividad = (valor) => {
 const AdminResumen = () => {
   const { instructores, sedes, motos, cursos, seedDatabase, logoutUser, notifications } = useContext(AppContext);
   const navigate = useNavigate();
-  const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
+  const { reservas, reservasPendientes, packs, accesosTeoricos, cargando, error } = useAdminReservas({ incluirPendientes: true });
   const {
     reservas: reservasIngresos,
     packs: packsIngresos,
@@ -60,7 +60,14 @@ const AdminResumen = () => {
     error: errorIngresos,
   } = useIngresosPorCompra();
 
-  const res = reservas || [];
+  // Unión del top general por fecha de curso con el listener de pendientes por
+  // estado (ERR-058), para que el conteo del Home no dependa solo del top 100.
+  const res = useMemo(() => {
+    const mapa = new Map();
+    (reservas || []).forEach((reserva) => mapa.set(reserva.id, reserva));
+    (reservasPendientes || []).forEach((reserva) => mapa.set(reserva.id, reserva));
+    return [...mapa.values()];
+  }, [reservas, reservasPendientes]);
   const instrs = instructores || [];
   const motosList = motos || [];
   const cursosList = cursos || [];
@@ -136,8 +143,8 @@ const AdminResumen = () => {
   ], [res, packsList, accesosList]);
 
   const { cursoMasVendido, conversionEquilibrio } = useMemo(
-    () => calcularMetricasNegocio(res, cursosList),
-    [res, cursosList]
+    () => calcularMetricasNegocio(reservas, cursosList),
+    [reservas, cursosList]
   );
 
   const handleLogout = useCallback(async () => {

@@ -156,7 +156,11 @@ const filtrarReservas = (lista, criterios, auxiliares) => {
 };
 
 const AdminReservasList = () => {
-  const { instructores, cursos, horarios, sedes, notifications, logoutUser } = useContext(AppContext);
+  const { instructores, cursos, horarios, sedes, notifications, logoutUser, estados, municipios, ciudades } = useContext(AppContext);
+  const catalogosSede = useMemo(
+    () => ({ estados: estados || [], municipios: municipios || [], ciudades: ciudades || [] }),
+    [estados, municipios, ciudades]
+  );
   const { reservas, cargando, error } = useAdminReservas();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -403,8 +407,8 @@ const AdminReservasList = () => {
 
   const opcionesSede = useMemo(() => [
     { id: 'todas', nombre: 'Todas las sedes' },
-    ...(sedes || []).map((s) => ({ id: String(s.id), nombre: formatearSede(s, { incluirDireccion: false }) })),
-  ], [sedes]);
+    ...(sedes || []).map((s) => ({ id: String(s.id), nombre: formatearSede(s, { catalogos: catalogosSede }) })),
+  ], [sedes, catalogosSede]);
 
   const opcionesCurso = useMemo(() => [
     { id: 'todos', nombre: 'Todos los cursos' },
@@ -450,7 +454,7 @@ const AdminReservasList = () => {
     return {
       reserva,
       instructor: obtenerNombreInstructor(instr),
-      sede: sede ? formatearSede(sede, { incluirDireccion: false }) : '—',
+      sede: sede ? formatearSede(sede, { catalogos: catalogosSede }) : '—',
       curso: curso?.nombre || reserva.cursoId || '—',
       horario,
       enCurso,

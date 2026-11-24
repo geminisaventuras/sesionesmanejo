@@ -294,7 +294,7 @@ const estadoBadgeClass = {
                   {sede?.nombre && (
                     <div className="flex items-center gap-2">
                       <MapPin size={14} className="text-gray-400" />
-                      <span>{formatearSede(sede)}</span>
+                      <span>{formatearSede(sede, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } })}</span>
                     </div>
                   )}
                   {instructor && (

@@ -84,7 +84,7 @@ const AdminReservaDetalle = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const volverA = location.state?.from || '/admin/reservas';  
-  const { reservas, instructores, cursos, horarios, sedes, motos, proveedores, saveReserva, user, logoutUser } = useContext(AppContext);
+  const { reservas, instructores, cursos, horarios, sedes, motos, proveedores, saveReserva, user, logoutUser, estados, municipios, ciudades } = useContext(AppContext);
   const { showToast } = useToast();
   
   const [mostrarCambiarHorario, setMostrarCambiarHorario] = useState(false);
@@ -1493,7 +1493,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
               <div className="flex items-center gap-1"><Users size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}</span></div>
               <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>{formatearFecha(res.fecha)} – {formatearFecha(res.fecha2)}</span></div>
               <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || bloqueEfectivo || res.horaId || '—'}</span></div>
-              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {formatearSede(sede)}</span></div>
+              <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {formatearSede(sede, { catalogos: { estados, municipios, ciudades } })}</span></div>
                          <div className="flex items-center gap-1"><Bike size={12} className="text-gray-400 flex-shrink-0" /><span>{res.tipoMoto} · {res.traeMoto === 'Sí' ? 'Propia' : 'Moto App'} · Bici: {res.sabeBicicleta}</span></div>
             </div>
             <BadgeReposicion reserva={res} horarios={horarios} variant="compact" />

@@ -5,13 +5,33 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "inicio": "node scripts/reporte-arranque.mjs",
+    "dev:staging": "vite --mode staging",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:emulator": "node scripts/e2e-emulador.mjs",
+    "test:e2e:registro": "playwright test tests/e2e/registro-unit.spec.js tests/e2e/registro-smoke.spec.js tests/e2e/registro-auto-jump.spec.js tests/e2e/registro-race.spec.js tests/e2e/registro-doble-submit.spec.js tests/e2e/registro-pack-auto-jump.spec.js tests/e2e/registro-reload.spec.js tests/e2e/registro-ui-d1-d2.spec.js",
+    "test:e2e:tutor": "playwright test tests/e2e/admin-tutor-relevo.spec.js --project=chromium",
+    "test:unit": "node --test tests/unit/finanzasHelpers.test.js tests/unit/pagoHelpers.test.js tests/unit/pagoEstadoTransaccional.test.js tests/unit/packPricing.test.js tests/unit/packPublico.test.js tests/unit/precioPackPublico.test.js tests/unit/precioIndividual.test.js tests/unit/preciosCurso.test.js tests/unit/locksHelpers.test.js tests/unit/recursosHelpers.test.js tests/unit/reprogramacionConflictos.test.js tests/unit/auditoriaReprogramacion.test.js tests/unit/instructoresPermitidos.test.js tests/unit/reprogramacionD2.test.js tests/unit/finanzasProveedor.test.js tests/unit/finanzasInstructor.test.js tests/unit/accesoTeoricoResumen.test.js tests/unit/agentesVisor.test.js tests/unit/estadoAgentes.test.js tests/unit/fechaVET.test.js tests/unit/periodosVET.test.js tests/unit/fechasAula.test.js tests/unit/geografiaHelpers.test.js tests/unit/sedesHelpers.test.js tests/unit/whatsappSede.test.js tests/unit/rutaAprendizaje.test.js tests/unit/configuracionHelpers.test.js tests/unit/packsSource.test.js tests/unit/alertasAdmin.test.js tests/unit/metricasAdmin.test.js tests/unit/resumenAdmin.test.js tests/unit/ocupacionHelpers.test.js tests/unit/ocupacionMovil.test.js tests/unit/filtrosHelpers.test.js tests/unit/motosHelpers.test.js tests/unit/filtrosOcupacion.test.js tests/unit/reservaCardHelpers.test.js tests/unit/bloqueosAgenda.test.js tests/unit/bloquesHora.test.js tests/unit/horarios.test.js",
+    "agent:sync": "node scripts/sincronizar-agentes.mjs --apply",
+    "agent:check": "node scripts/sincronizar-agentes.mjs --check",
+    "agent:uso": "node scripts/importar-uso-kilo.mjs",
+    "agent:uso:apply": "node scripts/importar-uso-kilo.mjs --apply",
+    "sesion:estado": "node scripts/estado-sesion.mjs",
+    "sesion:guard": "node scripts/estado-sesion.mjs --guard",
+    "agent:estado": "node scripts/estado-agentes.mjs --once",
+    "agent:estado:watch": "node scripts/estado-agentes.mjs --watch 15",
+    "test:rules:setup": "npm --prefix tests/rules ci",
+    "test:rules": "firebase emulators:exec --only firestore --project motoescuela-dev \"node tests/rules/run-all.mjs\"",
+    "auth:save": "node scripts/guardar-sesion-admin.mjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "firebase": "^10.12.0",
-    "firebase-admin": "^14.0.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -19,11 +39,25 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.19",
+    "firebase-admin": "^14.4.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "vite": "^5.3.1",
     "vite-plugin-pwa": "^1.3.0"
-  }
+  },
+  "description": "",
+  "main": "postcss.config.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github-asomototurismo:asomototurismo/sesionesmanejo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

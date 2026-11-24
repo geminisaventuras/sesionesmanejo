@@ -6,6 +6,7 @@ import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
 import { obtenerFechaVenezuela } from '../modules/shared/utils/zonahoraria';
 import { construirPreciosCurso, construirProyeccionesCursos } from '../modules/inscripcion/utils/preciosCurso';
+import { construirIdCatalogo, hijosActivos, validarCatalogo } from '../modules/shared/utils/geografiaHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -15,6 +16,9 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   // Evita llenar la consola cuando la regla de `proveedoresPublicos` aún no
   // está desplegada: se avisa una sola vez por sesión.
   const proveedoresPublicosWarnedRef = useRef(false);
+  // T-048: los catálogos geográficos pueden no existir o no tener reglas
+  // desplegadas todavía. Su lectura nunca debe tumbar el resto de catálogos.
+  const geografiaWarnedRef = useRef(false);
 
   const buildPath = useCallback((colName) => {
     return 'artifacts/' + APP_ID + '/public/data/' + colName;
@@ -40,7 +44,23 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     });
   }, [buildPath, warnProveedoresPublicosUnaVez]);
 
+  const getGeografiaSeguro = useCallback((colName) => {
+    return getDocs(collection(db, buildPath(colName))).catch((error) => {
+      if (!geografiaWarnedRef.current) {
+        geografiaWarnedRef.current = true;
+        console.warn(
+          '[FirestoreProvider] Catálogos geográficos no disponibles; se usan listas vacías (legacy):',
+          error?.code || error?.message
+        );
+      }
+      return { docs: [] };
+    });
+  }, [buildPath]);
+
   const [sedes, setSedes] = useState([]);
+  const [estados, setEstados] = useState([]);
+  const [municipios, setMunicipios] = useState([]);
+  const [ciudades, setCiudades] = useState([]);
   const [horarios, setHorarios] = useState([]);
   const [metodosPago, setMetodosPago] = useState([]);
   const [packs, setPacks] = useState([]);  
@@ -74,7 +94,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const cargarCatalogos = useCallback(async () => {
     if (!fbUser || !authReady) return;
     try {
-                 const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, cursosTeoricosSnap, recursosSnap, packsSnap, instructoresSnap, proveedoresSnap, proveedoresPublicosSnap, motosSnap, adminsSnap, movimientosSnap] = await Promise.all([
+                 const [sedesSnap, horariosSnap, metodosPagoSnap, cursosSnap, cursosTeoricosSnap, recursosSnap, packsSnap, instructoresSnap, proveedoresSnap, proveedoresPublicosSnap, motosSnap, adminsSnap, movimientosSnap, estadosSnap, municipiosSnap, ciudadesSnap] = await Promise.all([
         getDocs(collection(db, buildPath('sedes'))),
         getDocs(collection(db, buildPath('horarios'))),
         getDocs(collection(db, buildPath('metodosPago'))),
@@ -91,10 +111,16 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
         getProveedoresPublicosSeguro(),
         getDocs(collection(db, buildPath('motos'))),
         isAdmin ? getDocs(collection(db, buildPath('admins'))) : Promise.resolve({ docs: [] }),
-        isAdmin ? getDocs(collection(db, buildPath('movimientos'))) : Promise.resolve({ docs: [] })
+        isAdmin ? getDocs(collection(db, buildPath('movimientos'))) : Promise.resolve({ docs: [] }),
+        getGeografiaSeguro('estados'),
+        getGeografiaSeguro('municipios'),
+        getGeografiaSeguro('ciudades')
       ]);
 
       setSedes(sedesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setEstados(estadosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMunicipios(municipiosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCiudades(ciudadesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
             setHorarios(horariosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setMetodosPago(metodosPagoSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setPacks(packsSnap.docs.map(d => ({ id: d.id, ...d.data() })));      setCursos(cursosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -111,9 +137,28 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     } catch (error) {
       console.error('[FirestoreProvider] Error cargando catálogos:', error);
     }
-  }, [fbUser, authReady, isAdmin, buildPath, getProveedoresPublicosSeguro]);
+  }, [fbUser, authReady, isAdmin, buildPath, getProveedoresPublicosSeguro, getGeografiaSeguro]);
 
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
+
+  // T-048 / FT-048: el registro individual es público y necesita los catálogos
+  // geográficos para los selects Estado → Municipio → Ciudad. Son datos sin PII
+  // y se leen en modo anónimo; al autenticar, `cargarCatalogos` los refresca.
+  useEffect(() => {
+    if (!authReady || fbUser) return undefined;
+    let cancelled = false;
+    Promise.all([
+      getGeografiaSeguro('estados'),
+      getGeografiaSeguro('municipios'),
+      getGeografiaSeguro('ciudades')
+    ]).then(([estadosSnap, municipiosSnap, ciudadesSnap]) => {
+      if (cancelled) return;
+      setEstados(estadosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMunicipios(municipiosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCiudades(ciudadesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { cancelled = true; };
+  }, [authReady, fbUser, getGeografiaSeguro]);
 
   const saveCatalogo = (setter) => async (item) => {
     const id = item.id ? String(item.id) : Date.now().toString();
@@ -127,6 +172,36 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
       console.error(`[FirestoreProvider] Error guardando en ${colName}:`, error);
       throw error;
     }
+  };
+
+  // T-048: catálogos normalizados con ID slug ASCII inmutable. `item.id`
+  // existente manda; solo se genera slug al crear. Valida padre/unicidad y
+  // bloquea desactivar un padre con hijos activos (soft delete).
+  const saveGeografia = async (tipo, item = {}) => {
+    const destinos = {
+      estados: { setter: setEstados, lista: estados },
+      municipios: { setter: setMunicipios, lista: municipios },
+      ciudades: { setter: setCiudades, lista: ciudades },
+    };
+    const destino = destinos[tipo];
+    if (!destino) throw new Error(`Tipo de catálogo geográfico inválido: ${tipo}`);
+
+    const id = item?.id ? String(item.id) : construirIdCatalogo(item?.nombre, destino.lista);
+    const datos = { ...item, id, activo: item?.activo !== false };
+    const catalogos = { estados, municipios, ciudades };
+
+    const validacion = validarCatalogo({ tipo, datos, catalogos, itemActual: item });
+    if (!validacion.ok) throw new Error(validacion.errores.join(' '));
+
+    if (datos.activo === false && hijosActivos(tipo, id, catalogos).length > 0) {
+      throw new Error('No se puede desactivar: tiene registros hijos activos.');
+    }
+
+    await setDoc(doc(db, buildPath(tipo), id), datos);
+    destino.setter(prev => prev.find(i => String(i.id) === id)
+      ? prev.map(i => String(i.id) === id ? datos : i)
+      : [...prev, datos]);
+    return datos;
   };
 
   const saveSede = async (item) => {
@@ -445,7 +520,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const refreshCatalogos = useCallback(() => cargarCatalogos(), [cargarCatalogos]);
 
     return {
-    sedes, saveSede, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso, cursosTeoricos, saveCursoTeorico, recursos, saveRecurso, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
+    sedes, saveSede, estados, municipios, ciudades, saveGeografia, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso, cursosTeoricos, saveCursoTeorico, recursos, saveRecurso, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,    reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
     proveedoresPublicos, setProveedoresPublicos,
     notifications, saveNotificacion, markNotificationRead, refreshNotificaciones,    

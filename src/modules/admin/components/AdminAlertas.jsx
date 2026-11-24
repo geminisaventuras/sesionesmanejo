@@ -65,9 +65,16 @@ const mensajeDeNotif = (notif) => {
 const AdminAlertas = () => {
   const { motos, logoutUser, notifications } = useContext(AppContext);
   const navigate = useNavigate();
-  const { reservas, cargando, error } = useAdminReservas();
+  const { reservas, reservasPendientes, cargando, error } = useAdminReservas({ incluirPendientes: true });
 
-  const res = reservas || [];
+  // Une el listener general (top 100 por fecha de curso) con el de pendientes por
+  // estado (ERR-058): una reserva nueva puede no estar en el primer top.
+  const res = useMemo(() => {
+    const mapa = new Map();
+    (reservas || []).forEach((reserva) => mapa.set(reserva.id, reserva));
+    (reservasPendientes || []).forEach((reserva) => mapa.set(reserva.id, reserva));
+    return [...mapa.values()];
+  }, [reservas, reservasPendientes]);
   const motosList = useMemo(() => motos || [], [motos]);
 
   const alertas = useMemo(

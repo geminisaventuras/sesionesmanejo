@@ -32,6 +32,7 @@ import {
   itemDesdeReserva,
   ordenarCola,
 } from './reservasHomeDatos';
+import { contarItemsBandeja } from '../utils/conteosBandeja';
 
 const FILTROS_TIPO = [
   { id: 'todo', etiqueta: 'Todo' },
@@ -41,8 +42,8 @@ const FILTROS_TIPO = [
 ];
 
 const SECCIONES_ABIERTAS_INICIALES = {
-  hoy: true,
-  pendientes: true,
+  hoy: false,
+  pendientes: false,
   rechazos: false,
   proximas: false,
   packs: false,
@@ -235,6 +236,9 @@ const AdminReservasHome = () => {
       Icono: Package,
       items: itemsPacksAprobados,
       tono: 'purple',
+      verTodasRuta: '/admin/reservas/packs',
+      textoVerTodas: 'Ver todas',
+      textoVerMas: 'Ver todas',
     },
   ]), [
     fechaHoyTexto,
@@ -245,10 +249,19 @@ const AdminReservasHome = () => {
     itemsPacksAprobados,
   ]);
 
+  // ERR-059: el badge cuenta sesiones; packs y teóricos tienen su propia sección.
   const totalRegistros = useMemo(
-    () => seccionesBase.reduce((total, seccion) => total + seccion.items.length, 0),
+    () => contarItemsBandeja(seccionesBase, 'reserva'),
     [seccionesBase]
   );
+
+  // FT-046: cada pestaña cuenta su propio tipo; "Todo" suma los tres sin duplicar.
+  const conteosTipo = useMemo(() => ({
+    todo: contarItemsBandeja(seccionesBase, 'todo'),
+    reserva: contarItemsBandeja(seccionesBase, 'reserva'),
+    pack: contarItemsBandeja(seccionesBase, 'pack'),
+    teorico: contarItemsBandeja(seccionesBase, 'teorico'),
+  }), [seccionesBase]);
 
   const seccionesVisibles = useMemo(
     () => seccionesBase
@@ -263,9 +276,10 @@ const AdminReservasHome = () => {
   );
 
   const totalVisible = useMemo(
-    () => seccionesVisibles.reduce((total, seccion) => total + seccion.items.length, 0),
-    [seccionesVisibles]
+    () => contarItemsBandeja(seccionesVisibles, filtroTipo),
+    [seccionesVisibles, filtroTipo]
   );
+  const etiquetaConteo = { todo: 'registros', reserva: 'sesiones', pack: 'packs', teorico: 'teóricos' }[filtroTipo];
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -448,6 +462,49 @@ const AdminReservasHome = () => {
 
         {cargando ? estadoCargando : error ? estadoError : sinReservas ? estadoVacio : (
           <div className="min-w-0">
+            {colaTotal > 0 && (
+              <section
+                aria-labelledby="home-cola-titulo"
+                className="mb-3 min-w-0 overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 via-white to-indigo-50 shadow-sm"
+              >
+                <div className="border-b border-rose-100/80 bg-white/60 px-3 py-2.5">
+                  <h3 id="home-cola-titulo" className="m-0 flex min-w-0 items-center gap-1.5 text-[12.5px] font-extrabold tracking-tight text-gray-900">
+                    <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-rose-600" />
+                    <span className="min-w-0">Requiere acción</span>
+                    <span className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums text-rose-700">
+                      {colaTotal}
+                    </span>
+                  </h3>
+                  <p className="m-0 mt-0.5 text-[10.5px] text-rose-900/60">
+                    Primero rechazos, después pendientes
+                  </p>
+                </div>
+
+                <div>
+                  {colaItems.map(item => (
+                    <ReservasHomeRow
+                      key={item.key}
+                      item={item}
+                      mostrarMotivo
+                      tonoFila={item.estadoPago === 'Rechazado' ? 'rose' : 'amber'}
+                      onClick={() => abrirItem(item)}
+                    />
+                  ))}
+                </div>
+
+                <div className="border-t border-rose-100/80 bg-white/60 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')}
+                    className="flex min-h-11 w-full items-center justify-between gap-1 rounded-lg px-2 text-left text-[11px] font-extrabold text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    <span>Ver todo lo pendiente ({colaTotal})</span>
+                    <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+                  </button>
+                </div>
+              </section>
+            )}
+
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
               <ReservasHomeKpi
                 etiqueta="Pendientes"
@@ -485,57 +542,8 @@ const AdminReservasHome = () => {
               />
             </div>
 
-            <div className="mt-4 flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start lg:gap-5">
-              <section
-                aria-labelledby="home-cola-titulo"
-                className="min-w-0 overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 via-white to-indigo-50 shadow-sm lg:sticky lg:top-4 lg:order-2"
-              >
-                <div className="border-b border-rose-100/80 bg-white/60 px-3 py-2.5">
-                  <h3 id="home-cola-titulo" className="m-0 flex min-w-0 items-center gap-1.5 text-[12.5px] font-extrabold tracking-tight text-gray-900">
-                    <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-rose-600" />
-                    <span className="min-w-0">Requiere acción</span>
-                    <span className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums text-rose-700">
-                      {colaTotal}
-                    </span>
-                  </h3>
-                  <p className="m-0 mt-0.5 text-[10.5px] text-rose-900/60">
-                    Primero rechazos, después pendientes
-                  </p>
-                </div>
-
-                {colaItems.length > 0 ? (
-                  <div>
-                    {colaItems.map(item => (
-                      <ReservasHomeRow
-                        key={item.key}
-                        item={item}
-                        mostrarMotivo
-                        tonoFila={item.estadoPago === 'Rechazado' ? 'rose' : 'amber'}
-                        onClick={() => abrirItem(item)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="m-0 px-3 py-4 text-[11.5px] text-gray-600">
-                    No hay rechazos ni pagos pendientes.
-                  </p>
-                )}
-
-                {colaTotal > 0 && (
-                  <div className="border-t border-rose-100/80 bg-white/60 px-2 py-1">
-                    <button
-                      type="button"
-                      onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')}
-                      className="flex min-h-11 w-full items-center justify-between gap-1 rounded-lg px-2 text-left text-[11px] font-extrabold text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    >
-                      <span>Ver todo lo pendiente ({colaTotal})</span>
-                      <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
-                    </button>
-                  </div>
-                )}
-              </section>
-
-              <div className="flex min-w-0 flex-col gap-3 lg:order-1">
+            <div className="mt-4 flex min-w-0 flex-col gap-3">
+              <div className="flex min-w-0 flex-col gap-3">
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <div
                     role="group"
@@ -549,20 +557,28 @@ const AdminReservasHome = () => {
                           key={filtro.id}
                           type="button"
                           aria-pressed={activo}
+                          aria-label={`${filtro.etiqueta}: ${conteosTipo[filtro.id]}`}
                           onClick={() => setFiltroTipo(filtro.id)}
-                          className={`min-h-11 min-w-0 truncate rounded-lg px-1 text-center text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-100 motion-reduce:transition-none ${
+                          className={`flex min-h-11 min-w-0 items-center justify-center gap-0.5 rounded-lg px-0.5 text-center text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-100 motion-reduce:transition-none ${
                             activo
                               ? 'bg-indigo-600 text-white shadow-sm'
                               : 'text-gray-600 hover:bg-white/70'
                           }`}
                         >
-                          {filtro.etiqueta}
+                          <span className="truncate">{filtro.etiqueta}</span>
+                          <span
+                            className={`inline-flex min-w-[15px] shrink-0 items-center justify-center rounded-full px-1 text-[9.5px] font-extrabold tabular-nums ${
+                              activo ? 'bg-white/25 text-white' : 'bg-gray-200 text-gray-600'
+                            }`}
+                          >
+                            {conteosTipo[filtro.id]}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
                   <p className="m-0 text-[10.5px] text-gray-500">
-                    <span className="font-bold text-gray-600">{totalVisible} registros</span>
+                    <span className="font-bold text-gray-600">{totalVisible} {etiquetaConteo}</span>
                     {' '}· secciones plegables por estado
                   </p>
                 </div>
@@ -579,6 +595,8 @@ const AdminReservasHome = () => {
                     abierta={Boolean(abiertas[seccion.id])}
                     onToggle={() => setAbiertas(previo => ({ ...previo, [seccion.id]: !previo[seccion.id] }))}
                     onVerTodas={seccion.verTodasRuta ? () => navigate(seccion.verTodasRuta) : undefined}
+                    textoVerTodas={seccion.textoVerTodas}
+                    textoVerMas={seccion.textoVerMas}
                     onAbrirItem={abrirItem}
                     botonRef={(nodo) => {
                       if (nodo) botonesSeccion.current[seccion.id] = nodo;

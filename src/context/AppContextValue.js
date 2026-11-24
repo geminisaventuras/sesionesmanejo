@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 
 export const AppContext = createContext({
-  config: {}, sedes: [], horarios: [], cursos: [],
+  config: {}, sedes: [], estados: [], municipios: [], ciudades: [], horarios: [], cursos: [],
   instructores: [], proveedores: [], proveedoresPublicos: [], motos: [],
   reservas: [], movimientos: [], admins: [],
   user: null, toast: null, autoLoginData: null,
@@ -17,6 +17,7 @@ export const AppContext = createContext({
   calcularBaseUSD: () => 0, showToast: () => {},
   setUser: () => {}, setAutoLoginData: () => {},
   saveConfig: async () => {}, saveSede: async () => {},
+  saveGeografia: async () => {},
   saveHorario: async () => {}, saveCurso: async () => {},
   saveInstructor: async () => {}, saveProveedor: async () => {},
   saveMoto: async () => {}, saveReserva: async () => {},

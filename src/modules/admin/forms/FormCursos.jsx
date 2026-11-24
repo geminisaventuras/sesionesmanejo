@@ -406,7 +406,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                       onChange={() => toggleSede(s.id)}
                       className="w-4 h-4"
                     />
-                    <span className="text-sm">{formatearSede(s)} <span className="text-xs text-gray-400">({s.id})</span></span>
+                    <span className="text-sm">{formatearSede(s, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } })} <span className="text-xs text-gray-400">({s.id})</span></span>
                   </label>
                 ))}
               </div>
@@ -530,7 +530,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                   const valorActual = form.comisionProveedorPorSede[sedeId];
                   return (
                     <div key={sedeId} className="flex items-center gap-2">
-                      <span className="flex-1 text-xs text-gray-700">{formatearSede(sede) || sedeId}</span>
+                      <span className="flex-1 text-xs text-gray-700">{formatearSede(sede, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } }) || sedeId}</span>
                       <input
                         type="number"
                         min="0"
@@ -588,7 +588,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
                 return (
                   <div key={sedeId} className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between mb-3">
-                      <label className="text-sm font-bold text-gray-700">{formatearSede(sede) || sedeId}</label>
+                      <label className="text-sm font-bold text-gray-700">{formatearSede(sede, { catalogos: { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades } }) || sedeId}</label>
                       <button
                         type="button"
                         onClick={() => toggleTodosHorariosEnSede(sedeId)}

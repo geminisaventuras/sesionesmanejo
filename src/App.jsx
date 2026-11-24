@@ -25,6 +25,7 @@ const AdminAlertas = React.lazy(() => import('./modules/admin/components/AdminAl
 const AdminMetricas = React.lazy(() => import('./modules/admin/components/AdminMetricas'));
 const AdminReservasHome = React.lazy(() => import('./modules/admin/components/AdminReservasHome'));
 const AdminReservasList = React.lazy(() => import('./modules/admin/components/AdminReservasList'));
+const AdminPacksList = React.lazy(() => import('./modules/admin/components/AdminPacksList'));
 const AdminReservaDetalle = React.lazy(() => import('./modules/admin/components/AdminReservaDetalle'));
 const AdminPackDetalle = React.lazy(() => import('./modules/admin/components/AdminPackDetalle'));
 const AdminAccesoTeoricoDetalle = React.lazy(() => import('./modules/admin/components/AdminAccesoTeoricoDetalle'));
@@ -47,6 +48,7 @@ const FinanceReportes = React.lazy(() => import('./modules/admin/finance/Finance
 const FinanceConfiguracion = React.lazy(() => import('./modules/admin/finance/FinanceConfiguracion'));
 const StaffFinanzasView = React.lazy(() => import('./modules/admin/components/StaffFinanzasView'));
 const AdminConfigHub = React.lazy(() => import('./modules/admin/components/AdminConfigHub'));
+const AdminGeografia = React.lazy(() => import('./modules/admin/components/AdminGeografia'));
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
 const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
 const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
@@ -219,6 +221,11 @@ function App() {
               <AdminReservasList />
             </ProtectedRoute>
           } />
+          <Route path="/admin/reservas/packs" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminPacksList />
+            </ProtectedRoute>
+          } />
           <Route path="/admin/reservas" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminReservasHome />
@@ -263,6 +270,11 @@ function App() {
           <Route path="/admin/config/ajustes" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminAjustes />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/geografia" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminGeografia />
             </ProtectedRoute>
           } />
 

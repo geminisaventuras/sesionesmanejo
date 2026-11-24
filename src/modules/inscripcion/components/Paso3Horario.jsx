@@ -166,13 +166,13 @@ export function Paso3Horario({
           })}
         </div>
         {esCursoDosDias && form.fecha1 && fecha2Calc && (
-          <div data-testid="rango-d1-d2" className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5">
-            <div className="mb-1 flex items-center justify-between text-[9px] font-black uppercase tracking-wide text-blue-800">
-              <span>Sesión de 2 días</span>
-              <span>2 días consecutivos</span>
+          <div data-testid="rango-d1-d2" className="mx-3 mt-2 min-w-0 overflow-hidden rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5">
+            <div className="mb-1 flex items-center justify-between gap-2 text-[9px] font-black uppercase tracking-wide text-blue-800">
+              <span className="truncate">Sesión de 2 días</span>
+              <span className="shrink-0">2 días consecutivos</span>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="flex flex-1 items-center gap-1 rounded border border-blue-100 bg-white px-1.5 py-1 font-bold text-slate-900">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-1.5 text-[10px]">
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden rounded border border-blue-100 bg-white px-1.5 py-1 font-bold text-slate-900">
                 <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
                   <span className="rounded bg-blue-700 px-1 py-0.5 text-[8px] text-white">D1</span>
                   {formatearFechaCorta(form.fecha1)}
@@ -183,8 +183,8 @@ export function Paso3Horario({
                   </span>
                 )}
               </span>
-              <span className="font-black text-blue-400">→</span>
-              <span className="flex flex-1 items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-1 font-bold text-slate-900">
+              <span className="self-center font-black text-blue-400">→</span>
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden rounded border border-amber-200 bg-amber-50 px-1.5 py-1 font-bold text-slate-900">
                 <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
                   <span className="rounded bg-amber-700 px-1 py-0.5 text-[8px] text-white">D2</span>
                   {formatearFechaCorta(fecha2Calc)}

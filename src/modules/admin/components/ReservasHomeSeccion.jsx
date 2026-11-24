@@ -1,4 +1,5 @@
 // @build: 2026-11-23 | id: T-064-V4 | desc: Sección plegable accesible con header tintado por estado y contador de color.
+import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import ReservasHomeRow from './ReservasHomeRow';
 
@@ -57,14 +58,20 @@ export default function ReservasHomeSeccion({
   onToggle,
   onVerTodas,
   textoVerTodas = 'Ver todas',
+  textoVerMas = 'Ver más',
+  limite = 3,
+  expandible = false,
   onAbrirItem,
   botonRef,
   tono = 'neutral',
 }) {
+  const [expandida, setExpandida] = useState(false);
   const panelId = `${id}-panel`;
   const botonId = `${id}-titulo`;
   const clave = TONO[tono] ? tono : 'neutral';
   const estilo = TONO[clave];
+  const itemsVisibles = expandida ? items : items.slice(0, limite);
+  const restantes = items.length - itemsVisibles.length;
 
   return (
     <section
@@ -78,7 +85,10 @@ export default function ReservasHomeSeccion({
           type="button"
           aria-expanded={abierta}
           aria-controls={panelId}
-          onClick={onToggle}
+          onClick={() => {
+            if (abierta) setExpandida(false);
+            onToggle();
+          }}
           className={`flex min-h-12 w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none ${estilo.header}`}
         >
           <span aria-hidden="true" className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-lg ${estilo.icono}`}>
@@ -110,22 +120,35 @@ export default function ReservasHomeSeccion({
         hidden={!abierta}
         className="border-t border-gray-100"
       >
-        {items.map((item) => (
+        {itemsVisibles.map((item) => (
           <ReservasHomeRow key={item.key} item={item} tonoFila={clave === 'neutral' ? undefined : clave} onClick={() => onAbrirItem(item)} />
         ))}
-        {onVerTodas && (
-          <div className="flex justify-end px-2 py-1">
+      </div>
+
+      {(onVerTodas || (expandible && items.length > limite)) && (
+        <div className="flex justify-end border-t border-gray-100 px-2 py-1">
+          {onVerTodas ? (
             <button
               type="button"
               onClick={onVerTodas}
               className="inline-flex min-h-11 items-center gap-0.5 rounded-lg px-2 text-[11px] font-extrabold text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
-              {textoVerTodas}
+              {items.length > limite ? `${textoVerMas} (${restantes})` : textoVerTodas}
               <ChevronRight size={12} aria-hidden="true" />
             </button>
-          </div>
-        )}
-      </div>
+          ) : (
+            <button
+              type="button"
+              aria-expanded={expandida}
+              onClick={() => setExpandida((previo) => !previo)}
+              className="inline-flex min-h-11 items-center gap-0.5 rounded-lg px-2 text-[11px] font-extrabold text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {expandida ? 'Ver menos' : `Ver todas (${items.length})`}
+              <ChevronRight size={12} aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${expandida ? 'rotate-90' : ''}`} />
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

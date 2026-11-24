@@ -1,6 +1,7 @@
 // @build: 2026-11-12 | id: WHATSAPP-SERVICE-V1 | desc: Plantillas de mensajes centralizadas + Maps + Helpers
 // Aplica reglas: dominio prod, dirección exacta, código corto, recordatorio 15 min.
 import { formatearSede } from '../utils/sedesHelpers.js';
+import { urlMapaSede, validarCoordenadas } from '../utils/geografiaHelpers.js';
 const BASE_URL = 'https://motoapp.website';
 
 export const getBaseUrl = () => BASE_URL;
@@ -43,6 +44,13 @@ const normalizarClaveSede = (valor) =>
 
 export const linkMapaSede = (sede) => {
   if (!sede) return '';
+
+  // 0) T-048: coordenadas guardadas por el admin en la sede (mapa real).
+  const coordenadas = validarCoordenadas(sede.coordenadas);
+  if (coordenadas.ok && coordenadas.coordenadas) {
+    const urlCoordenadas = urlMapaSede(sede);
+    if (urlCoordenadas) return urlCoordenadas;
+  }
 
   // 1) Pin por ID (sede1, sede2, 1793924508290).
   const idSede = normalizarClaveSede(sede.id);
@@ -94,7 +102,7 @@ export const construirMensajeAprobacion = ({ nombre, curso, fecha, horario, sede
 🎓 *Sesión:* ${curso}
 📅 *Fecha:* ${fecha}
 ⏰ *Hora:* ${horario}
-📍 *Sede:* ${formatearSede(sede)}
+📍 *Sede:* ${formatearSede(sede, { incluirDireccion: true })}
 ${sede?.direccion ? `🗺️ *Ubicación:* ${maps}\n` : ''}
 ⏱️ *Recuerda:* Llega 15 minutos antes.
 
@@ -120,7 +128,7 @@ export const construirMensajePackAprobado = ({
 🎓 *Primera sesión:* ${curso}
 📅 *Fecha:* ${fecha}
 ⏰ *Hora:* ${horario}
-📍 *Sede:* ${formatearSede(sede)}
+📍 *Sede:* ${formatearSede(sede, { incluirDireccion: true })}
 ${sede?.direccion ? `🗺️ *Ubicación:* ${maps}\n` : ''}
 👨‍🏫 *Tutor:* ${instructor}
 
@@ -149,7 +157,7 @@ export const construirMensajeReprogramacion = ({ nombre, curso, fecha, horario, 
 🎓 *Sesión:* ${curso}
 📅 *Nueva fecha:* ${fecha}
 ⏰ *Hora:* ${horario}
-📍 *Sede:* ${formatearSede(sede)}
+📍 *Sede:* ${formatearSede(sede, { incluirDireccion: true })}
 ${sede?.direccion ? `🗺️ *Ubicación:* ${maps}\n` : ''}
 ${motivo ? `📝 *Motivo:* ${motivo}\n` : ''}
 ⏱️ *Recuerda:* Llega 15 minutos antes.

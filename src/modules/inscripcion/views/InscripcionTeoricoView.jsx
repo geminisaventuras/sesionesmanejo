@@ -24,7 +24,7 @@ import { ArrowRight, Check, Award, GraduationCap } from 'lucide-react';
 
 const DEFAULT_FORM = {
   nombre: '', apellido: '', cedula: '', diaNac: '', mesNac: '', anoNac: '',
-  sexo: '', estado: '', zona: '', correo: '', telefono: '', contactoEmergencia: '',
+  sexo: '', estado: '', estadoId: '', municipio: '', municipioId: '', ciudad: '', ciudadId: '', zona: '', correo: '', telefono: '', contactoEmergencia: '',
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: '',
   condicionMedica: '', detalleCondicion: '', pin: ''
 };

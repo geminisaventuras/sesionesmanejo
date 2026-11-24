@@ -35,6 +35,8 @@ export function AgendarPackView() {
   const ctx = useContext(AppContext);
   const { showToast } = useToast();
   const { cursos = [], sedes = [], instructores = [], motos = [], proveedoresPublicos = [], horarios = [], user, fbUser, logoutUser, notifications = [] } = ctx;
+  const catalogosSede = { estados: ctx.estados, municipios: ctx.municipios, ciudades: ctx.ciudades };
+  const etiquetaSede = (s) => formatearSede(s, { catalogos: catalogosSede });
 
   const uid = fbUser?.uid || user?.uid;
 
@@ -227,7 +229,7 @@ export function AgendarPackView() {
     setSedeSeleccionadaId(sedeDefault);
     if (pack?.sedeId && sedeDefault !== pack.sedeId) {
       const sedeObj = (sedes || []).find(s => String(s.id) === String(sedeDefault));
-const sedeNombre = formatearSede(sedeObj) || sedeDefault;
+const sedeNombre = etiquetaSede(sedeObj) || sedeDefault;
       showToast(`Este curso se ofrece en ${sedeNombre}. Se seleccionó automáticamente.`, 'info');
     }
   }, [sedesValidasSesion, sedeSeleccionadaId, pack?.sedeId, sedes]);
@@ -658,7 +660,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
           <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Agendar sesión</p>
           <h2 className="text-lg font-black truncate">{cursoData.nombre}</h2>
           <p className="text-[11px] opacity-90 mt-1">
-            {formatearSede(sede)}{form.tipoMoto ? ` · ${form.tipoMoto}` : ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
+            {etiquetaSede(sede)}{form.tipoMoto ? ` · ${form.tipoMoto}` : ''} · {form.traeMoto === 'Sí' ? 'Moto propia' : 'Moto de Moto App'}
           </p>
         </div>
 
@@ -677,7 +679,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
                 const s = (sedes || []).find(x => String(x.id) === String(sid));
                 return (
                   <option key={sid} value={sid}>
-                    {formatearSede(s)}
+                    {etiquetaSede(s)}
                   </option>
                 );
               })}
@@ -714,7 +716,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
             showToast={showToast}
             cargando={!instructores?.length || !motos?.length || !horarios?.length || cargandoBloqueos}
             cursoNombre={cursoData.nombre}
-            sedeNombre={formatearSede(sede)}
+            sedeNombre={etiquetaSede(sede)}
             tipoMoto={pack.tipoMoto}
             traeMoto={form.traeMoto}
             esCursoDosDias={!cursoUnDiaPack}

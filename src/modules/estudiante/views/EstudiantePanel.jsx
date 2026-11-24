@@ -28,6 +28,7 @@ import {
   User, AlertCircle, Info, ChevronLeft, Share2, Zap, Lock, Check, KeyRound, Package, GraduationCap
 } from 'lucide-react';
 import { formatearSede, nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
+import { linkMapaSede } from '../../shared/services/WhatsAppService';
 const APP_ID = 'motoescuela-pro-v1';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -436,7 +437,7 @@ export function EstudiantePanel() {
                   <Clock size={12} /><span className="font-bold">{horaInicio} - {horaFin}</span>
                 </p>
                 <p className="flex items-center justify-center gap-1.5">
-                  <MapPin size={12} /><span className="font-bold">{formatearSede(sedeActual)}</span>
+                  <MapPin size={12} /><span className="font-bold">{formatearSede(sedeActual, { catalogos: { estados: ctx?.estados, municipios: ctx?.municipios, ciudades: ctx?.ciudades } })}</span>
                   <span className="mx-1">·</span>
                   <User size={12} /><span className="font-bold">Tutor: {inst ? inst.nombre : 'Asignando'}</span>
                 </p>
@@ -892,7 +893,24 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
           <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{ctx.user?.data?.cedula || reservaActual?.cedula || '—'}</p></div>
           <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{ctx.user?.data?.telefono || reservaActual?.telefono || 'No registrado'}</p></div>
           <div><p className="text-xs text-gray-500">Sesión Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div>
-          <div><p className="text-xs text-gray-500">Sede</p><p className="font-bold text-gray-900">{formatearSede(sedeActual)}</p></div>
+          <div>
+            <p className="text-xs text-gray-500">Sede</p>
+            <p className="font-bold text-gray-900">{formatearSede(sedeActual, { catalogos: { estados: ctx?.estados, municipios: ctx?.municipios, ciudades: ctx?.ciudades } })}</p>
+            {sedeActual?.direccion && (
+              <p className="text-xs text-gray-600 mt-1 leading-snug">
+                <span className="font-semibold text-gray-700">Dirección: </span>
+                {sedeActual.direccion}
+                {linkMapaSede(sedeActual) && (
+                  <>
+                    {' · '}
+                    <a href={linkMapaSede(sedeActual)} target="_blank" rel="noopener noreferrer" className="font-bold text-blue-600 underline">
+                      Abrir en el mapa
+                    </a>
+                  </>
+                )}
+              </p>
+            )}
+          </div>
           
           <div className="border-t border-gray-100 pt-3">
             {!mostrarCambioPin ? (

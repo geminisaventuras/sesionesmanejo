@@ -282,7 +282,7 @@ function FilaSedeDia({ nombre, datos, fecha, onAbrir }) {
 }
 
 const AdminOcupacion = memo(() => {
-  const { horarios, sedes, instructores, motos, cursos, user, logoutUser } = useContext(AppContext);
+  const { horarios, sedes, instructores, motos, cursos, user, logoutUser, estados, municipios, ciudades } = useContext(AppContext);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -395,10 +395,15 @@ const AdminOcupacion = memo(() => {
     return result;
   }, [dias, bloquesActivos, instructores, motos, cursos, reservasSemana, ocupacionSemana, locksSemana, bloqueosAdmin, bloqueosInstructores, bloqueosProveedor, filtroSede, filtroCurso, filtroInstructor, filtroMoto, ahora]);
 
+  const catalogosSede = useMemo(
+    () => ({ estados: estados || [], municipios: municipios || [], ciudades: ciudades || [] }),
+    [estados, municipios, ciudades]
+  );
+
   const nombreSede = useCallback((sedeId) => {
     const sede = (sedes || []).find((s) => String(s.id) === String(sedeId));
-    return sede ? formatearSede(sede, { incluirDireccion: false }) : `Sede ${sedeId}`;
-  }, [sedes]);
+    return sede ? formatearSede(sede, { catalogos: catalogosSede }) : `Sede ${sedeId}`;
+  }, [sedes, catalogosSede]);
 
   // En «Todas» la vista separa por sede: no se suma el cupo de sedes distintas.
   // Todo se deriva de `porSede` que ya calcula `calcularEstadoBloque` (sin consultas nuevas).
@@ -573,11 +578,11 @@ const AdminOcupacion = memo(() => {
         ayuda: 'En «Todas» la ocupación se muestra separada por sede.',
         opciones: [
           { valor: '', etiqueta: 'Todas las sedes' },
-          ...sedesActivas.map((sede) => ({ valor: sede.id, etiqueta: formatearSede(sede) })),
+          ...sedesActivas.map((sede) => ({ valor: sede.id, etiqueta: formatearSede(sede, { catalogos: catalogosSede }) })),
         ],
         resumen: (valor) => {
           const sede = sedesActivas.find((s) => String(s.id) === String(valor));
-          return sede ? `Sede ${formatearSede(sede, { incluirDireccion: false })}` : 'Sede';
+          return sede ? `Sede ${formatearSede(sede, { catalogos: catalogosSede })}` : 'Sede';
         },
       },
       {
@@ -631,7 +636,7 @@ const AdminOcupacion = memo(() => {
     }
 
     return campos;
-  }, [sedes, cursos, instructores, motos, rango.valido, dias, fechaFin, fechaInicial, opcionesDependientes, filtroCurso]);
+  }, [sedes, cursos, instructores, motos, rango.valido, dias, fechaFin, fechaInicial, opcionesDependientes, filtroCurso, catalogosSede]);
 
   const valoresIniciales = useMemo(() => ({ fechaInicio: fechaInicial }), [fechaInicial]);
 
