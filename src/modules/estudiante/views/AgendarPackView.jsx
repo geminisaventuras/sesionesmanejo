@@ -22,6 +22,7 @@ import DashboardFooter from '../../shared/components/DashboardFooter';
 import { ArrowRight, Check, Package, Activity, BookOpen, Compass, Library, Settings, FileText } from 'lucide-react';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { enriquecerDiasConRoles } from '../../inscripcion/utils/disponibilidadRoles';
+import { instructorPermitidoEnCurso } from '../../inscripcion/utils/instructoresPermitidos';
 import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 const LOCK_DURATION = 10 * 60 * 1000;
@@ -328,6 +329,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
   useEffect(() => {
     if (cargando) return;
     if (!tipoMotoEfectivo) return;
+    if (disponibilidad?.error) return;
     if (cargandoBloqueos || cargandoProveedor || cargandoOcupacion) return;
 
     // Si el bloque elegido se invalida por un bloqueo posterior, se libera
@@ -456,10 +458,10 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       return;
     }
 
-    // Defensa en profundidad: revalidar que el instructor sigue permitido para este curso
-    const permitidos = cursoData?.instructoresPermitidos;
-    if (Array.isArray(permitidos) && permitidos.length > 0 && !permitidos.map(String).includes(String(bloque.instructorId))) {
-      showToast('El tutor asignado ya no está habilitado para esta sesión. Selecciona otro horario.', 'error');
+    // Defensa en profundidad: D10 fail-closed. Sin allowlist configurada
+    // (vacía/ausente) el tutor NO está permitido; tampoco uno fuera de la lista.
+    if (!instructorPermitidoEnCurso(cursoData, bloque.instructorId)) {
+      showToast('El tutor asignado no está habilitado para este curso. Selecciona otro horario.', 'error');
       return;
     }
     const necesitaMoto = form.traeMoto !== 'Sí';
@@ -470,9 +472,16 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
 
     setSelectingBlockId(bloque.id);
 
-    // Liberar lock anterior si existía en otro bloque
+    // Liberar SIEMPRE el lock anterior (aunque ya se haya renovado) y limpiar
+    // la selección antes de tomar el nuevo bloque. Así no queda un lock
+    // huérfano ni una selección fantasma si el nuevo bloque falla (ERR-010).
     if (lockId) {
       await LockService.liberarLock(lockId).catch(() => {});
+      setLockId('');
+      setLockExpiresAt(null);
+      setHoraId('');
+      setInstructorId('');
+      setMotoAsignadaId('');
     }
 
     const nuevoLockId = `${fecha1}_${bloque.id}_${bloque.instructorId}_${bloque.motoAsignadaId || 'sinmoto'}`;
@@ -492,6 +501,12 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       showToast('Horario separado. Tienes 10 minutos para confirmar.', 'success');
     } else {
       const c = res.error?.code;
+      // El bloque anterior ya fue liberado; dejar la vista sin selección.
+      setLockId('');
+      setLockExpiresAt(null);
+      setHoraId('');
+      setInstructorId('');
+      setMotoAsignadaId('');
       if (c === 'lock-owner-mismatch' || c === 'lock-taken') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
       else if (c === 'lock-own-active') showToast('Ya tienes este horario separado. Continúa con el pago o espera a que expire.', 'info');
       else if (c === 'permission-denied') showToast('No pudimos separar el horario. Revisa tu sesión o intenta de nuevo.', 'error');
@@ -559,8 +574,12 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       showToast('¡Sesión agendada! Ya puedes ver la fecha en tu pack.', 'success');
       navigate(`/mi-pack/${packReservaId}`);
     } else {
-      if (result.error?.code === 'slot-occupied') {
-        // BUG-2: el servicio ya libero el lock; limpiamos el estado local del horario.
+      const c = result.error?.code;
+      const requiereNuevoHorario = ['slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch'].includes(c);
+      if (requiereNuevoHorario) {
+        // El servicio (o el cross-check) ya liberó el lock; limpiar la
+        // selección evita confirmar otra vez con un lock inexistente.
+        if (c !== 'slot-occupied') LockService.liberarLock(lockId).catch(() => {});
         setLockId('');
         setLockExpiresAt(null);
         setHoraId('');
@@ -662,8 +681,20 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
           </div>
         )}
 
+        {/* D10: sin allowlist de tutores el pack falla cerrado y no se muestra el calendario. */}
+        {disponibilidad?.error && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-3">
+            <p className="text-xs font-black text-red-800">
+              No se puede agendar esta sesión
+            </p>
+            <p className="text-[11px] text-red-700 mt-1">
+              {disponibilidad.error.message}
+            </p>
+          </div>
+        )}
+
         {/* Paso 3 reutilizado */}
-        {disponibilidad && (
+        {disponibilidad && !disponibilidad.error && (
           <Paso3Horario
             form={form}
             updateForm={updateForm}

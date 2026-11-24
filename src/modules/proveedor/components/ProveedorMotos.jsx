@@ -5,6 +5,7 @@ import { Button, Input, Select } from '../../../components/UI';
 import { Bike, Plus, Power, Edit, ChevronLeft } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -57,7 +58,7 @@ const ProveedorMotos = () => {
             {sedes.filter(s => s.activo).map(s => (
               <label key={s.id} className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg cursor-pointer">
                 <input type="checkbox" checked={form.sedes?.includes(s.id)} onChange={() => setForm({ ...form, sedes: form.sedes?.includes(s.id) ? form.sedes.filter(id => id !== s.id) : [...(form.sedes || []), s.id] })} className="w-5 h-5 text-blue-600 rounded" />
-                <span className="font-bold text-gray-800">{s.nombre}</span>
+                <span className="font-bold text-gray-800">{nombreSedeCanonico(s)}</span>
               </label>
             ))}
           </div>

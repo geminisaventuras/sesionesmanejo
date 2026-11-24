@@ -16,8 +16,10 @@ import {
   construirAsignacionesProveedor,
   construirAsignacionesInstructor,
   aplicarDescuentoDeuda,
-  calcularTotalPago
+  calcularTotalPago,
+  estadoPagoReservaPagable
 } from '../utils/finanzasHelpers';
+import { obtenerFechaVenezuela } from '../utils/zonahoraria';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -110,7 +112,7 @@ export const PagosStaffService = {
     const pagoId = pagoDoc.id;
     const movimientoDoc = doc(collection(db, ...COL_MOVIMIENTOS));
     const ahora = Timestamp.now();
-    const fechaISO = new Date().toISOString().split('T')[0];
+    const fechaISO = obtenerFechaVenezuela();
 
     try {
       let movimientoIdFinal = null;
@@ -165,6 +167,22 @@ export const PagosStaffService = {
         //    Instructor: mapa D1/D2 (FT-001), compartida legacy o simple.
         //    Proveedor: asignaciones D1/D2.
         for (const r of reservasLeidas) {
+          // ERR-013: revalidar el estado del pago del estudiante DENTRO de la
+          // transacción. Si entre la selección en la UI y esta escritura la
+          // reserva fue cancelada, rechazada o revertida, se aborta la
+          // transacción completa (pago, movimiento, flags y deudas) sin
+          // efectos. Solo `Aprobado` habilita un pago a staff.
+          const validacionEstado = estadoPagoReservaPagable(r.data);
+          if (!validacionEstado.pagable) {
+            const detalleEstado = validacionEstado.estadoPago != null
+              ? ` (estadoPago: ${validacionEstado.estadoPago})`
+              : '';
+            throw new Error(
+              `Reserva ${r.id} no es pagable: ${validacionEstado.motivo}${detalleEstado}. ` +
+              'Solo se paga sobre reservas con estadoPago Aprobado.'
+            );
+          }
+
           const esCompartida = r.data.esReservaCompartida === true;
           const involucrados = r.data.instructoresInvolucrados || [];
 

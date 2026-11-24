@@ -1,10 +1,15 @@
-// @build: 2026-11-21.A+ | id: FORM-PACK-PRECIOS-SNAPSHOT | desc: FormPack persiste snapshot de precios A+ y lo calcula con la función pura compartida.
+// @build: 2026-11-22 | id: FORM-PACK-PRECIOS-SNAPSHOT+T060 | desc: FormPack persiste el snapshot de precios A+ y, en dual-write, la proyección pública packsPublicos (T-060).
 import { useState, useContext, memo } from 'react';
-import { Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { Button, Input } from '../../../components/UI';
 import { calcularPreciosPack } from '../../inscripcion/utils/packPricing.js';
+import { construirPackPublico } from '../../inscripcion/utils/packPublico.js';
 import { ChevronLeft, ArrowUp, ArrowDown, GripVertical, Plus, X, MapPin, GraduationCap } from 'lucide-react';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
+
+const APP_ID = 'motoescuela-pro-v1';
 
 const FormPack = memo(({ item, onSave, onCancel }) => {
   const { cursos, cursosTeoricos, sedes, refreshCatalogos, user } = useContext(AppContext);
@@ -129,7 +134,7 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.nombre || !form.nombre.trim()) {
       alert('El nombre del pack es obligatorio');
       return;
@@ -196,14 +201,50 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
       alert('El precio final del pack debe ser mayor que cero.');
       return;
     }
-      onSave({
+
+    // T-060: se fija el id antes de guardar para poder escribir la misma clave
+    // en `packs` y `packsPublicos` en el dual-write.
+    const packIdFinal = form.id ? String(form.id) : Date.now().toString();
+    const packData = {
       ...form,
+      id: packIdFinal,
       precios,
       nombre: form.nombre.trim(),
       descripcion: (form.descripcion || '').trim(),
       descuentoValor: Number(form.descuentoValor) || 0,
       vencimientoDias: Number(form.vencimientoDias) || 0
-    });
+    };
+
+    try {
+      await onSave(packData);
+    } catch (error) {
+      console.error('[FormPack] Error guardando el pack:', error);
+      alert('No se pudo guardar el pack. Inténtalo de nuevo.');
+      return;
+    }
+
+    // T-060 / ERR-027: dual-write de la proyección pública. Usa el snapshot ya
+    // calculado; no recalcula ni altera precios. Si falla, el maestro queda
+    // guardado y el backfill puede reparar la proyección.
+    let publico = null;
+    try {
+      publico = construirPackPublico({ pack: packData, actualizadoEn: Timestamp.now() });
+    } catch (error) {
+      console.error('[FormPack] Error construyendo la proyección pública:', error);
+    }
+    if (publico) {
+      try {
+        await setDoc(
+          doc(db, 'artifacts', APP_ID, 'public', 'data', 'packsPublicos', packIdFinal),
+          publico
+        );
+      } catch (error) {
+        console.error('[FormPack] No se pudo escribir packsPublicos:', error);
+      }
+    } else {
+      console.warn('[FormPack] Pack sin proyección pública: no hay precio válido derivable.');
+    }
+
     if (typeof refreshCatalogos === 'function') {
       refreshCatalogos().catch(() => {});
     }
@@ -268,7 +309,7 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
                       : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
                   }`}
                 >
-                  {s.nombre}
+                  {nombreSedeCanonico(s)}
                 </button>
               );
             })}

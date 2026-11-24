@@ -3,22 +3,11 @@ import { useMemo, useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { comisionInstructorReserva, montoPendienteProveedor } from '../../shared/utils/finanzasHelpers';
 import { formatearMonto } from '../../shared/utils/currency';
-
-const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-
-function inicioSemanaVET() {
-  const d = new Date();
-  const dia = d.getDay() || 7;
-  const lunes = new Date(d);
-  lunes.setDate(d.getDate() - (dia - 1));
-  return lunes.toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-}
-
-function inicioMesVET() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1)
-    .toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-}
+import {
+  obtenerFechaVenezuela as hoyVET,
+  inicioSemanaVenezuela as inicioSemanaVET,
+  inicioMesVenezuela as inicioMesVET
+} from '../../shared/utils/zonahoraria.js';
 
 const FILTROS = [
   { id: 'todo', label: 'Todo' },

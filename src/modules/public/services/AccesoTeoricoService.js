@@ -2,6 +2,7 @@
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, Timestamp, writeBatch, addDoc } from 'firebase/firestore';
 import { db, auth } from '../../../firebase';
 import { resumenAccesoId } from '../../shared/utils/accesoTeoricoResumen';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 
 const APP_ID = 'motoescuela-pro-v1';
 const COLL = `artifacts/${APP_ID}/public/data/accesosTeoricos`;
@@ -194,7 +195,7 @@ export const AccesoTeoricoService = {
           origenId: accesoId,
           monto: precioAcceso,
           desc: `Módulo formativo - A-${String(accesoId).slice(-4)}`,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: obtenerFechaVenezuela(),
           userId: accesoData.userId || userId,
           createdBy: adminUid,
           createdAt: aprobadoEn,

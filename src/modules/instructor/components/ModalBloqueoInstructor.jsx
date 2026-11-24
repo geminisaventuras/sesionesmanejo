@@ -7,6 +7,7 @@ import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { Button } from '../../../components/UI';
 import { ReservaService } from '../../../services/ReservaService';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 const COLL = 'bloqueosInstructores';
@@ -255,7 +256,7 @@ export default function ModalBloqueoInstructor({
               >
                 <option value="">Todas las sedes</option>
                 {sedesDisponibles.map(s => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                  <option key={s.id} value={s.id}>{nombreSedeCanonico(s)}</option>
                 ))}
               </select>
             </div>

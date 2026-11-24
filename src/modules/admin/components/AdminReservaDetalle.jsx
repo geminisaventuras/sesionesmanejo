@@ -8,25 +8,30 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronLeft, CheckCircle, AlertCircle, X, User, Users, Phone, Mail, MapPin,
-  Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings, Check, MessageCircle
+  ChevronLeft, ChevronRight, CheckCircle, AlertCircle, X, User, Users, Phone, Mail, MapPin,
+  Calendar, Clock, Bike, BookOpen, CreditCard, Activity, Wallet, Settings, MessageCircle
 } from 'lucide-react';
 import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, increment, Timestamp, updateDoc } from 'firebase/firestore';
 import { getHoraIdOcupacion, getMotoIdOcupacion, derivarProveedorReposicion } from '../../shared/utils/reservaHelpers';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import {
   construirAsignacionesProveedor,
   calcularDeudasReprogramacionD2,
   calcularRelevoTutor,
+  calcularRelevoProveedor,
   comisionProveedorReserva,
   cursoIniciadoParaRelevo
 } from '../../shared/utils/finanzasHelpers';
-import { construirEventoReprogramacion, COLECCION_AUDITORIA_REPROGRAMACIONES } from '../services/ReprogramacionAuditService';
+import { construirEventoReprogramacion, COLECCION_AUDITORIA_REPROGRAMACIONES, registrarEvento } from '../services/ReprogramacionAuditService';
+import { detectarConflictosReprogramacion, mensajeConflictoReprogramacion } from '../utils/reprogramacionConflictos';
+import { mensajeBloqueoConAuditoria } from '../utils/auditoriaReprogramacion';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { db } from '../../../firebase';
 import CambiarHorarioModal from './CambiarHorarioModal';
 import ModalReasignarInstructor from './ModalReasignarInstructor';
 import ModalCambiarMoto from './ModalCambiarMoto';
 import BadgeReposicion from '../../shared/components/BadgeReposicion';
+import MenuAcciones from '../../shared/components/MenuAcciones';
 import ModalMotivoRechazo from '../../shared/components/ModalMotivoRechazo';
 import ModalWhatsApp from '../../shared/components/ModalWhatsApp';
 import { construirMensajeAprobacion, construirMensajeReprogramacion, construirMensajeRechazo, construirLinkWhatsApp, codigoReservaCorto, getBaseUrl } from '../../shared/services/WhatsAppService';
@@ -48,6 +53,30 @@ const agregarAuditoriaReprogramacion = (batch, datos) => {
       createdAt: serverTimestamp()
     }
   );
+};
+
+// D9: un intento conflictivo NO modifica la reserva, pero sí queda auditado
+// (append-only) con el motivo y los recursos en conflicto. Sin override.
+const auditarReprogramacionBloqueada = async ({ reservaId, motivo, antes, despues, conflictos, autorId }) => {
+  const resultado = await registrarEvento({
+    reservaId,
+    tipo: 'reprogramacion_bloqueada',
+    origen: 'AdminReservaDetalle',
+    motivo: motivo || 'sin motivo',
+    antes,
+    despues,
+    conflictos,
+    autorId: autorId || 'admin',
+    autorRol: 'admin'
+  });
+  if (resultado?.success !== true) {
+    // El bloqueo D9 se aplica igual; solo se deja evidencia del fallo de auditoría.
+    console.error('[AdminReservaDetalle] Auditoría del bloqueo D9 no persistida:', {
+      reservaId,
+      error: resultado?.error || { code: 'audit-write-failed', message: 'resultado vacío' }
+    });
+  }
+  return resultado;
 };
 
 const AdminReservaDetalle = () => {
@@ -145,7 +174,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
   if (!res) {
     return (
-      <AppShell header={header} footer={footer} bgColor="bg-gray-50">
+      <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md lg:max-w-5xl">
         <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center">
           <AlertCircle size={48} className="text-red-400 mb-4" />
           <h2 className="text-lg font-black text-gray-900 mb-2">Reserva no encontrada</h2>
@@ -203,7 +232,7 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       origenId: res.id,
       monto: Number(res.pagoTotalMoneda) || 0,
       desc: `Inscripción C-${String(res.id).slice(-4)}`,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: obtenerFechaVenezuela(),
       userId: res.userId,
       createdBy: user?.uid || '',
       createdAt: serverTimestamp(),
@@ -298,8 +327,10 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         fecha: res.fecha,
         fecha2: res.fecha2,
         horaId: res.horaId,
+        horaIdReposicion: res.horaIdReposicion || null,
         instructorId: res.instructorId,
         motoAsignadaId: res.motoAsignadaId || null,
+        motoReposicionId: res.motoReposicionId || null,
         traeMoto: res.traeMoto || 'No',
         sedeId: res.sedeId || null,
         tipoCurso: res.tipoCurso || null,
@@ -542,8 +573,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     if (res.estadoPago === 'Cancelado') {
       return showToast('No se puede cambiar una reserva cancelada', 'error');
     }
-    if (res.pagadoProveedor === true) {
-      return showToast('No se puede reasignar: la comisión al proveedor ya fue pagada', 'error');
+    if (cursoIniciadoParaRelevo(res)) {
+      return showToast('El curso ya inició: usa Reponer D2 para cambiar la moto/proveedor del segundo día', 'error');
     }
 
     const motoDestino = (motos || []).find(m => String(m.id) === String(motoDestinoId));
@@ -569,15 +600,39 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     });
     if (conflicto) {
       const confirmado = window.confirm(
-        '⚠️ Esta moto ya tiene otra reserva en esa fecha y bloque. Puede haber doble asignación.\n\n¿Deseas continuar?'
+        'âš ï¸ Esta moto ya tiene otra reserva en esa fecha y bloque. Puede haber doble asignaciÃ³n.\n\nÂ¿Deseas continuar?'
       );
       if (!confirmado) return;
+    }
+
+    const cambiaProveedor = proveedorDestinoId &&
+      String(proveedorDestinoId) !== String(res.proveedorId || '');
+    const relevoProveedor = cambiaProveedor
+      ? calcularRelevoProveedor(res, {
+        proveedorDestinoId,
+        proveedorDestinoNombre,
+        inicioCurso: false
+      })
+      : null;
+    if (cambiaProveedor && !relevoProveedor) {
+      return showToast('No se pudo calcular el relevo del proveedor', 'error');
     }
 
     try {
       const batch = writeBatch(db);
       const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
       const espejoRef = doc(db, 'ocupacionConfirmada', res.id);
+
+      const pagoAntes = {
+        pagadoProveedor: res.pagadoProveedor === true,
+        pagoProveedorId: res.pagoProveedorId || null
+      };
+      const pagoDespues = relevoProveedor
+        ? {
+          pagadoProveedor: relevoProveedor.pagadoProveedor === true,
+          pagoProveedorId: relevoProveedor.pagoProveedorId || null
+        }
+        : pagoAntes;
 
       const evento = {
         id: `cambio_moto_${Date.now()}`,
@@ -586,8 +641,8 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         autorRol: 'admin',
         tipo: 'cambio_moto',
         motivo: motivo || '',
-        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null },
-        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null }
+        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null, ...pagoAntes },
+        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null, ...pagoDespues }
       };
 
       const datosActualizacion = {
@@ -595,6 +650,12 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         proveedorId: proveedorDestinoId || null,
         motoAnteriorId: res.motoAsignadaId || null,
         proveedorAnteriorId: res.proveedorId || null,
+        proveedorOriginalId: res.proveedorOriginalId || res.proveedorId || null,
+        ...(relevoProveedor ? {
+          pagosProveedorDia: relevoProveedor.pagosProveedorDia,
+          pagadoProveedor: relevoProveedor.pagadoProveedor,
+          pagoProveedorId: relevoProveedor.pagoProveedorId
+        } : {}),
         reprogramaciones: arrayUnion(evento),
         reprogramacionesCount: (res.reprogramacionesCount || 0) + 1,
         ultimaReprogramacion: serverTimestamp(),
@@ -606,16 +667,60 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       batch.set(espejoRef, {
         motoAsignadaId: motoDestinoId,
         proveedorId: proveedorDestinoId || null,
-        comisionProveedor: Number(res.comisionProveedor) || 0
+        comisionProveedor: Number(res.comisionProveedor) || 0,
+        ...(relevoProveedor ? {
+          pagosProveedorDia: relevoProveedor.pagosProveedorDia,
+          pagadoProveedor: relevoProveedor.pagadoProveedor,
+          pagoProveedorId: relevoProveedor.pagoProveedorId
+        } : {})
       }, { merge: true });
+
+      if (relevoProveedor?.deudas?.length) {
+        const cicloDeuda = Number(res.reprogramacionesCount) || 0;
+        for (const deuda of relevoProveedor.deudas) {
+          if (!deuda?.proveedorId || !(deuda.monto > 0)) continue;
+          const deudaId = `deuda_${res.id}_${deuda.proveedorId}_prov_${cicloDeuda}`;
+          const ledgerId = `ledger_${deudaId}`;
+          const deudaRef = doc(db, 'deudasProveedor', deudaId);
+          const ledgerRef = doc(db, 'ledgerProveedor', ledgerId);
+          const [deudaSnap, ledgerSnap] = await Promise.all([getDoc(deudaRef), getDoc(ledgerRef)]);
+
+          if (!deudaSnap.exists()) {
+            batch.set(deudaRef, {
+              proveedorId: deuda.proveedorId,
+              reservaId: res.id,
+              motivo: deuda.motivo,
+              montoOriginal: deuda.monto,
+              saldo: deuda.monto,
+              moneda: 'USD',
+              estado: 'pendiente',
+              createdAt: serverTimestamp(),
+              createdBy: user?.uid || 'admin',
+              abonos: []
+            });
+          }
+          if (!ledgerSnap.exists()) {
+            batch.set(ledgerRef, {
+              tipo: 'deuda',
+              proveedorId: deuda.proveedorId,
+              deudaId,
+              reservaId: res.id,
+              monto: deuda.monto,
+              createdAt: serverTimestamp(),
+              createdBy: user?.uid || 'admin',
+              idempotencyKey: `deuda:${res.id}:${deuda.proveedorId}:prov:${cicloDeuda}`
+            });
+          }
+        }
+      }
 
       agregarAuditoriaReprogramacion(batch, {
         reservaId: res.id,
         tipo: 'cambio_moto',
         origen: 'AdminReservaDetalle',
         motivo,
-        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null },
-        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null },
+        antes: { motoAsignadaId: res.motoAsignadaId || null, proveedorId: res.proveedorId || null, ...pagoAntes },
+        despues: { motoAsignadaId: motoDestinoId, proveedorId: proveedorDestinoId || null, ...pagoDespues },
         autorId: user?.uid || 'admin',
         autorRol: 'admin'
       });
@@ -649,6 +754,50 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
         if (!nuevaFecha2 || !horaIdReposicion || !motivo) {
           return showToast('Faltan datos: fecha D2, bloque o motivo', 'error');
+        }
+
+        // D9: el guardado se bloquea si otra reserva ocupa el tutor/moto en el
+        // bloque de reposición. Se audita el intento (motivo + conflictos).
+        const motoD2 = res.traeMoto === 'Sí' ? null : (motoReposicionId || res.motoAsignadaId || null);
+        const conflictoD2 = detectarConflictosReprogramacion({
+          reserva: res,
+          ocupacionConfirmada: reservas,
+          fechas: [nuevaFecha2],
+          horaId: horaIdReposicion,
+          instructorId: res.instructorId,
+          motoId: motoD2,
+          excluirReservaId: res.id
+        });
+        if (conflictoD2.bloqueado) {
+          const resultadoAuditoria = await auditarReprogramacionBloqueada({
+            reservaId: res.id,
+            motivo,
+            antes: {
+              fecha: res.fecha,
+              fecha2: res.fecha2,
+              horaId: res.horaId,
+              horaIdReposicion: res.horaIdReposicion || null,
+              motoAsignadaId: res.motoAsignadaId || null,
+              motoReposicionId: res.motoReposicionId || null
+            },
+            despues: {
+              fecha: res.fecha,
+              fecha2: nuevaFecha2,
+              horaId: res.horaId,
+              horaIdReposicion,
+              motoAsignadaId: res.motoAsignadaId || null,
+              motoReposicionId: motoReposicionId || null
+            },
+            conflictos: conflictoD2.conflictos,
+            autorId: user?.uid
+          });
+          return showToast(
+            mensajeBloqueoConAuditoria(
+              mensajeConflictoReprogramacion(conflictoD2.conflictos),
+              resultadoAuditoria
+            ),
+            'error'
+          );
         }
 
         // Proveedor de reposición derivado del catálogo de motos (SSOT).
@@ -895,6 +1044,46 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
         return showToast('Faltan datos: fecha y horario', 'error');
       }
 
+      // D9: cross-check duro antes de escribir. Si el tutor/moto ya están
+      // ocupados en D1 o D2, se bloquea y se audita el intento.
+      const motoTotal = res.traeMoto === 'Sí' ? null : (res.motoAsignadaId || null);
+      const conflictoTotal = detectarConflictosReprogramacion({
+        reserva: res,
+        ocupacionConfirmada: reservas,
+        fechas: [nuevaFecha, nuevaFecha2].filter(Boolean),
+        horaId: nuevoHoraId,
+        instructorId: res.instructorId,
+        motoId: motoTotal,
+        excluirReservaId: res.id
+      });
+      if (conflictoTotal.bloqueado) {
+        const resultadoAuditoria = await auditarReprogramacionBloqueada({
+          reservaId: res.id,
+          motivo,
+          antes: {
+            fecha: res.fecha,
+            fecha2: res.fecha2,
+            horaId: res.horaId,
+            motoAsignadaId: res.motoAsignadaId || null
+          },
+          despues: {
+            fecha: nuevaFecha,
+            fecha2: nuevaFecha2,
+            horaId: nuevoHoraId,
+            motoAsignadaId: res.motoAsignadaId || null
+          },
+          conflictos: conflictoTotal.conflictos,
+          autorId: user?.uid
+        });
+        return showToast(
+          mensajeBloqueoConAuditoria(
+            mensajeConflictoReprogramacion(conflictoTotal.conflictos),
+            resultadoAuditoria
+          ),
+          'error'
+        );
+      }
+
       const horarioAnterior = {
         fecha: res.fecha,
         fecha2: res.fecha2,
@@ -1081,116 +1270,186 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     Cancelado: 'bg-gray-200 text-gray-700',
   };
 
-  // HANDLER: Completar un solo módulo
-  const completarModulo = async (nombreModulo, duracion = 0) => {
-    if (!isAdmin) return;
-    try {
-      const batch = writeBatch(db);
-      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
-      const nuevosEstados = {
-        ...(res.modulosEstado || {}),
-        [nombreModulo]: {
-          fecha: new Date().toISOString(),
-          duracion: Number(duracion) || 0
-        }
-      };
+  // ── Datos derivados solo para presentación (no alteran handlers ni reglas) ──
+  const intentosCorreccion = res.intentosCorreccion || 0;
+  const intentosAgotados = intentosCorreccion >= 3;
+  const whatsappDisponible = Boolean(construirLinkWhatsApp(res.telefono, ''));
 
-      // Verificamos si con este modulo ya se completaron TODOS
-      const modulosCurso = (curso?.modulos || []).map(mod => 
-        typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre }
-      );
-      const total = modulosCurso.length;
-      const completados = modulosCurso.filter(m => nuevosEstados[m.nombre]?.fecha).length;
-      const cursoCompletado = total > 0 && completados === total;
+  const estadosModulos = res.modulosEstado || {};
+  const modulosDelCurso = (curso?.modulos || []).map((mod) =>
+    typeof mod === 'string' ? { nombre: mod } : mod
+  );
+  const totalModulos = modulosDelCurso.length;
+  const completadosModulos = modulosDelCurso.filter((m) => estadosModulos[m.nombre]?.fecha).length;
+  const pctModulos = totalModulos > 0 ? Math.round((completadosModulos / totalModulos) * 100) : 0;
 
-      const updateData = {
-        modulosEstado: nuevosEstados,
-        updatedAt: serverTimestamp()
-      };
-      
-      if (cursoCompletado) {
-        updateData.estadoCurso = 'Aprobado';
-      }
-
-      batch.update(reservaRef, updateData);
-
-      // Si el curso se completo, invalidamos la cache de metricas del estudiante
-      if (cursoCompletado) {
-        batch.set(doc(db, 'ocupacionConfirmada', res.id), { estadoCurso: 'Aprobado' }, { merge: true });
-        batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
-          updatedAt: serverTimestamp()
-        });
-      }
-
-      await batch.commit();
-
-      // Actualizacion inmediata de la UI local
-      setReservaLocal(prev => {
-        const base = prev || res;
-        return { 
-          ...base, 
-          modulosEstado: nuevosEstados,
-          ...(cursoCompletado ? { estadoCurso: 'Aprobado' } : {})
-        };
-      });
-
-      if (cursoCompletado) {
-        showToast(`Curso completado y aprobado.`, 'success');
-      } else {
-        showToast(`Módulo "${nombreModulo}" completado`, 'success');
-      }
-    } catch (error) {
-      showToast('Error al completar módulo: ' + error.message, 'error');
-    }
+  const abrirWhatsApp = (url) => {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    showToast('Se abrió WhatsApp. Presiona Enviar.', 'info');
   };
 
-  // HANDLER: Completar el curso entero
-  const completarCursoEntero = async () => {
-    if (!isAdmin) return;
-    if (!window.confirm('⚠️ ¿Marcar TODOS los módulos como completados y aprobar el curso?\n\nEsta acción no se puede deshacer.')) return;
-    
-    try {
-      const batch = writeBatch(db);
-      const reservaRef = doc(db, 'artifacts/motoescuela-pro-v1/public/data/reservas', res.id);
-      
-      const modulosCurso = (curso?.modulos || []).map(mod => 
-        typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre, duracion: mod.duracion }
-      );
-      
-      const nuevosEstados = { ...(res.modulosEstado || {}) };
-      
-      modulosCurso.forEach(m => {
-        if (!nuevosEstados[m.nombre]?.fecha) {
-          nuevosEstados[m.nombre] = {
-            fecha: new Date().toISOString(),
-            duracion: Number(m.duracion) || 0
-          };
-        }
-      });
-
-      batch.update(reservaRef, {
-        modulosEstado: nuevosEstados,
-        estadoCurso: 'Aprobado',
-        updatedAt: serverTimestamp()
-      });
-
-      // B-PROVEEDOR-MIRROR-PAGOS: reflejar el estado de curso en el espejo.
-      batch.set(doc(db, 'ocupacionConfirmada', res.id), { estadoCurso: 'Aprobado' }, { merge: true });
-
-      // Invalida caché de métricas en el estudiante
-      batch.update(doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId), {
-        updatedAt: serverTimestamp()
-      });
-
-      await batch.commit();
-      showToast('Curso completado y aprobado exitosamente', 'success');
-    } catch (error) {
-      showToast('Error al completar curso: ' + error.message, 'error');
-    }
+  const enviarWaAprobacion = () => {
+    const mensaje = construirMensajeAprobacion({
+      nombre: res.nombre,
+      curso: curso?.nombre || 'tu sesión',
+      fecha: formatearFecha(res.fecha),
+      horario: horario?.label || bloqueEfectivo || res.horaId || '',
+      sede: sede || {},
+      codigoReserva: codigoReservaCorto(res.id)
+    });
+    abrirWhatsApp(construirLinkWhatsApp(res.telefono, mensaje));
   };
+
+  const enviarWaRechazo = () => {
+    const motivo = res.motivoRechazo || 'La referencia del pago no coincide';
+    const mensaje = construirMensajeRechazo({
+      nombre: res.nombre,
+      curso: curso?.nombre || 'tu sesión',
+      motivo,
+      codigoReserva: codigoReservaCorto(res.id),
+      intentosRestantes: Math.max(0, 3 - intentosCorreccion),
+      linkCorreccion: `${getBaseUrl()}/corregir-pago/reserva/${res.id}`
+    });
+    abrirWhatsApp(construirLinkWhatsApp(res.telefono, mensaje));
+  };
+
+  const enviarWaReprogramacion = () => {
+    const mensaje = construirMensajeReprogramacion({
+      nombre: res.nombre,
+      curso: curso?.nombre || 'tu sesión',
+      fecha: formatearFecha(res.fecha2 || res.fecha),
+      horario: horario?.label || bloqueEfectivo || res.horaId || '',
+      sede: sede || {},
+      motivo: '',
+      codigoReserva: codigoReservaCorto(res.id)
+    });
+    abrirWhatsApp(construirLinkWhatsApp(res.telefono, mensaje));
+  };
+
+  const abrirChatWhatsApp = () => {
+    const url = construirLinkWhatsApp(res.telefono, '');
+    abrirWhatsApp(url ? url.replace(/\?text=$/, '') : null);
+  };
+
+  const accionesPago = [
+    {
+      id: 'pago-aprobar',
+      etiqueta: 'Aprobar pago',
+      descripcion: 'Registra el ingreso y activa el curso',
+      icon: CheckCircle,
+      tono: 'success',
+      onSelect: aprobarPago
+    },
+    {
+      id: 'pago-rechazar',
+      etiqueta: 'Rechazar (corregir)',
+      descripcion: intentosAgotados
+        ? 'Sin intentos: el usuario ya no puede corregir'
+        : `Permite corregir la referencia (${intentosCorreccion}/3 rechazos)`,
+      icon: AlertCircle,
+      tono: 'danger',
+      deshabilitado: intentosAgotados,
+      onSelect: () => setModalMotivo('rechazar')
+    },
+    {
+      id: 'pago-cancelar',
+      etiqueta: 'Cancelar definitivamente',
+      descripcion: 'Cancela la reserva y libera el horario',
+      icon: X,
+      tono: 'neutral',
+      onSelect: () => rechazarPago('cancelar')
+    }
+  ];
+
+  const accionesCambios = [
+    {
+      id: 'cambio-reasignar',
+      etiqueta: 'Reasignar / Relevo',
+      descripcion: availableInstructors.length === 0
+        ? 'No hay tutores disponibles en la sede'
+        : 'Cambia el tutor y recalcula la comisión',
+      icon: Users,
+      tono: 'primary',
+      deshabilitado:
+        availableInstructors.length === 0 ||
+        res.estadoPago === 'Cancelado' ||
+        (res.esReservaCompartida === true && !res.pagosInstructorDia),
+      onSelect: () => setMostrarReasignar(true)
+    },
+    {
+      id: 'cambio-moto',
+      etiqueta: 'Cambiar proveedor / moto',
+      descripcion: cursoIniciadoParaRelevo(res)
+        ? 'Curso iniciado: el cambio de D2 se hace con Reponer D2'
+        : res.pagadoProveedor === true
+          ? 'Pago registrado; se aplica la regla de relevo del proveedor'
+          : !res.motoAsignadaId
+            ? 'Esta reserva no tiene moto asignada'
+            : 'El proveedor se deriva de la moto',
+      icon: Bike,
+      tono: 'neutral',
+      deshabilitado: res.estadoPago === 'Cancelado' || !res.motoAsignadaId,
+      onSelect: () => setMostrarCambiarMoto(true)
+    },
+    {
+      id: 'cambio-horario',
+      etiqueta: 'Cambiar horario',
+      descripcion: 'Reprograma fecha y bloque de la reserva',
+      icon: Calendar,
+      tono: 'neutral',
+      deshabilitado: res.estadoPago === 'Cancelado',
+      onSelect: () => setMostrarCambiarHorario(true)
+    }
+  ];
+
+  const accionesWhatsApp = [
+    ...(res.estadoPago === 'Aprobado'
+      ? [{
+        id: 'wa-aprobacion',
+        etiqueta: 'Confirmación de pago',
+        descripcion: 'Aprobación con fecha, hora y sede',
+        icon: CheckCircle,
+        tono: 'success',
+        deshabilitado: !whatsappDisponible,
+        onSelect: enviarWaAprobacion
+      }]
+      : []),
+    ...(res.estadoPago === 'Rechazado'
+      ? [{
+        id: 'wa-rechazo',
+        etiqueta: 'Notificar rechazo',
+        descripcion: 'Motivo, intentos restantes y link de corrección',
+        icon: AlertCircle,
+        tono: 'danger',
+        deshabilitado: !whatsappDisponible,
+        onSelect: enviarWaRechazo
+      }]
+      : []),
+    ...((Number(res.reprogramacionesCount) || 0) > 0
+      ? [{
+        id: 'wa-reprogramacion',
+        etiqueta: 'Notificar reprogramación',
+        descripcion: 'Fecha y horario vigentes de la reserva',
+        icon: Calendar,
+        tono: 'primary',
+        deshabilitado: !whatsappDisponible,
+        onSelect: enviarWaReprogramacion
+      }]
+      : []),
+    {
+      id: 'wa-chat',
+      etiqueta: 'Abrir chat',
+      descripcion: 'Conversación sin mensaje predefinido',
+      icon: MessageCircle,
+      tono: 'whatsapp',
+      deshabilitado: !whatsappDisponible,
+      onSelect: abrirChatWhatsApp
+    }
+  ];
 
   return (
-    <AppShell header={header} footer={footer} bgColor="bg-gray-50">
+    <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md lg:max-w-5xl">
       <div className="flex flex-col h-full">        
         <div className="bg-white border-b px-3 py-2 flex items-center gap-2 shrink-0">
                    <button onClick={() => navigate(volverA)} className="p-1.5 bg-gray-100 rounded-full">
@@ -1208,7 +1467,9 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           <h2 className="text-sm font-bold text-gray-900 truncate flex-1">{res.nombre} {res.apellido}</h2>
         </div>
 
-                <div className="flex-1 p-3 space-y-2 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+            <div className="min-w-0 space-y-2">
           {/* Datos del Usuario y Sesión */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
             <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Datos del Usuario y Sesión</h3>
@@ -1266,240 +1527,150 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
                    </div>
 
        
-          {/* Acciones administrativas */}
-          {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado' || res.estadoPago === 'Aprobado') && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
-              <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Acciones</h3>
-              
-              {res.estadoPago === 'Aprobado' && (
-                <div className="bg-yellow-50 border border-yellow-200 p-2 rounded mb-2 text-[10px] font-bold text-yellow-800">
-                  ⚠️ Esta reserva está aprobada. Reasignar tutor o cambiar horario afectará la disponibilidad y la experiencia del usuario.
-                </div>
-              )}
-              
-              {res.estadoPago === 'Aprobado' && (() => {
-                const mensaje = construirMensajeAprobacion({
-                  nombre: res.nombre,
-                  curso: curso?.nombre || 'tu sesión',
-                  fecha: formatearFecha(res.fecha),
-                  horario: horario?.label || bloqueEfectivo || res.horaId || '',
-                  sede: sede || {},
-                  codigoReserva: codigoReservaCorto(res.id)
-                });
-                const waUrl = construirLinkWhatsApp(res.telefono, mensaje);
-                if (!waUrl) {
-                  return (
-                    <div className="w-full mb-2 py-1.5 px-3 rounded-lg text-[10px] font-bold text-center bg-gray-100 text-gray-500">
-                      Sin teléfono válido para enviar confirmación
-                    </div>
-                  );
-                }
-                return (
-                  <a
-                    href={waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => showToast('Se abrió WhatsApp. Presiona Enviar.', 'info')}
-                    className="w-full mb-2 py-1.5 px-3 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 bg-green-500 hover:bg-green-600 text-white transition-colors"
-                  >
-                    <MessageCircle size={14} />
-                    Enviar confirmación por WhatsApp
-                  </a>
-                );
-              })()}
-              {(res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (() => {
-                const intentos = res.intentosCorreccion || 0;
-                const agotados = intentos >= 3;
-                return (
-                  <>
-                    {/* FIX-ADMIN-INTENTOS: aviso cuando el usuario agotó los 3 intentos */}
-                    {agotados ? (
-                      <div className="bg-red-100 border-2 border-red-400 rounded-lg p-3 mb-2">
-                        <div className="flex items-start gap-2">
-                          <AlertCircle size={16} className="text-red-700 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-black text-red-800">
-                              ⚠️ El usuario agotó los 3 intentos de corrección
-                            </p>
-                            <p className="text-[10px] text-red-700 mt-0.5">
-                              Ya no puede corregir la referencia. Decide: <strong>Aprobar</strong> el pago o <strong>Cancelar definitivamente</strong>.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : intentos > 0 ? (
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 mb-2 text-[10px] font-bold text-orange-800">
-                        ⚠️ Rechazos acumulados: {intentos} de 3
-                      </div>
-                    ) : null}
-
-                    <div className="flex gap-2 flex-wrap mb-2">
-                      <Button type="button" onClick={aprobarPago} variant="success" className="!py-1.5 !text-[10px] flex-1" icon={CheckCircle}>Aprobar Pago</Button>
-                      {!agotados && (
-                        <Button type="button" onClick={() => setModalMotivo('rechazar')} variant="danger" className="!py-1.5 !text-[10px] flex-1" icon={AlertCircle}>Rechazar (corregir)</Button>
-                      )}
-                      <Button type="button" onClick={() => rechazarPago('cancelar')} variant="outline" className={`!py-1.5 !text-[10px] ${agotados ? 'flex-1' : 'w-full'}`} icon={X}>Cancelar definitivamente</Button>
-                    </div>
-                  </>
-                );
-              })()}
-
-                           {/* Reasignación de instructor con split */}
-              <Button 
-                type="button" 
-                onClick={() => setMostrarReasignar(true)} 
-                variant="secondary" 
-                className="!py-1.5 !text-[10px] w-full mb-2"
-                icon={Users}
-                disabled={
-                  availableInstructors.length === 0 ||
-                  res.estadoPago === 'Cancelado' ||
-                  (res.esReservaCompartida === true && !res.pagosInstructorDia)
-                }
-              >
-                Reasignar / Relevo
-              </Button>
-
-              {availableInstructors.length === 0 && (
-                <p className="text-[10px] text-gray-500 mb-2">No hay tutores disponibles para reasignar.</p>
-              )}
-
-              {res.esReservaCompartida === true && !res.pagosInstructorDia && (
-                <p className="text-[10px] text-gray-500 mb-2">Esta reserva ya es compartida. Función avanzada próximamente.</p>
-              )}
-
-              {res.pagadoInstructor === true && !res.pagosInstructorDia && (
-                <p className="text-[10px] text-gray-500 mb-2">La comisión ya fue pagada: el relevo conservará su D1 y generará deuda si hay exceso.</p>
-              )}
-
-              {res.pagosInstructorDia && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 mb-2 text-[10px] text-indigo-800">
-                  <p className="font-black">Relevo de tutor registrado</p>
-                  {['d1', 'd2', 'unico'].filter((dia) => res.pagosInstructorDia[dia]).map((dia) => {
-                    const asignacion = res.pagosInstructorDia[dia];
-                    return (
-                      <p key={dia} className="mt-0.5">
-                        {dia === 'unico' ? 'Comisión' : dia.toUpperCase()}: {asignacion.nombre || asignacion.instructorId} · USD {Number(asignacion.monto || 0).toFixed(2)} · {asignacion.pagado ? 'pagado' : 'pendiente'}
-                      </p>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Cambio de proveedor / moto (deriva proveedor automáticamente) */}
-              <Button 
-                type="button" 
-                onClick={() => setMostrarCambiarMoto(true)} 
-                variant="secondary" 
-                className="!py-1.5 !text-[10px] w-full mb-2"
-                icon={Bike}
-                disabled={
-                  res.estadoPago === 'Cancelado' ||
-                  res.pagadoProveedor === true ||
-                  !res.motoAsignadaId
-                }
-              >
-                Cambiar proveedor / moto
-              </Button>
-
-              {res.pagadoProveedor === true && (
-                <p className="text-[10px] text-gray-500 mb-2">La comisión al proveedor ya fue pagada. No se puede reasignar.</p>
-              )}
-
-              {!res.motoAsignadaId && res.traeMoto !== 'Sí' && (
-                <p className="text-[10px] text-gray-500 mb-2">Esta reserva no tiene moto asignada.</p>
-              )}
-
-              {/* Botón cambiar horario */}
-              <Button 
-                type="button" 
-                onClick={() => setMostrarCambiarHorario(true)} 
-                variant="outline" 
-                className="!py-1.5 !text-[10px] w-full"
-                icon={Calendar}
-                disabled={res.estadoPago === 'Cancelado'}
-              >
-                Cambiar Horario
-              </Button>
-            </div>
-          )}
-
-                 {res.estadoPago === 'Aprobado' && (
+          {/* Banner de estado */}
+          {res.estadoPago === 'Aprobado' && (
             <div className="bg-green-50 p-3 rounded-xl border border-green-200 text-center text-xs font-bold text-green-700">✅ Esta reserva ya fue aprobada.</div>
           )}
           {res.estadoPago === 'Cancelado' && (
             <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center text-xs font-bold text-gray-700">🚫 Esta reserva fue cancelada.</div>
           )}
 
-          {/* Progreso Académico y Herramientas Admin */}
-          {(() => {
-            const estados = res.modulosEstado || {};
-            const modulosCurso = (curso?.modulos || []).map(mod =>
-              typeof mod === 'string' ? { nombre: mod } : { nombre: mod.nombre, duracion: mod.duracion }
-            );
-            const total = modulosCurso.length;
-            const completados = modulosCurso.filter(m => estados[m.nombre]?.fecha).length;
-            const pct = total > 0 ? Math.round((completados / total) * 100) : 0;
+          {/* Progreso académico: barra + contador. La gestión de módulos vive en la vista de progreso. */}
+          <button
+            type="button"
+            onClick={() => navigate(`/reservas/${res.id}/progreso`, { state: { from: volverA } })}
+            aria-label={`Ver avance detallado: ${completadosModulos} de ${totalModulos} módulos completados`}
+            className="w-full min-h-12 rounded-xl border border-gray-100 bg-white p-3 text-left shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20"
+          >
+            <span className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-gray-700">Progreso Académico</span>
+              <span className="flex items-center gap-1 text-[11px] font-bold text-indigo-600">
+                {completadosModulos}/{totalModulos}
+                <ChevronRight size={14} aria-hidden="true" />
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className="block h-2 w-full overflow-hidden rounded-full bg-gray-200"
+            >
+              <span
+                className="block h-2 rounded-full bg-indigo-500 transition-all duration-500"
+                style={{ width: `${pctModulos}%` }}
+              />
+            </span>
+            <span className="mt-1.5 block text-[10.5px] font-semibold text-gray-500">Toca para ver el avance detallado</span>
+          </button>
+            </div>
 
-            return (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider">Progreso Académico</h3>
-                  <span className="text-[11px] font-bold text-indigo-600">{completados}/{total}</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3 overflow-hidden">
-                  <div
-                    className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${pct}%` }}
+            <aside className="min-w-0 space-y-2">
+              {/* Acciones administrativas */}
+              {isAdmin && (res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado' || res.estadoPago === 'Aprobado') && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+                  <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">Acciones</h3>
+
+                  {res.estadoPago === 'Aprobado' && (
+                    <div className="bg-yellow-50 border border-yellow-200 p-2 rounded mb-2 text-[10px] font-bold text-yellow-800">
+                      ⚠️ Esta reserva está aprobada. Reasignar tutor o cambiar horario afectará la disponibilidad y la experiencia del usuario.
+                    </div>
+                  )}
+
+                  {(res.estadoPago === 'Pendiente' || res.estadoPago === 'Rechazado') && (
+                    <div className="space-y-2 mb-2">
+                      {/* FIX-ADMIN-INTENTOS: aviso cuando el usuario agotó los 3 intentos */}
+                      {intentosAgotados ? (
+                        <div className="bg-red-100 border-2 border-red-400 rounded-lg p-3">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle size={16} className="text-red-700 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-black text-red-800">
+                                ⚠️ El usuario agotó los 3 intentos de corrección
+                              </p>
+                              <p className="text-[10px] text-red-700 mt-0.5">
+                                Ya no puede corregir la referencia. Decide: <strong>Aprobar</strong> el pago o <strong>Cancelar definitivamente</strong>.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : intentosCorreccion > 0 ? (
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 text-[10px] font-bold text-orange-800">
+                          ⚠️ Rechazos acumulados: {intentosCorreccion} de 3
+                        </div>
+                      ) : null}
+
+                      <MenuAcciones
+                        id="admin-reserva-pago"
+                        etiqueta="Pago"
+                        icon={CreditCard}
+                        titulo="Acciones de pago"
+                        tono="primary"
+                        acciones={accionesPago}
+                      />
+                    </div>
+                  )}
+
+                  <MenuAcciones
+                    id="admin-reserva-cambios"
+                    etiqueta="Cambios"
+                    icon={Settings}
+                    titulo="Cambios de la reserva"
+                    acciones={accionesCambios}
                   />
+
+                  {availableInstructors.length === 0 && (
+                    <p className="text-[10px] text-gray-500 mt-2">No hay tutores disponibles para reasignar.</p>
+                  )}
+
+                  {res.esReservaCompartida === true && !res.pagosInstructorDia && (
+                    <p className="text-[10px] text-gray-500 mt-2">Esta reserva ya es compartida. Función avanzada próximamente.</p>
+                  )}
+
+                  {res.pagadoInstructor === true && !res.pagosInstructorDia && (
+                    <p className="text-[10px] text-gray-500 mt-2">La comisión ya fue pagada: el relevo conservará su D1 y generará deuda si hay exceso.</p>
+                  )}
+
+                  {res.pagosInstructorDia && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 mt-2 text-[10px] text-indigo-800">
+                      <p className="font-black">Relevo de tutor registrado</p>
+                      {['d1', 'd2', 'unico'].filter((dia) => res.pagosInstructorDia[dia]).map((dia) => {
+                        const asignacion = res.pagosInstructorDia[dia];
+                        return (
+                          <p key={dia} className="mt-0.5">
+                            {dia === 'unico' ? 'Comisión' : dia.toUpperCase()}: {asignacion.nombre || asignacion.instructorId} · USD {Number(asignacion.monto || 0).toFixed(2)} · {asignacion.pagado ? 'pagado' : 'pendiente'}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {res.pagadoProveedor === true && (
+                    <p className="text-[10px] text-gray-500 mt-2">La comisión al proveedor ya fue pagada. Si cambias proveedor/moto antes de iniciar, el 100% pasa al nuevo y se genera deuda al anterior; si el curso ya inició, usa Reponer D2.</p>
+                  )}
+
+                  {!res.motoAsignadaId && res.traeMoto !== 'Sí' && (
+                    <p className="text-[10px] text-gray-500 mt-2">Esta reserva no tiene moto asignada.</p>
+                  )}
                 </div>
+              )}
 
-                {/* Lista de Módulos Interactiva */}
-                <div className="space-y-1.5 mb-4">
-                  {modulosCurso.map((m, idx) => {
-                    const completado = !!estados[m.nombre]?.fecha;
-                    return (
-                      <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
-                        <span className={completado ? 'line-through text-gray-400 font-medium' : 'text-gray-700 font-medium truncate pr-2'}>
-                          {idx + 1}. {m.nombre}
-                        </span>
-                        {!completado ? (
-                          <button
-                            onClick={() => completarModulo(m.nombre, m.duracion)}
-                            className="px-2 py-1 bg-white border border-gray-200 text-indigo-600 rounded-md font-bold text-[10px] hover:bg-indigo-50 flex-shrink-0"
-                          >
-                            Completar
-                          </button>
-                        ) : (
-                          <span className="text-green-500 font-bold text-[10px] flex items-center gap-1 flex-shrink-0">
-                            <CheckCircle size={12} /> Hecho
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+              {/* WhatsApp: menú contextual con builders existentes */}
+              {isAdmin && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+                  <h3 className="text-[11px] font-black text-gray-700 uppercase tracking-wider mb-2">WhatsApp</h3>
+                  <MenuAcciones
+                    id="admin-reserva-whatsapp"
+                    etiqueta="WhatsApp"
+                    icon={MessageCircle}
+                    titulo="Notificar por WhatsApp"
+                    tono="whatsapp"
+                    acciones={accionesWhatsApp}
+                  />
+                  {!whatsappDisponible && (
+                    <p className="text-[10px] text-gray-500 mt-2">Sin teléfono válido para enviar mensajes.</p>
+                  )}
                 </div>
-
-                {/* Botón de completar todo */}
-                {pct < 100 && (
-                  <button
-                    onClick={completarCursoEntero}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-xs font-bold transition-colors mb-2 flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle size={14} /> Completar Curso Entero
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => navigate(`/reservas/${res.id}/progreso`, { state: { from: volverA } })}
-                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-bold transition-colors"
-                >
-                  Ver Avance Detallado →
-                </button>
-              </div>
-            );
-          })()}
+              )}
+            </aside>
+          </div>
         </div>
       </div>
 
@@ -1510,6 +1681,23 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
           ctx={{ horarios, ocupacionConfirmada: reservas, cursos, instructores, motos }}
           onConfirmar={cambiarHorario}
           onCancelar={() => setMostrarCambiarHorario(false)}
+          onConflicto={async (payload) => {
+            const resultadoAuditoria = await auditarReprogramacionBloqueada({
+              reservaId: res.id,
+              motivo: payload?.motivo,
+              antes: payload?.antes,
+              despues: payload?.despues,
+              conflictos: payload?.conflictos,
+              autorId: user?.uid
+            });
+            showToast(
+              mensajeBloqueoConAuditoria(
+                mensajeConflictoReprogramacion(payload?.conflictos || []),
+                resultadoAuditoria
+              ),
+              'error'
+            );
+          }}
         />
       )}
 

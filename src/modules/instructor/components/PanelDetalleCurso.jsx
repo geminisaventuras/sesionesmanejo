@@ -7,6 +7,7 @@ import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { formatearFechaSinAnio } from '../../shared/utils/fechas';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import { Calendar, Wallet, Settings, Activity, Filter } from 'lucide-react';
 
 export default function InstructorPanel() {
@@ -22,7 +23,7 @@ export default function InstructorPanel() {
   const activas = useMemo(() => misClases.filter(c => c.estadoCurso !== 'Aprobado'), [misClases]);
   const completadas = useMemo(() => misClases.filter(c => c.estadoCurso === 'Aprobado'), [misClases]);
   const hoy = useMemo(() => {
-    const hoyStr = new Date().toISOString().split('T')[0];
+    const hoyStr = obtenerFechaVenezuela();
     return misClases.filter(c => (c.fecha === hoyStr || c.fecha2 === hoyStr) && c.estadoCurso !== 'Aprobado').length;
   }, [misClases]);
   const pendientesFiltradas = useMemo(() => {

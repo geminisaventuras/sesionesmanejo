@@ -12,6 +12,11 @@ import {
   comisionInstructorReserva,
   esPendienteInstructor
 } from '../../shared/utils/finanzasHelpers';
+import {
+  obtenerFechaVenezuela as hoyVET,
+  inicioSemanaVenezuela as inicioSemanaVET,
+  inicioMesVenezuela as inicioMesVET
+} from '../../shared/utils/zonahoraria.js';
 
 const TABS = [
   { id: 'cobrar', label: 'Por Cobrar' },
@@ -33,22 +38,6 @@ const ETIQUETAS_CURSO = {
   basico_sincro: 'Básico Sincrónica',
   general: 'Práctica en la Vía',
   motero: 'Sesión Motero'
-};
-
-const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-
-const inicioSemanaVET = () => {
-  const d = new Date();
-  const dia = d.getDay() || 7;
-  const lunes = new Date(d);
-  lunes.setDate(d.getDate() - (dia - 1));
-  return lunes.toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-};
-
-const inicioMesVET = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1)
-    .toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 };
 
 function calcularComision(reserva, curso) {
@@ -328,13 +317,8 @@ export default function FinanzasTab({ reservas, cursos, user }) {
   const resumenPorSemana = useMemo(() => {
     const { desde, hasta } = rangoResumen;
 
-    // Helper: lunes de la semana de una fecha YYYY-MM-DD
-    const lunesDeFecha = (fechaStr) => {
-      const d = new Date(fechaStr + 'T12:00:00');
-      const dia = d.getDay() || 7;
-      d.setDate(d.getDate() - (dia - 1));
-      return d.toISOString().split('T')[0];
-    };
+    // Helper: lunes de la semana de una fecha YYYY-MM-DD (calendario VET, sin depender de la TZ del runtime)
+    const lunesDeFecha = (fechaStr) => inicioSemanaVET(new Date(`${fechaStr}T12:00:00Z`));
 
      const grupos = {};
 

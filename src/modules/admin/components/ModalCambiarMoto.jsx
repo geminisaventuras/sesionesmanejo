@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react';
 import { X, Bike, AlertCircle } from 'lucide-react';
 import { Button } from '../../../components/UI';
+import { etiquetaMoto } from '../../shared/utils/motosHelpers';
 
 export default function ModalCambiarMoto({
   reserva,
@@ -61,7 +62,7 @@ export default function ModalCambiarMoto({
         <div className="p-4 bg-indigo-50 border-b border-indigo-100">
           <p className="text-[10px] text-indigo-700 font-bold uppercase tracking-wide">Asignación actual</p>
           <p className="text-sm font-bold text-indigo-900">
-            Moto: {motoActual ? `#${String(motoActual.id).slice(-6)} (${motoActual.tipo || '—'})` : 'Sin asignar'}
+            Moto: {motoActual ? etiquetaMoto(motoActual) : 'Sin asignar'}
           </p>
           <p className="text-sm font-bold text-indigo-900">
             Proveedor: {proveedorActual ? proveedorActual.nombre : 'Sin asignar'}
@@ -86,7 +87,7 @@ export default function ModalCambiarMoto({
               <option value="">Selecciona una moto</option>
               {(motosDisponibles || []).map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.proveedorNombre ? `${m.proveedorNombre} — ` : ''}{m.tipo || 'Moto'} (#{String(m.id).slice(-6)})
+                  {m.proveedorNombre ? `${m.proveedorNombre} — ` : ''}{etiquetaMoto(m)}
                 </option>
               ))}
             </select>

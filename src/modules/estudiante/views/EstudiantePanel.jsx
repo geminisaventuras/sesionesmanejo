@@ -27,7 +27,7 @@ import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
   User, AlertCircle, Info, ChevronLeft, Share2, Zap, Lock, Check, KeyRound, Package, GraduationCap
 } from 'lucide-react';
-import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { formatearSede, nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 const APP_ID = 'motoescuela-pro-v1';
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -607,7 +607,7 @@ export function EstudiantePanel() {
                 <Clock size={12} /><span className="font-bold">{horaInicio} - {horaFin}</span>
               </p>
               <p className="flex items-center justify-center gap-1.5">
-                <MapPin size={12} /><span className="font-bold">{sedeActual?.nombre || 'N/A'}</span>
+                <MapPin size={12} /><span className="font-bold">{sedeActual ? nombreSedeCanonico(sedeActual) : 'N/A'}</span>
                 <span className="mx-1">·</span>
                 <User size={12} /><span className="font-bold">Tutor: {inst ? inst.nombre : 'Asignando'}</span>
               </p>

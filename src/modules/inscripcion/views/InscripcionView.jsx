@@ -564,9 +564,15 @@ const {
           return;
         }
 
-        // FASE 7 — Precarga correo (usuario sin reserva, sin progreso)
+        // FASE 7 — Precarga correo y cédula (usuario sin reserva, sin progreso)
         if (!form.correo && ctx.fbUser.email) {
           updateForm({ correo: ctx.fbUser.email });
+        }
+        if (!form.cedula) {
+          const perfil = await UsuarioService.obtenerPerfil(ctx.fbUser.uid);
+          if (!isMounted) return;
+          const cedulaPerfil = perfil.success ? String(perfil.data?.cedula || '') : '';
+          if (cedulaPerfil) updateForm({ cedula: cedulaPerfil });
         }
       } catch (err) {
         console.error('[InscripcionView] Error en bootstrap:', err);
@@ -1666,11 +1672,20 @@ if (necesitaMoto) {
       }
     }
 
+    const lockAnterior = lockId;
     selectingHorarioRef.current = true;
     setIsSelectingHorario(true); setSelectingBlockId(bloque.id);
-        if (lockId && !renovacionUsada) {
-      await LockService.liberarLock(lockId).catch(() => {});
-      limpiarLockPropioOptimista(lockId);
+    // Un estudiante solo puede mantener un bloque. Liberar SIEMPRE el anterior
+    // (aunque ya haya renovado) evita locks huérfanos al cambiar de bloque y
+    // que otros usuarios vean el cupo ocupado por un lock ya abandonado (ERR-010).
+    if (lockAnterior) {
+      await LockService.liberarLock(lockAnterior).catch(() => {});
+      limpiarLockPropioOptimista(lockAnterior);
+      updateLockId(null);
+      updateLockExpiresAt(null);
+      setTiempoRestante(null);
+      updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+      sessionStorage.removeItem(LOCK_CONTEXT_KEY);
     }
     const nuevoLockId = form.fecha1 + '_' + bloque.id + '_' + instructorId + '_' + (motoAsignadaId || 'sinmoto');
     const result = await LockService.crearLock(nuevoLockId, ctx.fbUser.uid, {
@@ -1688,6 +1703,14 @@ if (necesitaMoto) {
       showToast('Horario seleccionado. Tienes 10 minutos para completar el pago.', 'success');
     } else {
       const codigo = result.error?.code;
+      // El lock anterior ya se liberó: limpiar selección y temporizador para no
+      // dejar la UI apuntando a un bloque que ya no está separado (ERR-010).
+      updateLockId(null);
+      updateLockExpiresAt(null);
+      setTiempoRestante(null);
+      setRenovacionUsada(false);
+      updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+      sessionStorage.removeItem(LOCK_CONTEXT_KEY);
       if (codigo === 'lock-owner-mismatch' || codigo === 'lock-taken') showToast('Este horario acaba de ser separado por otro usuario.', 'error');
       else if (codigo === 'lock-own-active') showToast('Ya tienes este horario separado. Continúa con el pago o espera a que expire.', 'info');
       else if (codigo === 'permission-denied') showToast('No pudimos separar el horario. Revisa tu sesión o intenta de nuevo.', 'error');
@@ -1696,7 +1719,7 @@ if (necesitaMoto) {
     }
     selectingHorarioRef.current = false;
     setIsSelectingHorario(false); setSelectingBlockId(null);
-  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, renovacionUsada, activeLocks, bloqueosAdmin, bloqueosProveedor, bloqueosInstructor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
+  }, [lockId, form, disponibilidad, ctx, isSelectingHorario, activeLocks, bloqueosAdmin, bloqueosProveedor, bloqueosInstructor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
   const handleRenovarLock = useCallback(async () => {
     if (!lockId || renovacionUsada) return;
     setRenovacionUsada(true);

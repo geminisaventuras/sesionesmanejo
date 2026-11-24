@@ -2,7 +2,7 @@
 import { useContext, useState, useEffect, useMemo } from 'react';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { Spinner } from '../../../components/UI';
@@ -109,6 +109,66 @@ export function ProgresoAcademicoView() {
   const handleLogout = async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
+  };
+
+  const puedeGestionar = rol === 'admin';
+  const completarModulo = async (modulo) => {
+    if (!puedeGestionar || !reservaLocal) return;
+    const nombre = modulo.nombre;
+    try {
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaLocal.id);
+      const nuevosEstados = {
+        ...(reservaLocal.modulosEstado || {}),
+        [nombre]: { fecha: new Date().toISOString(), duracion: Number(modulo.duracion) || 0 }
+      };
+      const modulos = (curso?.modulos || []).map((mod) => typeof mod === 'string' ? { nombre: mod } : mod);
+      const cursoCompletado = modulos.length > 0 && modulos.every((mod) => nuevosEstados[mod.nombre]?.fecha);
+      const updateData = { modulosEstado: nuevosEstados, updatedAt: serverTimestamp() };
+      if (cursoCompletado) updateData.estadoCurso = 'Aprobado';
+      batch.update(reservaRef, updateData);
+      if (cursoCompletado) {
+        batch.set(doc(db, 'ocupacionConfirmada', reservaLocal.id), { estadoCurso: 'Aprobado' }, { merge: true });
+        if (reservaLocal.userId) {
+          batch.update(doc(db, 'artifacts', APP_ID, 'public', 'data', 'usuarios', reservaLocal.userId), { updatedAt: serverTimestamp() });
+        }
+      }
+      await batch.commit();
+      setReservaLocal((prev) => ({
+        ...(prev || reservaLocal),
+        modulosEstado: nuevosEstados,
+        ...(cursoCompletado ? { estadoCurso: 'Aprobado' } : {})
+      }));
+      ctx.showToast?.(cursoCompletado ? 'Curso completado y aprobado.' : `Módulo "${nombre}" completado`, 'success');
+    } catch (e) {
+      ctx.showToast?.(`Error al completar módulo: ${e.message}`, 'error');
+    }
+  };
+
+  const completarCursoEntero = async () => {
+    if (!puedeGestionar || !reservaLocal) return;
+    if (!window.confirm('¿Marcar todos los módulos como completados y aprobar el curso?\n\nEsta acción no se puede deshacer.')) return;
+    try {
+      const batch = writeBatch(db);
+      const reservaRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaLocal.id);
+      const modulos = (curso?.modulos || []).map((mod) => typeof mod === 'string' ? { nombre: mod } : mod);
+      const nuevosEstados = { ...(reservaLocal.modulosEstado || {}) };
+      modulos.forEach((mod) => {
+        if (!nuevosEstados[mod.nombre]?.fecha) {
+          nuevosEstados[mod.nombre] = { fecha: new Date().toISOString(), duracion: Number(mod.duracion) || 0 };
+        }
+      });
+      batch.update(reservaRef, { modulosEstado: nuevosEstados, estadoCurso: 'Aprobado', updatedAt: serverTimestamp() });
+      batch.set(doc(db, 'ocupacionConfirmada', reservaLocal.id), { estadoCurso: 'Aprobado' }, { merge: true });
+      if (reservaLocal.userId) {
+        batch.update(doc(db, 'artifacts', APP_ID, 'public', 'data', 'usuarios', reservaLocal.userId), { updatedAt: serverTimestamp() });
+      }
+      await batch.commit();
+      setReservaLocal((prev) => ({ ...(prev || reservaLocal), modulosEstado: nuevosEstados, estadoCurso: 'Aprobado' }));
+      ctx.showToast?.('Curso completado y aprobado exitosamente', 'success');
+    } catch (e) {
+      ctx.showToast?.(`Error al completar curso: ${e.message}`, 'error');
+    }
   };
 
   if (cargando) {
@@ -224,8 +284,6 @@ export function ProgresoAcademicoView() {
 
           {total === 0 ? (
             <p className="text-[11px] text-gray-500 text-center py-3">Sin módulos configurados.</p>
-          ) : sinIniciar ? (
-            <p className="text-[11px] text-gray-500 text-center py-3">Aún no se ha iniciado el curso.</p>
           ) : (
             <div className="space-y-1.5">
               {modulosCurso.map((mod, i) => {
@@ -257,10 +315,33 @@ export function ProgresoAcademicoView() {
                         </p>
                       )}
                     </div>
+                    {puedeGestionar && !completado && (
+                      <button
+                        type="button"
+                        onClick={() => completarModulo(mod)}
+                        className="min-h-11 px-2.5 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-700 text-[10px] font-black hover:bg-blue-50 transition-colors flex-shrink-0"
+                      >
+                        Completar
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
+          )}
+
+          {puedeGestionar && total > 0 && completados < total && (
+            <button
+              type="button"
+              onClick={completarCursoEntero}
+              className="mt-2 w-full min-h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-colors"
+            >
+              Completar curso entero
+            </button>
+          )}
+
+          {sinIniciar && !puedeGestionar && (
+            <p className="text-[10px] text-gray-500 text-center mt-2">Aún no se ha iniciado el curso.</p>
           )}
 
           <div className="mt-3 pt-2 border-t border-gray-100 flex justify-between text-[11px]">

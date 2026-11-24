@@ -50,11 +50,11 @@ const AdminConfigHub = memo(() => {
   />;
 
   return (
-    <AppShell header={header} footer={footer} bgColor="bg-gray-50">
-      <div className="p-4">
+    <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md min-[540px]:max-w-3xl lg:max-w-5xl">
+      <div className="p-3 md:p-5">
         {vista === 'hub' ? (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-4 md:space-y-6">
+            <div className="grid grid-cols-2 gap-2.5 min-[540px]:grid-cols-3 md:gap-3 lg:grid-cols-4">
               <button type="button" onClick={() => setVista('cursos')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <BookOpen size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Cursos</span>
               </button>

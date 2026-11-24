@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import { Button } from '../../../components/UI';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 export default function FiltrosReservas({
   filtros,
@@ -50,7 +51,7 @@ export default function FiltrosReservas({
           >
             <option value="">Todas</option>
             {sedes?.map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
+              <option key={s.id} value={s.id}>{nombreSedeCanonico(s)}</option>
             ))}
           </select>
         </div>

@@ -4,6 +4,7 @@ import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy, 
 import { db } from '../firebase';
 import { LockService } from '../services/LockService';
 import { StaffService } from '../modules/admin/services/StaffService';
+import { obtenerFechaVenezuela } from '../modules/shared/utils/zonahoraria';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -206,6 +207,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
       createdAt: item?.createdAt || Timestamp.now(),
       estado: item?.estado || 'confirmado',
       moneda: item?.moneda || 'USD',
+      fecha: item?.fecha || obtenerFechaVenezuela(),
       desc: item?.desc || categoria
     };
     await saveMovimientoRaw(itemConUsuario);

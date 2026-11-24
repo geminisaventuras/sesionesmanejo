@@ -1,50 +1,56 @@
-// @build: 2026-08-28.14-40-00 | id: BXX-BYY | backup: AdminReservasHome.jsx.backup-20260828-144000 | desc: Añade sección Hoy y En curso a la home de reservas + hook local
-import { useContext, useMemo, memo, useCallback, useState, useEffect } from 'react';
+// @build: 2026-11-23 | id: T-064-V4 | desc: Home de reservas con paleta corporativa, KPIs en gradiente, cola tintada y secciones por estado.
+import { useContext, useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
-  ChevronRight, BookOpen, Calendar, Activity, Wallet, Settings, Inbox, Clock, Package, GraduationCap
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Package,
+  RefreshCw,
+  Settings,
+  Wallet,
 } from 'lucide-react';
 import {
   obtenerHoyVenezuela,
   obtenerMinutosActualesVenezuela,
-  esReservaEnCurso
 } from '../utils/reservasHelpers';
 import { useAdminReservas } from '../hooks/useAdminReservas';
-import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import ReservasHomeKpi from './ReservasHomeKpi';
+import ReservasHomeRow from './ReservasHomeRow';
+import ReservasHomeSeccion from './ReservasHomeSeccion';
+import {
+  itemDesdeAcceso,
+  itemDesdePack,
+  itemDesdeReserva,
+  ordenarCola,
+} from './reservasHomeDatos';
 
-const TarjetaMini = memo(({ reserva, onClick, enCurso = false }) => {
-  const estadoColor = {
-    Pendiente: 'bg-orange-100 text-orange-700',
-    Aprobado: 'bg-green-100 text-green-700',
-    Rechazado: 'bg-red-100 text-red-700',
-    Cancelado: 'bg-gray-200 text-gray-700',
-  };
-  const fechaStr = reserva.fecha || reserva.fecha1 || '';
-  const bloqueEfectivo = getHoraIdOcupacion(reserva, reserva.fecha2 || reserva.fecha);
-const horaStr = bloqueEfectivo || '';
-  const horaCorta = horaStr.split(' - ')[0] || horaStr;
-  return (
-    <button onClick={onClick} className="flex-shrink-0 w-24 bg-white rounded-xl shadow-sm border border-gray-100 p-2 text-left hover:border-blue-300 transition-colors active:scale-[0.98]">
-      <div className="flex items-center gap-1 flex-wrap mb-1">
-        <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${estadoColor[reserva.estadoPago] || 'bg-gray-100'}`}>
-          {reserva.estadoPago === 'Cancelado' ? 'CANC' : reserva.estadoPago.substring(0, 4)}
-        </span>
-        {enCurso && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-500 text-white motion-safe:animate-pulse">EN PROGRESO</span>}
-      </div>
-      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{reserva.nombre} {reserva.apellido?.charAt(0)}.</p>
-      <p className="text-[9px] text-gray-500">{fechaStr.split('-').slice(1).join('/')}</p>
-      <p className="text-[9px] text-gray-500">{horaCorta}</p>
-    </button>
-  );
-});
+const FILTROS_TIPO = [
+  { id: 'todo', etiqueta: 'Todo' },
+  { id: 'reserva', etiqueta: 'Reservas' },
+  { id: 'pack', etiqueta: 'Packs' },
+  { id: 'teorico', etiqueta: 'Teóricos' },
+];
+
+const SECCIONES_ABIERTAS_INICIALES = {
+  hoy: true,
+  pendientes: true,
+  rechazos: false,
+  proximas: false,
+  packs: false,
+};
 
 const AdminReservasHome = () => {
-  const { horarios, user, logoutUser } = useContext(AppContext);
-    const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
+  const { horarios, cursosTeoricos, logoutUser, notifications } = useContext(AppContext);
+  const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
   const navigate = useNavigate();
   const res = reservas || [];
 
@@ -76,7 +82,7 @@ const AdminReservasHome = () => {
     });
   }, [res, hoyStr]);
 
-   const packsPendientes = useMemo(() => {
+  const packsPendientes = useMemo(() => {
     return (packs || [])
       .filter(p => p.estadoPago === 'Pendiente')
       .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
@@ -107,222 +113,488 @@ const AdminReservasHome = () => {
       .sort((a, b) => (b.fechaCompra?.toMillis?.() || 0) - (a.fechaCompra?.toMillis?.() || 0));
   }, [accesosTeoricos]);
 
+  const accesosPendientesPago = useMemo(
+    () => accesosPendientes.filter(a => a.estadoPago === 'Pendiente'),
+    [accesosPendientes]
+  );
+  const accesosRechazados = useMemo(
+    () => accesosPendientes.filter(a => a.estadoPago === 'Rechazado'),
+    [accesosPendientes]
+  );
+
   const sinReservas = pendientes.length === 0 && proximas.length === 0 && reservasHoy.length === 0 && packsPendientes.length === 0 && packsRechazados.length === 0 && packsAprobados.length === 0 && reservasRechazadas.length === 0 && accesosPendientes.length === 0;
+
+  const [filtroTipo, setFiltroTipo] = useState('todo');
+  const [abiertas, setAbiertas] = useState(SECCIONES_ABIERTAS_INICIALES);
+  const botonesSeccion = useRef({});
+
+  const fechaHoyTexto = useMemo(() => {
+    try {
+      return new Date(`${hoyStr}T12:00:00`).toLocaleDateString('es-VE', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      }).replace(',', '');
+    } catch {
+      return hoyStr;
+    }
+  }, [hoyStr]);
+
+  const opcionesReserva = useMemo(
+    () => ({ horarios: horarios || [], hoyStr, minutosActuales }),
+    [horarios, hoyStr, minutosActuales]
+  );
+
+  const itemsReservasHoy = useMemo(
+    () => reservasHoy.map(r => itemDesdeReserva(r, opcionesReserva)),
+    [reservasHoy, opcionesReserva]
+  );
+  const itemsPendientes = useMemo(
+    () => pendientes.map(r => itemDesdeReserva(r, opcionesReserva)),
+    [pendientes, opcionesReserva]
+  );
+  const itemsProximas = useMemo(
+    () => proximas.map(r => itemDesdeReserva(r, opcionesReserva)),
+    [proximas, opcionesReserva]
+  );
+  const itemsReservasRechazadas = useMemo(
+    () => reservasRechazadas.map(r => itemDesdeReserva(r, opcionesReserva)),
+    [reservasRechazadas, opcionesReserva]
+  );
+
+  const itemsPacksPendientes = useMemo(() => packsPendientes.map(itemDesdePack), [packsPendientes]);
+  const itemsPacksRechazados = useMemo(() => packsRechazados.map(itemDesdePack), [packsRechazados]);
+  const itemsPacksAprobados = useMemo(() => packsAprobados.map(itemDesdePack), [packsAprobados]);
+
+  const cursosTeoricosLista = useMemo(() => cursosTeoricos || [], [cursosTeoricos]);
+  const itemsAccesosPendientes = useMemo(
+    () => accesosPendientesPago.map(a => itemDesdeAcceso(a, cursosTeoricosLista)),
+    [accesosPendientesPago, cursosTeoricosLista]
+  );
+  const itemsAccesosRechazados = useMemo(
+    () => accesosRechazados.map(a => itemDesdeAcceso(a, cursosTeoricosLista)),
+    [accesosRechazados, cursosTeoricosLista]
+  );
+
+  const itemsPendientesTodos = useMemo(
+    () => [...itemsPendientes, ...itemsPacksPendientes, ...itemsAccesosPendientes],
+    [itemsPendientes, itemsPacksPendientes, itemsAccesosPendientes]
+  );
+  const itemsRechazosTodos = useMemo(
+    () => [...itemsReservasRechazadas, ...itemsPacksRechazados, ...itemsAccesosRechazados],
+    [itemsReservasRechazadas, itemsPacksRechazados, itemsAccesosRechazados]
+  );
+
+  const colaItems = useMemo(
+    () => ordenarCola([...itemsRechazosTodos, ...itemsPendientesTodos]).slice(0, 3),
+    [itemsRechazosTodos, itemsPendientesTodos]
+  );
+  const colaTotal = itemsRechazosTodos.length + itemsPendientesTodos.length;
+
+  const seccionesBase = useMemo(() => ([
+    {
+      id: 'hoy',
+      titulo: 'Hoy',
+      subtitulo: fechaHoyTexto,
+      Icono: Calendar,
+      items: itemsReservasHoy,
+      tono: 'indigo',
+      verTodasRuta: '/admin/reservas/lista',
+    },
+    {
+      id: 'pendientes',
+      titulo: 'Pendientes de aprobación',
+      subtitulo: 'pago por validar',
+      Icono: Clock,
+      items: itemsPendientesTodos,
+      tono: 'amber',
+      verTodasRuta: '/admin/reservas/lista?filtro=Pendiente',
+    },
+    {
+      id: 'rechazos',
+      titulo: 'Rechazos por corregir',
+      subtitulo: 'requieren contacto',
+      Icono: AlertTriangle,
+      items: itemsRechazosTodos,
+      tono: 'rose',
+      verTodasRuta: '/admin/reservas/lista?filtro=Rechazado',
+    },
+    {
+      id: 'proximas',
+      titulo: 'Próximas aprobadas',
+      subtitulo: 'próximos 7 días',
+      Icono: Calendar,
+      items: itemsProximas,
+      tono: 'emerald',
+      verTodasRuta: '/admin/reservas/lista?filtro=Aprobado',
+    },
+    {
+      id: 'packs',
+      titulo: 'Packs aprobados',
+      subtitulo: 'listos para agendar',
+      Icono: Package,
+      items: itemsPacksAprobados,
+      tono: 'purple',
+    },
+  ]), [
+    fechaHoyTexto,
+    itemsReservasHoy,
+    itemsPendientesTodos,
+    itemsRechazosTodos,
+    itemsProximas,
+    itemsPacksAprobados,
+  ]);
+
+  const totalRegistros = useMemo(
+    () => seccionesBase.reduce((total, seccion) => total + seccion.items.length, 0),
+    [seccionesBase]
+  );
+
+  const seccionesVisibles = useMemo(
+    () => seccionesBase
+      .map(seccion => ({
+        ...seccion,
+        items: filtroTipo === 'todo'
+          ? seccion.items
+          : seccion.items.filter(item => item.tipo === filtroTipo),
+      }))
+      .filter(seccion => seccion.items.length > 0),
+    [seccionesBase, filtroTipo]
+  );
+
+  const totalVisible = useMemo(
+    () => seccionesVisibles.reduce((total, seccion) => total + seccion.items.length, 0),
+    [seccionesVisibles]
+  );
+
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
     navigate('/');
   }, [logoutUser, navigate]);
+
+  const recargar = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  const abrirItem = useCallback((item) => {
+    navigate(item.ruta, item.state ? { state: item.state } : undefined);
+  }, [navigate]);
+
+  const abrirSeccion = useCallback((id, tipo = 'todo') => {
+    setAbiertas(previo => ({ ...previo, [id]: true }));
+    setFiltroTipo(tipo);
+    window.requestAnimationFrame(() => {
+      const boton = botonesSeccion.current[id];
+      if (!boton || !boton.isConnected) return;
+      const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      boton.scrollIntoView({ behavior: reducido ? 'auto' : 'smooth', block: 'start' });
+      boton.focus({ preventScroll: true });
+    });
+  }, []);
 
   const footerTabs = [
     { id: 'inicio', icon: Activity, label: 'Inicio', action: () => navigate('/dashboard') },
     { id: 'reservas', icon: BookOpen, label: 'Reservas', action: () => navigate('/admin/reservas') },
     { id: 'ocupacion', icon: Calendar, label: 'Ocupac.', action: () => navigate('/admin/ocupacion') },
     { id: 'finanzas', icon: Wallet, label: 'Finanzas', action: () => navigate('/admin/finanzas') },
-    { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
+    { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') },
   ];
 
-  const { notifications } = useContext(AppContext);
-  const header = <DashboardHeader title="Reservas" onBack={() => navigate('/dashboard')} onLogout={handleLogout} notifications={notifications} />;
-  const footer = <DashboardFooter
-    tabs={footerTabs}
-    activeTab="reservas"
-    onTabChange={(id) => {
-      const tab = footerTabs.find(t => t.id === id);
-      if (tab?.action) tab.action();
-    }}
-  />;
+  const header = (
+    <DashboardHeader
+      title="Reservas"
+      onBack={() => navigate('/dashboard')}
+      onLogout={handleLogout}
+      notifications={notifications}
+    />
+  );
+  const footer = (
+    <DashboardFooter
+      tabs={footerTabs}
+      activeTab="reservas"
+      onTabChange={(id) => {
+        const tab = footerTabs.find(t => t.id === id);
+        if (tab?.action) tab.action();
+      }}
+    />
+  );
 
-  if (cargando) return <div className="p-4 text-center">Cargando reservas...</div>;
-  if (error) return <div className="p-4 text-red-600">Error al cargar reservas: {error.message}</div>;
+  const conteoPagina = cargando || error ? '—' : totalRegistros;
+
+  const pageHead = (
+    <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between gap-2">
+      <div className="min-w-0">
+        <p className="m-0 text-[10px] font-extrabold uppercase leading-tight tracking-[0.12em] text-indigo-700">
+          Bandeja de trabajo
+        </p>
+        <h2 className="m-0 flex items-center gap-2 text-[22px] font-extrabold leading-tight tracking-tight text-gray-900 lg:text-[26px]">
+          Reservas
+          <span className="inline-flex h-[22px] min-w-[26px] items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 px-2 text-[11.5px] font-extrabold tabular-nums text-indigo-700">
+            {conteoPagina}
+          </span>
+        </h2>
+        <p className="m-0 mt-1 text-[12px] text-gray-500">
+          {cargando ? (
+            'Cargando agenda…'
+          ) : error ? (
+            'No se pudo actualizar'
+          ) : (
+            <>
+              Hoy · <span className="font-semibold text-gray-600">{fechaHoyTexto}</span>
+              {` · ${reservasHoy.length} ${reservasHoy.length === 1 ? 'sesión' : 'sesiones'} en agenda`}
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+
+  const estadoCargando = (
+    <div aria-busy="true" className="min-w-0">
+      <span role="status" className="sr-only">Cargando reservas</span>
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
+        {[0, 1, 2, 3].map((indice) => (
+          <span key={indice} className="block h-[92px] rounded-2xl bg-gray-100 motion-safe:animate-pulse lg:h-[104px]" />
+        ))}
+      </div>
+      <div className="mt-4 flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start lg:gap-5">
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-3">
+          <span className="mb-3 block h-3 w-32 rounded bg-gray-200 motion-safe:animate-pulse" />
+          {[0, 1, 2].map((indice) => (
+            <span key={indice} className="mb-2 block h-[64px] rounded-xl bg-gray-100 motion-safe:animate-pulse last:mb-0" />
+          ))}
+        </div>
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-3">
+          <span className="mb-3 block h-8 w-40 rounded bg-gray-200 motion-safe:animate-pulse" />
+          {[0, 1].map((indice) => (
+            <span key={indice} className="mb-2 block h-[64px] rounded-xl bg-gray-100 motion-safe:animate-pulse last:mb-0" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const estadoError = (
+    <div role="alert" className="flex min-w-0 flex-col items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-8 text-center">
+      <span className="grid h-14 w-14 place-items-center rounded-full bg-red-50 text-red-600">
+        <AlertTriangle size={26} aria-hidden="true" />
+      </span>
+      <h3 className="m-0 text-[16px] font-extrabold leading-snug tracking-tight text-gray-900">
+        No pudimos cargar las reservas
+      </h3>
+      <p className="m-0 max-w-[330px] text-[12px] leading-relaxed text-gray-600">
+        Revisa tu conexión e inténtalo de nuevo. Tus datos no se modificaron.
+      </p>
+      <div className="mt-2 flex w-full flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          onClick={recargar}
+          className="inline-flex min-h-11 flex-1 basis-[130px] items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 text-[12.5px] font-bold text-white hover:bg-indigo-700"
+        >
+          <RefreshCw size={15} aria-hidden="true" />
+          Reintentar
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          className="inline-flex min-h-11 flex-1 basis-[130px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-[12.5px] font-bold text-gray-800 hover:bg-gray-50"
+        >
+          Volver al panel
+        </button>
+      </div>
+    </div>
+  );
+
+  const estadoVacio = (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-col items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-8 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-indigo-50 text-indigo-700">
+          <CheckCircle2 size={26} aria-hidden="true" />
+        </span>
+        <h3 className="m-0 text-[16px] font-extrabold leading-snug tracking-tight text-gray-900">
+          Todo al día
+        </h3>
+        <p className="m-0 max-w-[330px] text-[12px] leading-relaxed text-gray-600">
+          No hay pagos pendientes ni rechazos por corregir. Las próximas sesiones aparecerán aquí cuando se aprueben.
+        </p>
+        <div className="mt-2 flex w-full flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/admin/reservas/lista')}
+            className="inline-flex min-h-11 flex-1 basis-[150px] items-center justify-center rounded-xl bg-indigo-600 px-4 text-[12.5px] font-bold text-white hover:bg-indigo-700"
+          >
+            Ver todas las reservas
+          </button>
+          <button
+            type="button"
+            onClick={recargar}
+            className="inline-flex min-h-11 flex-1 basis-[130px] items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 text-[12.5px] font-bold text-gray-800 hover:bg-gray-50"
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            Actualizar
+          </button>
+        </div>
+      </div>
+      <p className="m-0 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[11.5px] leading-relaxed text-gray-500">
+        Si esperabas movimientos, revisa que el pago se haya cargado en la lista completa. El Home solo resume lo accionable.
+      </p>
+    </div>
+  );
 
   return (
-    <AppShell header={header} footer={footer} bgColor="bg-gray-50">
-      <div className="p-4 space-y-4">
-        {sinReservas ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <Inbox size={36} className="text-gray-400" />
+    <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md lg:max-w-6xl">
+      <div className="min-w-0 p-4 lg:px-6 lg:py-5">
+        {pageHead}
+
+        {cargando ? estadoCargando : error ? estadoError : sinReservas ? estadoVacio : (
+          <div className="min-w-0">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
+              <ReservasHomeKpi
+                etiqueta="Pendientes"
+                valor={pendientes.length}
+                ayuda="Reservas por aprobar"
+                tono="warn"
+                ariaLabel={`Pendientes de aprobación: ${pendientes.length}. Ver lista filtrada`}
+                onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')}
+              />
+              <ReservasHomeKpi
+                etiqueta="Packs pend."
+                valor={packsPendientes.length}
+                ayuda="Esperando pago"
+                tono="pack"
+                textoAccion="Ver sección"
+                ariaLabel={`Packs pendientes: ${packsPendientes.length}. Ver sección de pendientes`}
+                onClick={() => abrirSeccion('pendientes', 'pack')}
+              />
+              <ReservasHomeKpi
+                etiqueta="Rechazos"
+                valor={itemsRechazosTodos.length}
+                ayuda="Requieren corrección"
+                tono="bad"
+                textoAccion="Ver sección"
+                ariaLabel={`Rechazos por corregir: ${itemsRechazosTodos.length}. Ver sección de rechazos`}
+                onClick={() => abrirSeccion('rechazos')}
+              />
+              <ReservasHomeKpi
+                etiqueta="Aprobados"
+                valor={proximas.length}
+                ayuda="Hoy y próximos 7 días"
+                tono="ok"
+                ariaLabel={`Aprobados hoy y próximos 7 días: ${proximas.length}. Ver lista filtrada`}
+                onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')}
+              />
             </div>
-            <h3 className="text-lg font-black text-gray-900 mb-2">Sin reservas activas</h3>
-            <p className="text-sm text-gray-500 mb-6">No hay reservas pendientes ni próximas para mostrar.</p>
-            <button
-              onClick={() => navigate('/admin/reservas/lista')}
-              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
-            >
-              Ver todas las reservas
-            </button>
+
+            <div className="mt-4 flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start lg:gap-5">
+              <section
+                aria-labelledby="home-cola-titulo"
+                className="min-w-0 overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 via-white to-indigo-50 shadow-sm lg:sticky lg:top-4 lg:order-2"
+              >
+                <div className="border-b border-rose-100/80 bg-white/60 px-3 py-2.5">
+                  <h3 id="home-cola-titulo" className="m-0 flex min-w-0 items-center gap-1.5 text-[12.5px] font-extrabold tracking-tight text-gray-900">
+                    <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-rose-600" />
+                    <span className="min-w-0">Requiere acción</span>
+                    <span className="inline-flex min-w-[20px] shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums text-rose-700">
+                      {colaTotal}
+                    </span>
+                  </h3>
+                  <p className="m-0 mt-0.5 text-[10.5px] text-rose-900/60">
+                    Primero rechazos, después pendientes
+                  </p>
+                </div>
+
+                {colaItems.length > 0 ? (
+                  <div>
+                    {colaItems.map(item => (
+                      <ReservasHomeRow
+                        key={item.key}
+                        item={item}
+                        mostrarMotivo
+                        tonoFila={item.estadoPago === 'Rechazado' ? 'rose' : 'amber'}
+                        onClick={() => abrirItem(item)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="m-0 px-3 py-4 text-[11.5px] text-gray-600">
+                    No hay rechazos ni pagos pendientes.
+                  </p>
+                )}
+
+                {colaTotal > 0 && (
+                  <div className="border-t border-rose-100/80 bg-white/60 px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')}
+                      className="flex min-h-11 w-full items-center justify-between gap-1 rounded-lg px-2 text-left text-[11px] font-extrabold text-indigo-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      <span>Ver todo lo pendiente ({colaTotal})</span>
+                      <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+                    </button>
+                  </div>
+                )}
+              </section>
+
+              <div className="flex min-w-0 flex-col gap-3 lg:order-1">
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <div
+                    role="group"
+                    aria-label="Filtrar por tipo"
+                    className="mx-auto grid w-full max-w-[560px] min-w-0 grid-cols-4 gap-[3px] rounded-xl bg-gray-100 p-0.5 shadow-inner"
+                  >
+                    {FILTROS_TIPO.map((filtro) => {
+                      const activo = filtroTipo === filtro.id;
+                      return (
+                        <button
+                          key={filtro.id}
+                          type="button"
+                          aria-pressed={activo}
+                          onClick={() => setFiltroTipo(filtro.id)}
+                          className={`min-h-11 min-w-0 truncate rounded-lg px-1 text-center text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-100 motion-reduce:transition-none ${
+                            activo
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-gray-600 hover:bg-white/70'
+                          }`}
+                        >
+                          {filtro.etiqueta}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="m-0 text-[10.5px] text-gray-500">
+                    <span className="font-bold text-gray-600">{totalVisible} registros</span>
+                    {' '}· secciones plegables por estado
+                  </p>
+                </div>
+
+                {seccionesVisibles.map((seccion) => (
+                  <ReservasHomeSeccion
+                    key={seccion.id}
+                    id={`home-${seccion.id}`}
+                    titulo={seccion.titulo}
+                    subtitulo={seccion.subtitulo}
+                    Icono={seccion.Icono}
+                    items={seccion.items}
+                    tono={seccion.tono}
+                    abierta={Boolean(abiertas[seccion.id])}
+                    onToggle={() => setAbiertas(previo => ({ ...previo, [seccion.id]: !previo[seccion.id] }))}
+                    onVerTodas={seccion.verTodasRuta ? () => navigate(seccion.verTodasRuta) : undefined}
+                    onAbrirItem={abrirItem}
+                    botonRef={(nodo) => {
+                      if (nodo) botonesSeccion.current[seccion.id] = nodo;
+                      else delete botonesSeccion.current[seccion.id];
+                    }}
+                  />
+                ))}
+
+                {seccionesVisibles.length === 0 && (
+                  <p className="m-0 rounded-2xl border border-gray-200 bg-white px-3 py-4 text-[11.5px] text-gray-500">
+                    No hay registros de este tipo en la bandeja.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
-        ) : (
-          <>
-            {reservasHoy.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider flex items-center gap-1">
-                    <Calendar size={14} className="text-yellow-600" /> Hoy ({reservasHoy.length})
-                  </h3>
-                  <button onClick={() => navigate('/admin/reservas/lista')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                    Ver todas <ChevronRight size={12} />
-                  </button>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {reservasHoy.slice(0, 6).map(r => {
-                    const enCurso = esReservaEnCurso(r, horarios, hoyStr, minutosActuales);
-                    return <TarjetaMini key={r.id} reserva={r} enCurso={enCurso} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />;
-                  })}                </div>
-              </div>
-            )}
-
-                     {packsPendientes.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-purple-700 uppercase tracking-wider flex items-center gap-1">
-                    <Package size={14} className="text-purple-600" /> Packs Pendientes ({packsPendientes.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {packsPendientes.slice(0, 4).map(p => (
-                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-purple-200 p-2 text-left hover:border-purple-400 active:scale-[0.98] transition-colors">                      <div className="flex items-center gap-1 flex-wrap mb-1">
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-700">PEND</span>
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
-                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
-                                          <p className="text-[9px] text-purple-600 font-bold mt-0.5">Toca para ver →</p>
-                    </button>
-                                  ))}
-                </div>
-              </div>
-            )}
-
-            {packsRechazados.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-red-700 uppercase tracking-wider flex items-center gap-1">
-                    <Package size={14} className="text-red-600" /> Packs Rechazados ({packsRechazados.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {packsRechazados.slice(0, 4).map(p => (
-                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-red-200 p-2 text-left hover:border-red-400 active:scale-[0.98] transition-colors">
-                      <div className="flex items-center gap-1 flex-wrap mb-1">
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-red-100 text-red-700">RECH</span>
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
-                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
-                      <p className="text-[9px] text-red-600 font-bold mt-0.5">Esperando corrección</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {packsAprobados.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-purple-700 uppercase tracking-wider flex items-center gap-1">
-                    <Package size={14} className="text-purple-600" /> Packs Aprobados ({packsAprobados.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {packsAprobados.slice(0, 4).map(p => (
-                    <button key={p.id} onClick={() => navigate(`/admin/pack/${p.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-purple-200 p-2 text-left hover:border-purple-400 active:scale-[0.98] transition-colors">
-                      <div className="flex items-center gap-1 flex-wrap mb-1">
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-green-100 text-green-700">APRO</span>
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-purple-100 text-purple-700">PACK</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{p.packNombre || 'Pack'}</p>
-                      <p className="text-[9px] text-gray-600 truncate">{p.precioTotalCongelado ? `$${p.precioTotalCongelado}` : ''}</p>
-                      <p className="text-[9px] text-purple-600 font-bold mt-0.5">Ver detalle →</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {accesosPendientes.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${accesosPendientes.some(a => a.estadoPago === 'Rechazado') ? 'text-red-700' : 'text-teal-700'}`}>
-                    <GraduationCap size={14} className={accesosPendientes.some(a => a.estadoPago === 'Rechazado') ? 'text-red-600' : 'text-teal-600'} /> Accesos Teóricos ({accesosPendientes.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {accesosPendientes.slice(0, 4).map(a => (
-                    <button key={a.id} onClick={() => navigate(`/admin/acceso-teorico/${a.id}`)} className="flex-shrink-0 w-32 bg-white rounded-xl shadow-sm border-2 border-teal-200 p-2 text-left hover:border-teal-400 active:scale-[0.98] transition-colors">
-                      <div className="flex items-center gap-1 flex-wrap mb-1">
-                        {a.estadoPago === 'Rechazado' ? (
-                          <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-red-100 text-red-700">RECH</span>
-                        ) : (
-                          <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-700">PEND</span>
-                        )}
-                        <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-teal-100 text-teal-700">TEOR</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-gray-900 mt-1 truncate">{a.cursoTeoricoId || 'Módulo'}</p>
-                      <p className="text-[9px] text-gray-600 truncate">{a.precio ? `$${a.precio}` : ''}</p>
-                      <p className="text-[9px] text-teal-600 font-bold mt-0.5">Toca para ver →</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {reservasRechazadas.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-red-700 uppercase tracking-wider flex items-center gap-1">
-                    <Inbox size={14} className="text-red-600" /> Reservas Rechazadas ({reservasRechazadas.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {reservasRechazadas.slice(0, 4).map(r => (
-                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {pendientes.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Pendientes de Aprobación</h3>
-                  <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                    Ver todas ({pendientes.length}) <ChevronRight size={12} />
-                  </button>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                  {pendientes.slice(0, 4).map(r => (
-<TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />                  ))}
-                  {pendientes.length > 4 && (
-                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Pendiente')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
-                      +{pendientes.length - 4}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {proximas.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Próximas (Aprobadas)</h3>
-                  <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                    Ver todas ({proximas.length}) <ChevronRight size={12} />
-                  </button>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                                 {proximas.slice(0, 4).map(r => (
-                    <TarjetaMini key={r.id} reserva={r} onClick={() => navigate(`/admin/reserva/${r.id}`, { state: { from: '/admin/reservas' } })} />
-                  ))}
-                  {proximas.length > 4 && (
-                    <button onClick={() => navigate('/admin/reservas/lista?filtro=Aprobado')} className="flex-shrink-0 w-24 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 hover:bg-gray-100">
-                      +{proximas.length - 4}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
         )}
       </div>
     </AppShell>

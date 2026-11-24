@@ -21,6 +21,8 @@ const AgendarPackView = React.lazy(() => import('./modules/estudiante/views/Agen
 
 const AulaVirtualView = React.lazy(() => import('./modules/aula/views/AulaVirtualView'));
 const AdminResumen = React.lazy(() => import('./modules/admin/components/AdminResumen'));
+const AdminAlertas = React.lazy(() => import('./modules/admin/components/AdminAlertas'));
+const AdminMetricas = React.lazy(() => import('./modules/admin/components/AdminMetricas'));
 const AdminReservasHome = React.lazy(() => import('./modules/admin/components/AdminReservasHome'));
 const AdminReservasList = React.lazy(() => import('./modules/admin/components/AdminReservasList'));
 const AdminReservaDetalle = React.lazy(() => import('./modules/admin/components/AdminReservaDetalle'));
@@ -148,6 +150,18 @@ function App() {
           <Route path="/dashboard" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminResumen />
+            </ProtectedRoute>
+          } />
+
+          {/* Centro de alertas y métricas (admin) */}
+          <Route path="/admin/alertas" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminAlertas />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/metricas" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminMetricas />
             </ProtectedRoute>
           } />
 

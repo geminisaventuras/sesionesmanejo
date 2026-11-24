@@ -7,23 +7,17 @@ import {
   esPendienteInstructor
 } from '../../shared/utils/finanzasHelpers.js';
 import { formatearMonto } from '../../shared/utils/currency.js';
+import {
+  obtenerFechaVenezuela,
+  inicioMesVenezuela,
+  inicioSemanaVenezuela
+} from '../../shared/utils/zonahoraria.js';
 import { CATEGORIAS, FINANZAS_DEFAULT, etiquetaCategoria, tipoCategoria } from './financeConstants.js';
 
-export const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-
-export const inicioMesVET = () => {
-  const fecha = new Date();
-  return new Date(fecha.getFullYear(), fecha.getMonth(), 1)
-    .toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-};
-
-export const inicioSemanaVET = () => {
-  const fecha = new Date();
-  const dia = fecha.getDay() || 7;
-  const lunes = new Date(fecha);
-  lunes.setDate(fecha.getDate() - (dia - 1));
-  return lunes.toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-};
+// Alias históricos del módulo financiero: delegan en los helpers compartidos de America/Caracas.
+export const hoyVET = (fecha = new Date()) => obtenerFechaVenezuela(fecha);
+export const inicioMesVET = (fecha = new Date()) => inicioMesVenezuela(fecha);
+export const inicioSemanaVET = (fecha = new Date()) => inicioSemanaVenezuela(fecha);
 
 export const fechaVisible = (fecha) => (fecha ? String(fecha).slice(0, 10) : '—');
 

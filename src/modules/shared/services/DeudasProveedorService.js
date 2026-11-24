@@ -15,6 +15,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
+import { obtenerFechaVenezuela } from '../utils/zonahoraria';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -76,7 +77,7 @@ export const DeudasProveedorService = {
     const movimientoRef = doc(collection(db, ...COL_MOVIMIENTOS));
     const ledgerRef = doc(collection(db, COL_LEDGER_PROVEEDOR));
     const ahora = Timestamp.now();
-    const fechaISO = new Date().toISOString().split('T')[0];
+    const fechaISO = obtenerFechaVenezuela();
 
     let saldoFinal = null;
     let estadoFinal = null;

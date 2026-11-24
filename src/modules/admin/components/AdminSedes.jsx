@@ -3,9 +3,19 @@ import { useContext } from 'react';
 import { AppContext } from '../../../context/AppContextValue';
 import CRUDView from './CRUDView';
 import FormSede from '../forms/FormSede';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 const AdminSedes = ({ onBack }) => {
   const { sedes, saveSede } = useContext(AppContext);
-  return <CRUDView titulo="Sedes" items={sedes} saveFn={saveSede} formComponent={FormSede} onBack={onBack} />;
+  return (
+    <CRUDView
+      titulo="Sedes"
+      items={sedes}
+      saveFn={saveSede}
+      formComponent={FormSede}
+      onBack={onBack}
+      renderTitulo={(item) => `${nombreSedeCanonico(item)} (${item?.id ?? '—'})`}
+    />
+  );
 };
 export default AdminSedes;

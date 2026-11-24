@@ -103,7 +103,7 @@ const { showToast } = useToast();
   // Mientras se carga la configuración, mostrar spinner
   if (!configListo) {
     return (
-      <AppShell header={header} footer={footer} bgColor="bg-gray-50">
+      <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md min-[540px]:max-w-3xl lg:max-w-5xl">
         <div className="flex items-center justify-center min-h-full">
           <div className="text-center">
             <Loader size={32} className="text-blue-500 animate-spin mx-auto mb-3" />
@@ -115,8 +115,8 @@ const { showToast } = useToast();
   }
 
   return (
-    <AppShell header={header} footer={footer} bgColor="bg-gray-50">
-      <div className="p-4 space-y-4">
+    <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md min-[540px]:max-w-3xl lg:max-w-5xl">
+      <div className="p-3 md:p-5 grid gap-3 lg:grid-cols-2 items-start">
         {/* TASAS DE CAMBIO */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <button onClick={() => toggleSeccion('tasas')} className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors">
@@ -244,6 +244,7 @@ const { showToast } = useToast();
           variant="success"
           icon={saving ? Loader : Check}
           disabled={!configListo || saving}
+          className="lg:col-span-2"
         >
           {saving ? 'Guardando...' : 'Guardar Ajustes'}
         </Button>

@@ -9,6 +9,7 @@ import { Mail, Phone, Building2, Bike, Calendar, MessageCircle } from 'lucide-re
 import { doc, getDoc, collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
+import { etiquetaMoto } from '../../shared/utils/motosHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -102,7 +103,7 @@ export default function AdminProveedorDetalle() {
           <h3 className="font-bold text-gray-900 text-sm flex justify-between items-center">Motos Registradas <span className="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-full">{metricas.motosActivas} activas</span></h3>
           {motos.map(m => (
             <div key={m.id} className="flex justify-between items-center text-xs border-b border-gray-50 pb-2">
-              <div className="flex items-center gap-2"><Bike size={14} className="text-indigo-500"/><div><p className="font-medium text-gray-800">{String(m.marca || '')} {String(m.modelo || '')}</p><p className="text-[10px] text-gray-500">{String(m.placa || 'Sin placa')}</p></div></div>
+              <div className="flex items-center gap-2"><Bike size={14} className="text-indigo-500"/><p className="min-w-0 break-words font-medium text-gray-800">{etiquetaMoto(m)}</p></div>
               <span className={`font-bold text-[10px] uppercase ${m.activo ? 'text-green-500' : 'text-gray-400'}`}>{m.activo ? 'Activa' : 'Inactiva'}</span>
             </div>
           ))}

@@ -1,4 +1,5 @@
 // @build: 2026-09-04 | id: OPTIMIZACION-HEARTBEAT-PRESENCIA | backup: useSessionTimer.backup-20260904-000000 | desc: Heartbeat de presencia solo en mount/visibility/online/unmount. Lógica D1/D2 intacta.
+// @build: 2026-11-22 | id: T-044 | desc: límites del bloque se comparan con minutosActualesVET() (America/Caracas), sin getters de hora del runtime.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
@@ -6,6 +7,7 @@ import { SGTA_DEFAULTS } from '../constants';
 import { alertas } from '../../shared/utils/alertas';
 import { reproducirBeepModuloCompletado } from '../../shared/utils/audio';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
+import { obtenerFechaVenezuela, obtenerHoraVenezuela } from '../../shared/utils/zonahoraria';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -51,14 +53,21 @@ function parseHora(str) {
   return hours * 60 + mins;
 }
 
-function obtenerFechaVenezuela() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
+// T-044: la hora de negocio es VET (America/Caracas), no la del runtime. Antes se leía la hora
+// con los getters locales de Date, que fuera de VET desplazaban el guard del bloque.
+// obtenerHoraVenezuela() devuelve 'HH:MM:SS'; se normaliza HH a 0-23 por si el runtime
+// entrega '24:00:00' a medianoche (hourCycle h24).
+function minutosActualesVET() {
+  const [hh, mm] = obtenerHoraVenezuela().split(':');
+  const horas = parseInt(hh, 10) % 24;
+  const minutos = parseInt(mm, 10);
+  if (!Number.isInteger(horas) || !Number.isInteger(minutos)) return 0;
+  return horas * 60 + minutos;
 }
 
 function esMismoDiaVenezuela(timestamp) {
   if (!timestamp) return false;
-  const fechaTimestamp = new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-  return fechaTimestamp === obtenerFechaVenezuela();
+  return obtenerFechaVenezuela(new Date(timestamp)) === obtenerFechaVenezuela();
 }
 
 function calcularDiaActual(reserva) {
@@ -340,7 +349,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     const horaInicioLabel = horario?.label?.split('-')[0]?.trim();
     const horaInicioMinutos = horaInicioLabel ? parseHora(horaInicioLabel) : null;
     if (horaInicioMinutos !== null) {
-      const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
+      const ahoraMinutos = minutosActualesVET();
       if (ahoraMinutos < horaInicioMinutos) {
         showToast(`Bloque comienza a las ${horaInicioLabel}.`, 'error'); return;
       }
@@ -360,7 +369,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
       const horaFinLabel = horario?.label?.split('-')[1]?.trim();
       const horaFinMinutos = horaFinLabel ? parseHora(horaFinLabel) : null;
       if (horaFinMinutos !== null) {
-        const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
+        const ahoraMinutos = minutosActualesVET();
         const minutosRestantesBloque = horaFinMinutos - ahoraMinutos;
         if (minutosRestantesBloque > 0 && minutosRestantesBloque < 30) {
           showToast(`Quedan ${minutosRestantesBloque} min del bloque. Puedes pausar y continuar en otro día.`, 'info');
@@ -412,7 +421,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
 
       // A2.8: registrar timestamps reales de inicio y fin del módulo
     modulosEstado[nombre] = {
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: obtenerFechaVenezuela(),
       horaInicio: reserva.moduloEnProgreso?.inicio || null,
       horaFin: Date.now(),
       duracion: Math.min(dur, 60),
@@ -581,7 +590,7 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
       if (!curso || !curso.modulos || curso.modulos.length === 0) {
         return { success: false, modulosCompletados: 0 };
       }
-      const hoy = new Date().toISOString().split('T')[0];
+      const hoy = obtenerFechaVenezuela();
       const modulosEstadoActual = reserva.modulosEstado || {};
       const nuevoModulosEstado = { ...modulosEstadoActual };
       let modulosCompletados = 0;

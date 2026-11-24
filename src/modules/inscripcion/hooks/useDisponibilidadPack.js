@@ -5,6 +5,7 @@ import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
 import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/utils/motoHelpers';
+import { obtenerPermitidosCurso, MOTIVO_CURSO_SIN_INSTRUCTORES, mensajeCursoSinInstructores } from '../utils/instructoresPermitidos';
 const MAX_DIAS_RESERVA = 30;
 
 const getCaracasTime = () => {
@@ -40,14 +41,23 @@ const evaluarDisponibilidad = ({
   // Si el curso tiene motoIncluida: false, NUNCA se busca moto de escuela.
   const { necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
 
-  // Filtro crítico: solo instructores en curso.instructoresPermitidos.
-  // Array vacío o ausente = todos permitidos (compatibilidad con cursos legacy).
-  const instructoresPermitidosSet = (() => {
-    const lista = cursoSeleccionado?.instructoresPermitidos;
-    if (!Array.isArray(lista) || lista.length === 0) return null;
-    return new Set(lista.map(String));
-  })();
-  const estaPermitido = (i) => !instructoresPermitidosSet || instructoresPermitidosSet.has(String(i.id));
+  // D10: fail-closed. Sin `instructoresPermitidos` configurado (vacío o
+  // ausente) NADIE puede impartir el curso: no se listan tutores ni bloques.
+  const permitidosCurso = obtenerPermitidosCurso(cursoSeleccionado);
+  if (!permitidosCurso.configurado) {
+    return {
+      diasDisponibles: [],
+      bloques: [],
+      fecha2Calc: null,
+      maxDate: null,
+      error: {
+        code: MOTIVO_CURSO_SIN_INSTRUCTORES,
+        message: mensajeCursoSinInstructores()
+      }
+    };
+  }
+  const instructoresPermitidosSet = new Set(permitidosCurso.permitidos);
+  const estaPermitido = (i) => instructoresPermitidosSet.has(String(i.id));
 
   const locksDeOtros = (activeLocks || []).filter(l => {
     if (l.userId === currentUserId) return false;
@@ -250,8 +260,20 @@ export function useDisponibilidadPack({
   clockTick = 0
 }) {
   return useMemo(() => {
-    const emptyResult = { diasDisponibles: [], bloques: [], fecha2Calc: null, maxDate: null };
-    
+    const emptyResult = { diasDisponibles: [], bloques: [], fecha2Calc: null, maxDate: null, error: null };
+
+    // Sin curso cargado todavía no hay política que evaluar (ni error que mostrar).
+    if (!cursoSeleccionado) return emptyResult;
+
+    // D10: la falta de configuración se informa antes que la falta de datos,
+    // para que la UI muestre el motivo real y no "no hay fechas".
+    if (!obtenerPermitidosCurso(cursoSeleccionado).configurado) {
+      return {
+        ...emptyResult,
+        error: { code: MOTIVO_CURSO_SIN_INSTRUCTORES, message: mensajeCursoSinInstructores() }
+      };
+    }
+
     if (!instructores?.length || !motos?.length || !horarios?.length) return emptyResult;
     if (!form.sedeId || !form.tipoMoto) return emptyResult;
     

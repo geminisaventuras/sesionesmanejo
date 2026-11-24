@@ -18,6 +18,11 @@ const CAMPOS_REPROGRAMACION = [
 
 const MAX_TEXTO = 500;
 const MAX_VALOR_TEXTO = 200;
+const MAX_CONFLICTOS = 20;
+const MAX_MENSAJE_ERROR = 300;
+
+// Solo recursos en conflicto (IDs internos). Nada de PII ni documentos completos.
+const CAMPOS_CONFLICTO = ['tipo', 'reservaId', 'fecha', 'horaId', 'instructorId', 'motoId'];
 
 const textoRequerido = (valor, campo) => {
   if (typeof valor !== 'string' || valor.trim() === '') {
@@ -57,6 +62,33 @@ const acotarSnapshot = (snapshot, campo) => {
   return acotado;
 };
 
+// Acota la lista de conflictos a primitivos conocidos. Un conflicto malformado
+// no rompe la auditoría: se descarta.
+const acotarConflictos = (conflictos) => {
+  if (conflictos == null) return [];
+  if (!Array.isArray(conflictos)) {
+    throw new TypeError('ReprogramacionAuditService: "conflictos" debe ser un arreglo');
+  }
+  const acotados = [];
+  for (const conflicto of conflictos.slice(0, MAX_CONFLICTOS)) {
+    if (!conflicto || typeof conflicto !== 'object' || Array.isArray(conflicto)) continue;
+    const acotado = {};
+    for (const clave of CAMPOS_CONFLICTO) {
+      if (!Object.prototype.hasOwnProperty.call(conflicto, clave)) continue;
+      const valor = conflicto[clave];
+      if (valor === null) {
+        acotado[clave] = null;
+      } else if (typeof valor === 'string') {
+        acotado[clave] = valor.slice(0, MAX_VALOR_TEXTO);
+      } else if (typeof valor === 'number' || typeof valor === 'boolean') {
+        acotado[clave] = valor;
+      }
+    }
+    if (Object.keys(acotado).length > 0) acotados.push(acotado);
+  }
+  return acotados;
+};
+
 // Función pura: no escribe, no lee reloj ni Firestore. `createdAt` se añade
 // en registrarEvento al momento de persistir.
 export const construirEventoReprogramacion = ({
@@ -66,6 +98,7 @@ export const construirEventoReprogramacion = ({
   motivo,
   antes,
   despues,
+  conflictos = [],
   autorId,
   autorRol
 }) => ({
@@ -75,12 +108,35 @@ export const construirEventoReprogramacion = ({
   motivo: textoAcotado(motivo),
   antes: acotarSnapshot(antes, 'antes'),
   despues: acotarSnapshot(despues, 'despues'),
+  conflictos: acotarConflictos(conflictos),
   autorId: textoRequerido(autorId, 'autorId'),
   autorRol: textoRequerido(autorRol, 'autorRol'),
   inmutable: true
 });
 
+// Normaliza cualquier error (Firestore, red o validación) a un resultado
+// serializable y acotado. Función pura: no lee reloj, red ni Firestore.
+export const normalizarErrorAuditoria = (error) => {
+  const codeBruto = typeof error?.code === 'string' ? error.code.trim() : '';
+  const mensajeBruto = typeof error?.message === 'string' ? error.message.trim() : '';
+  return {
+    code: codeBruto ? codeBruto.slice(0, 100) : 'audit-write-failed',
+    message: mensajeBruto
+      ? mensajeBruto.slice(0, MAX_MENSAJE_ERROR)
+      : 'Error desconocido al registrar la auditoría'
+  };
+};
+
+// Contexto mínimo de log: IDs internos y tipo/origen. Sin snapshots ni PII.
+const contextoLog = (datos) => ({
+  reservaId: typeof datos?.reservaId === 'string' ? datos.reservaId : null,
+  tipo: typeof datos?.tipo === 'string' ? datos.tipo : null,
+  origen: typeof datos?.origen === 'string' ? datos.origen : null
+});
+
 // Única operación permitida: append (create). No existe API de update/delete.
+// Nunca relanza: el bloqueo D9 debe mantenerse aunque falle la auditoría.
+// El fallo es observable vía `success: false` + log seguro en consola.
 export const registrarEvento = async (datos) => {
   try {
     const evento = construirEventoReprogramacion(datos || {});
@@ -96,14 +152,18 @@ export const registrarEvento = async (datos) => {
     });
     return { success: true, data: { id: ref.id } };
   } catch (error) {
-    return {
-      success: false,
-      error: { code: error.code || 'audit-write-failed', message: error.message }
-    };
+    const errorNormalizado = normalizarErrorAuditoria(error);
+    // Log seguro (sin snapshots ni PII) para que el fallo no pase inadvertido.
+    console.error('[ReprogramacionAuditService] Auditoría no persistida', {
+      ...contextoLog(datos),
+      error: errorNormalizado
+    });
+    return { success: false, error: errorNormalizado };
   }
 };
 
 export const ReprogramacionAuditService = {
   construirEventoReprogramacion,
-  registrarEvento
+  registrarEvento,
+  normalizarErrorAuditoria
 };

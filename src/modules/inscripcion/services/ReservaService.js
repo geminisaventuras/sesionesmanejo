@@ -11,10 +11,103 @@ import { resolverTraeMoto, seleccionarValoresCurso, packBloqueaNuevaCompra } fro
 import { calcularPrecioIndividual, resolverTraeMotoIndividual, resolverTasaFXVigente, calcularPagoTotalVES } from '../utils/precioIndividual.js';
 import { resumenAccesoId } from '../../shared/utils/accesoTeoricoResumen';
 import { validarCorreccionPago } from '../utils/pagoHelpers';
+import { validarInstructorAsignado, validarMotoAsignada } from '../utils/recursosHelpers';
+import { validarInstructorPermitidoCurso } from '../utils/instructoresPermitidos';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 
 const appId = 'motoescuela-pro-v1';
 
 const CAMPOS_OBLIGATORIOS = ['userId', 'cedula', 'fecha', 'horaId', 'cursoId', 'sedeId'];
+
+const rutaCatalogo = (columna) => `artifacts/${appId}/public/data/${columna}`;
+
+/**
+ * D11: el servicio no confía en el tutor/moto que vienen del lock o del
+ * navegador. Se leen del catálogo antes de la transacción y se falla cerrado
+ * con un error claro. `instructoresPublicos` es legible por cualquier
+ * autenticado; para datos legacy sin espejo se intenta el documento privado.
+ */
+async function cargarInstructorParaReserva(instructorId) {
+  if (instructorId === null || instructorId === undefined || String(instructorId).trim() === '') {
+    return { ok: false, error: { code: 'instructor-requerido', message: 'Selecciona un tutor para este horario.' } };
+  }
+  const id = String(instructorId);
+  try {
+    const publicoSnap = await getDoc(doc(db, rutaCatalogo('instructoresPublicos'), id));
+    if (publicoSnap.exists()) return { ok: true, data: { id: publicoSnap.id, ...publicoSnap.data() } };
+  } catch (error) {
+    console.warn('[ReservaService] No se pudo leer instructoresPublicos:', error?.code);
+  }
+  try {
+    const privadoSnap = await getDoc(doc(db, rutaCatalogo('instructores'), id));
+    if (privadoSnap.exists()) return { ok: true, data: { id: privadoSnap.id, ...privadoSnap.data() } };
+  } catch (error) {
+    console.warn('[ReservaService] No se pudo leer instructores:', error?.code);
+    return { ok: false, error: { code: 'instructor-no-verificable', message: 'No pudimos verificar tu tutor. Revisa tu sesión e intenta de nuevo.' } };
+  }
+  return { ok: false, error: { code: 'instructor-not-found', message: 'El tutor seleccionado ya no existe. Elige otro horario.' } };
+}
+
+async function cargarMotoParaReserva(motoId) {
+  if (motoId === null || motoId === undefined || String(motoId).trim() === '') {
+    return { ok: true, data: null };
+  }
+  try {
+    const snap = await getDoc(doc(db, rutaCatalogo('motos'), String(motoId)));
+    if (snap.exists()) return { ok: true, data: { id: snap.id, ...snap.data() } };
+    return { ok: false, error: { code: 'moto-not-found', message: 'La moto asignada ya no existe. Elige otro horario.' } };
+  } catch (error) {
+    console.error('[ReservaService] Error leyendo moto:', error);
+    return { ok: false, error: { code: 'moto-no-verificable', message: 'No pudimos verificar la moto asignada. Revisa tu conexión e intenta de nuevo.' } };
+  }
+}
+
+async function validarRecursosReserva({ instructorId, motoId, sedeId, curso, exigirPermitidosCurso = false }) {
+  const [instructor, moto] = await Promise.all([
+    cargarInstructorParaReserva(instructorId),
+    cargarMotoParaReserva(motoId)
+  ]);
+  if (!instructor.ok) return { ok: false, error: instructor.error };
+  if (!moto.ok) return { ok: false, error: moto.error };
+
+  const checkInstructor = validarInstructorAsignado({ instructor: instructor.data, sedeId });
+  if (!checkInstructor.ok) return { ok: false, error: { code: checkInstructor.code, message: checkInstructor.message } };
+
+  // D10: los packs fallan cerrado si el curso no declara `instructoresPermitidos`.
+  // La inscripción individual mantiene su comportamiento actual (UI fail-closed).
+  if (exigirPermitidosCurso) {
+    const checkPermitido = validarInstructorPermitidoCurso({ curso, instructorId });
+    if (!checkPermitido.ok) {
+      return { ok: false, error: { code: checkPermitido.code, message: checkPermitido.message } };
+    }
+  }
+
+  const checkMoto = validarMotoAsignada({ moto: moto.data, motoId, sedeId, curso });
+  if (!checkMoto.ok) return { ok: false, error: { code: checkMoto.code, message: checkMoto.message } };
+
+  return { ok: true, data: { instructor: instructor.data, moto: moto.data } };
+}
+
+/**
+ * D10: el curso del pack se lee del catálogo (autoridad), no del snapshot
+ * que envía el navegador. Sin catálogo verificable se falla cerrado.
+ */
+async function cargarCursoParaPack(cursoId) {
+  const id = cursoId === null || cursoId === undefined ? '' : String(cursoId).trim();
+  const error = (code, message) => ({ ok: false, error: { code, message } });
+  if (!id) return error('curso-no-verificable', 'No pudimos validar el curso del pack. Contacta a administración.');
+
+  try {
+    const snap = await getDoc(doc(db, rutaCatalogo('cursos'), id));
+    if (!snap.exists()) {
+      return error('curso-no-verificable', 'El curso del pack ya no existe. Contacta a administración.');
+    }
+    return { ok: true, data: { id: snap.id, ...snap.data() } };
+  } catch (err) {
+    console.error('[ReservaService] Error leyendo curso del pack:', err);
+    return error('curso-no-verificable', 'No pudimos verificar el curso del pack. Revisa tu conexión e intenta de nuevo.');
+  }
+}
 
 // ⚠️ NO DESACTIVAR EN PROD: previene solapamiento de reservas (BUG-2).
 // Kill-switch de build: si se desactiva, el cross-check se omite (solo para rollback operativo).
@@ -340,6 +433,17 @@ export const ReservaService = {
 
     // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
     const motoObjetivo = (traeMotoResuelto === 'Sí' || cursoData?.motoIncluida === false) ? null : (reservaData.motoAsignadaId || null);
+
+    // D11: el lock/payload no es autoridad sobre el catálogo. Tutor y moto se
+    // revalidan (existencia, activo, sede y tipo) antes de consumir el lock.
+    const validacionRecursos = await validarRecursosReserva({
+      instructorId: reservaData.instructorId,
+      motoId: motoObjetivo,
+      sedeId: reservaData.sedeId,
+      curso: cursoData
+    });
+    if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
+
     const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
       fecha: reservaData.fecha,
       fecha2: reservaData.fecha2 || null,
@@ -491,10 +595,17 @@ export const ReservaService = {
       });
         return { success: true, data: { id: reservaDoc.id } };
     } catch (error) {
+      const codigo = error.code || 'transaction-failed';
+      // Un lock que no autorizó la reserva (vencido, corrupto, de otro usuario
+      // o que no coincide) queda inservible: liberarlo evita que el cupo
+      // aparezca ocupado hasta 10 min sin que nadie esté pagando (ERR-010).
+      if (['slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch'].includes(codigo)) {
+        await LockService.liberarLock(lockId).catch(() => {});
+      }
       return {
         success: false,
         error: {
-          code: error.code || 'transaction-failed',
+          code: codigo,
           message: error.message
         }
       };
@@ -522,14 +633,17 @@ export const ReservaService = {
     }
 
     // Freno: 1 pack de sesiones activo máximo (los de solo teóricos sí se permiten en N)
-    // Hotfix 2026-11-22: cursoIdsNuevo se usa dentro de la transacción, fuera de este try.
+    let packPreData = null;
+    // ERR-020: `cursoIdsNuevo` se usa dentro de la transacción; debe vivir en
+    // el ámbito de la función y no dentro del try (ReferenceError previo).
     let cursoIdsNuevo = [];
     try {
       const rpRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservasPack');
       const rpQ = query(rpRef, where('userId', '==', usuarioActual.uid));
       const rpSnap = await getDocs(rpQ);
       const packSnapPre = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId));
-      cursoIdsNuevo = packSnapPre.exists() ? (packSnapPre.data().cursoIds || []) : [];
+      packPreData = packSnapPre.exists() ? packSnapPre.data() : null;
+      cursoIdsNuevo = packPreData ? (packPreData.cursoIds || []) : [];
       if (cursoIdsNuevo.length > 0) {
         const yaTiene = rpSnap.docs.some(d => packBloqueaNuevaCompra(d.data()));
         if (yaTiene) {
@@ -568,6 +682,32 @@ export const ReservaService = {
       return { success: false, error: { code: 'fx-config-unavailable', message: 'No pudimos validar la tasa de cambio. Revisa tu conexión e intenta de nuevo.' } };
     }
     const tasaFX = resolverTasaFXVigente(configData);
+
+    // D11: revalidar el tutor y la moto efectiva del primer curso del pack
+    // antes de consumir el lock. La moto sale del snapshot congelado, no del
+    // payload del navegador.
+    if (packPreData) {
+      const preciosPre = packPreData.precios;
+      const cursoEqPre = (preciosPre?.cursoIds || [])
+        .map(cid => (packData.cursoSnapshot || []).find(c => String(c.id) === String(cid)))
+        .filter(Boolean)[0] || null;
+      const traeMotoPre = cursoEqPre
+        ? resolverTraeMoto(preciosPre, 0, cursoEqPre.id, packData.traeMotoPorCurso)
+        : 'Sí';
+      const motoEfectivaPre = (traeMotoPre === 'Sí' || !cursoEqPre) ? null : (packData.motoAsignadaId || null);
+      // D10: curso autoritativo del catálogo (no el snapshot del navegador).
+      const cursoIdPre = (preciosPre?.cursoIds || [])[0] ?? cursoEqPre?.id;
+      const cursoAutoridadPre = await cargarCursoParaPack(cursoIdPre);
+      if (!cursoAutoridadPre.ok) return { success: false, error: cursoAutoridadPre.error };
+      const validacionRecursos = await validarRecursosReserva({
+        instructorId: packData.instructorId,
+        motoId: motoEfectivaPre,
+        sedeId: packData.sedeId,
+        curso: cursoAutoridadPre.data,
+        exigirPermitidosCurso: true
+      });
+      if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
+    }
 
     const packRef = doc(db, 'artifacts', appId, 'public', 'data', 'packs', packData.packId);
     // Lock transaccional por usuario: evita doble compra por doble submit.
@@ -892,6 +1032,44 @@ export const ReservaService = {
     const lockRef = doc(db, 'locks', lockId);
     const temporalRef = doc(db, 'ocupacionTemporal', lockId);
 
+    // D11: revalidar tutor y moto efectivos antes de consumir el lock. La moto
+    // sale de los precios congelados de la maestra, no del payload.
+    let recursosPre = null;
+    try {
+      const maestraPreSnap = await getDoc(maestraRef);
+      if (maestraPreSnap.exists()) {
+        const maestraPre = maestraPreSnap.data();
+        const cursoDataPre = packData.cursoSnapshot;
+        const cursoActualPre = Number(maestraPre.cursoActual ?? 0);
+        const preciosPre = maestraPre.preciosCongelados;
+        const traeMotoPre = cursoDataPre && preciosPre && Number.isInteger(cursoActualPre)
+          ? resolverTraeMoto(preciosPre, cursoActualPre, cursoDataPre.id, packData.traeMotoPorCurso)
+          : 'Sí';
+        const motoEfectivaPre = traeMotoPre === 'Sí' ? null : (packData.motoAsignadaId || null);
+        // D10: curso autoritativo del catálogo (no el snapshot del navegador).
+        const cursoIdPre = (maestraPre.subReservas || [])[cursoActualPre]?.cursoId
+          ?? preciosPre?.cursoIds?.[cursoActualPre]
+          ?? cursoDataPre?.id;
+        const cursoAutoridadPre = await cargarCursoParaPack(cursoIdPre);
+        if (!cursoAutoridadPre.ok) return { success: false, error: cursoAutoridadPre.error };
+        const validacionRecursos = await validarRecursosReserva({
+          instructorId: packData.instructorId,
+          motoId: motoEfectivaPre,
+          sedeId: packData.sedeId || maestraPre.sedeId || null,
+          curso: cursoAutoridadPre.data,
+          exigirPermitidosCurso: true
+        });
+        if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
+        recursosPre = validacionRecursos.data;
+      }
+    } catch (err) {
+      console.error('[agendarSiguienteCursoPack] Error validando recursos:', err);
+      return {
+        success: false,
+        error: { code: 'recursos-no-verificables', message: 'No pudimos verificar el tutor o la moto. Revisa tu conexión e intenta de nuevo.' }
+      };
+    }
+
     // BUG-2: cross-check de ocupacion antes de entrar a la transaccion.
     const chequeoOcupacion = await validarDisponibilidadAntesDeCrear({
       fecha: packData.fecha || null,
@@ -904,6 +1082,12 @@ export const ReservaService = {
       contexto: 'agendarSiguienteCursoPack'
     });
     if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
+
+    const crearError = (code, message) => {
+      const error = new Error(message);
+      error.code = code;
+      return error;
+    };
 
     try {
       let childIdFinal = null;
@@ -962,7 +1146,7 @@ export const ReservaService = {
         // 4. Leer y validar lock
         const lockSnap = await transaction.get(lockRef);
         if (!lockSnap.exists()) {
-          throw new Error('El horario ya no está disponible');
+          throw crearError('slot-occupied', 'El horario ya no está disponible');
         }
         const lockData = lockSnap.data();
         const lockIds = lockData.esquema === 'recursos-v1'
@@ -970,10 +1154,10 @@ export const ReservaService = {
           : [lockId];
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
         const lockCorrupto = !lockData.userId || !lockData.instructorId || !lockData.fecha || !lockData.horaId;
-        if (lockExpirado) throw new Error('El tiempo para completar la reserva expiró. Elige otro horario.');
-        if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
+        if (lockExpirado) throw crearError('lock-expired', 'El tiempo para completar la reserva expiró. Elige otro horario.');
+        if (lockCorrupto) throw crearError('lock-invalid', 'El bloqueo del horario es inválido. Elige otro horario.');
         if (String(lockData.userId) !== String(usuarioActual.uid)) {
-          throw new Error('El horario está bloqueado por otro usuario');
+          throw crearError('lock-owner-mismatch', 'El horario está bloqueado por otro usuario');
         }
 
         // PACK-CHILD-C: verificar que el documento determinista aún no exista.
@@ -1032,6 +1216,15 @@ export const ReservaService = {
         const sedeSesion = packData.sedeId && sedesValidasSesion.includes(packData.sedeId)
           ? packData.sedeId
           : sedesValidasSesion[0];
+
+        // D11: la sede efectiva puede diferir del payload; se revalidan tutor
+        // y moto con la sede final antes de escribir la child.
+        if (recursosPre) {
+          const checkInstructorSede = validarInstructorAsignado({ instructor: recursosPre.instructor, sedeId: sedeSesion });
+          if (!checkInstructorSede.ok) throw crearError(checkInstructorSede.code, checkInstructorSede.message);
+          const checkMotoSede = validarMotoAsignada({ moto: recursosPre.moto, motoId: valores.motoAsignadaId, sedeId: sedeSesion, curso: cursoData });
+          if (!checkMotoSede.ok) throw crearError(checkMotoSede.code, checkMotoSede.message);
+        }
 
         // 8. Datos de la CHILD
         const datosChild = {
@@ -1158,7 +1351,20 @@ export const ReservaService = {
         errorMessage: error.message,
         timestamp: new Date().toISOString()
       });
-      return { success: false, error: { code: 'transaction-failed', message: error.message } };
+      const codigo = error.code || 'transaction-failed';
+      // Igual que en crearReserva: si el lock ya no sirve, se libera para no
+      // dejar el cupo ocupado hasta su expiración (ERR-010).
+      if ([
+        'slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch',
+        // D11: recursos inválidos dejan el lock inservible.
+        'instructor-not-found', 'instructor-inactivo', 'instructor-sede-invalida',
+        // D10: tutor no habilitado o curso sin allowlist dejan el lock inservible.
+        'instructor-no-permitido-curso', 'curso-sin-instructores-permitidos', 'curso-no-verificable',
+        'moto-not-found', 'moto-inactiva', 'moto-sede-invalida', 'moto-tipo-incompatible'
+      ].includes(codigo)) {
+        await LockService.liberarLock(lockId).catch(() => {});
+      }
+      return { success: false, error: { code: codigo, message: error.message } };
     }
   },
 
@@ -1242,7 +1448,7 @@ export const ReservaService = {
             origenId: packReservaId,
             monto: Number(montoMovimiento.toFixed(2)),
             desc: `Pack C-${String(packReservaId).slice(-4)}`,
-            fecha: new Date().toISOString().split('T')[0],
+            fecha: obtenerFechaVenezuela(),
             userId: maestraData.userId,
             createdBy: adminUid,
             createdAt: Timestamp.now(),
@@ -1375,6 +1581,10 @@ export const ReservaService = {
         if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
         maestraData = maestraSnap.data();
 
+        const childSnap = await transaction.get(childRef);
+        if (!childSnap.exists()) throw new Error('Reserva del pack no encontrada');
+        const child = childSnap.data();
+
         transaction.update(maestraRef, {
           estadoPago: 'Rechazado',
           rechazadoEn: Timestamp.now(),
@@ -1387,12 +1597,26 @@ export const ReservaService = {
           motivoRechazo: motivo || 'La referencia del pago no coincide'
         });
 
-        // Espejo queda con estado Pendiente (sigue bloqueando el horario)
+        // Rechazado para corrección NO libera el cupo (ADR-011): el espejo
+        // permanece Pendiente y sigue bloqueando hasta la cancelación definitiva.
         transaction.set(espejoRef, {
+          userId: child.userId,
+          fecha: child.fecha,
+          fecha2: child.fecha2 || null,
+          horaId: child.horaId,
+          horaIdReposicion: child.horaIdReposicion || null,
+          instructorId: child.instructorId,
+          motoAsignadaId: child.motoAsignadaId || null,
+          motoReposicionId: child.motoReposicionId || null,
+          traeMoto: child.traeMoto || 'No',
+          sedeId: child.sedeId || null,
+          tipoCurso: child.tipoCurso || null,
           estadoPago: 'Pendiente',
-          estadoCurso: childSnap.data().estadoCurso || 'Pendiente',
-          pagadoProveedor: childSnap.data().pagadoProveedor === true,
-          pagoProveedorId: childSnap.data().pagoProveedorId || null
+          estadoCurso: child.estadoCurso || 'Pendiente',
+          pagadoProveedor: child.pagadoProveedor === true,
+          pagoProveedorId: child.pagoProveedorId || null,
+          proveedorId: child.proveedorId || null,
+          comisionProveedor: Number(child.comisionProveedor) || 0
         }, { merge: true });
 
         // FIX-METRICAS-TRIGGER: invalidar caché del estudiante
@@ -1422,12 +1646,17 @@ export const ReservaService = {
     const espejoRef = doc(db, 'ocupacionConfirmada', childReservaId);
 
     let maestraData = null;
+    let childData = null;
 
     try {
       await runTransaction(db, async (transaction) => {
         const maestraSnap = await transaction.get(maestraRef);
         if (!maestraSnap.exists()) throw new Error('Pack no encontrado');
         maestraData = maestraSnap.data();
+
+        const childSnap = await transaction.get(childRef);
+        if (!childSnap.exists()) throw new Error('Reserva del pack no encontrada');
+        childData = childSnap.data();
 
         // B-PACK-SUBRESERVAS-METADATA: al cancelar el pack, las sesiones
         // activas/bloqueadas pasan a 'cancelado'; las completadas se conservan.
@@ -1461,6 +1690,36 @@ export const ReservaService = {
           updatedAt: Timestamp.now()
         });
       });
+
+      // Cancelación definitiva: además de borrar el espejo, se purgan los
+      // locks del slot para que el horario quede realmente libre (ADR-011).
+      try {
+        if (childData?.instructorId) {
+          const snapshotLocks = await getDocs(
+            query(collection(db, 'ocupacionTemporal'), where('instructorId', '==', childData.instructorId))
+          );
+          const fechas = [childData.fecha, childData.fecha2].filter(Boolean);
+          const batchLocks = writeBatch(db);
+          let locksPurgados = 0;
+          snapshotLocks.forEach(docSnap => {
+            const lock = docSnap.data();
+            let bloqueEsperado = null;
+            if (lock.fecha === childData.fecha) bloqueEsperado = childData.horaId;
+            else if (lock.fecha === childData.fecha2) {
+              bloqueEsperado = childData.horaIdReposicion || childData.horaId;
+            }
+            const coincideFecha = fechas.includes(lock.fecha);
+            if (coincideFecha && bloqueEsperado && String(lock.horaId) === String(bloqueEsperado)) {
+              batchLocks.delete(docSnap.ref);
+              batchLocks.delete(doc(db, 'locks', docSnap.id));
+              locksPurgados += 1;
+            }
+          });
+          if (locksPurgados > 0) await batchLocks.commit();
+        }
+      } catch (lockErr) {
+        console.warn('[cancelarReservaPack] No se pudieron purgar locks:', lockErr);
+      }
 
       // ────────── Batch post-transacción: soft-delete accesos teóricos ──────────
       try {

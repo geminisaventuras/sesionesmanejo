@@ -20,6 +20,11 @@ import {
 } from '../../shared/utils/finanzasHelpers';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { formatearMonto } from '../../shared/utils/currency';
+import {
+  obtenerFechaVenezuela as hoyVET,
+  inicioSemanaVenezuela as inicioSemanaVET,
+  inicioMesVenezuela as inicioMesVET
+} from '../../shared/utils/zonahoraria.js';
 import { db } from '../../../firebase';
 import {
   Activity, BookOpen, Calendar, Wallet, Settings,
@@ -46,22 +51,6 @@ const ETIQUETAS_CURSO = {
   basico_sincro: 'Básico Sincrónica',
   general: 'Práctica en la Vía',
   motero: 'Curso Motero'
-};
-
-const hoyVET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-
-const inicioSemanaVET = () => {
-  const d = new Date();
-  const dia = d.getDay() || 7;
-  const lunes = new Date(d);
-  lunes.setDate(d.getDate() - (dia - 1));
-  return lunes.toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-};
-
-const inicioMesVET = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1)
-    .toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 };
 
 const StaffFinanzasView = () => {

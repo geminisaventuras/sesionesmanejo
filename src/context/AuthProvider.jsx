@@ -1,4 +1,4 @@
-// @build: 2026-06-22 | id: AUTH-PROVIDER-BLINDADO | desc: Admin reconocido por email sin depender de documento en Firestore
+// @build: 2026-11-22 | id: T-049-ADMIN-CLAIM | desc: Admin reconocido por custom claim (UID), sin email hardcodeado
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -14,22 +14,18 @@ export function useAuthProvider(showToast) {
   const [autoLoginData, setAutoLoginData] = useState(null);
 
   const restoreUserRole = useCallback(async (currentUser) => {
-    if (!currentUser || !currentUser.email) return;
-    const email = currentUser.email.toLowerCase();
+    if (!currentUser) return;
     const basePath = `artifacts/${APP_ID}/public/data`;
 
     try {
-      const adminDocRef = doc(db, basePath, 'admins', 'admin1');
-      const adminSnap = await getDoc(adminDocRef);
-      if (adminSnap.exists()) {
-        const adminData = adminSnap.data();
-        if (adminData.email === email) {
-          setUser({ role: 'admin', data: adminData, uid: currentUser.uid });
-          return;
-        }
+      // T-049: el rol admin vive en el custom claim `admin` del token.
+      // No se consulta ni compara email. Si el token en caché aún no trae el
+      // claim (p. ej. se acaba de asignar), se fuerza un refresh una vez.
+      let tokenResult = await currentUser.getIdTokenResult().catch(() => null);
+      if (tokenResult?.claims?.admin !== true) {
+        tokenResult = await currentUser.getIdTokenResult(true).catch(() => tokenResult);
       }
-
-      if (email === 'armandoaventurasve@gmail.com') {
+      if (tokenResult?.claims?.admin === true) {
         setUser({ role: 'admin', data: { nombre: 'Administrador' }, uid: currentUser.uid });
         return;
       }

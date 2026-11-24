@@ -65,17 +65,6 @@ const FinanceLayout = () => {
   return (
     <AppShell header={header} footer={footer} bgColor="bg-slate-50" maxWidth="max-w-6xl">
       <div className="p-3 md:p-5">
-        <div className="mb-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-4 py-3 text-white shadow-lg">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300">Centro financiero</p>
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <h1 className="text-lg font-black tracking-tight">Control de ingresos, gastos y personal</h1>
-              <p className="text-[11px] text-slate-300">Reservas, comisiones, impuestos y caja en un solo lugar.</p>
-            </div>
-            <Wallet size={26} className="text-blue-300/80 shrink-0" />
-          </div>
-        </div>
-
         <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
           {NAV.map((item) => (
             <NavLink key={item.path} to={item.path} className={({ isActive }) => itemClass(isActive || location.pathname === item.path)}>

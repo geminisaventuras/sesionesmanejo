@@ -1,4 +1,4 @@
-import { TIPOS_CURSO } from './tiposCurso';
+import { TIPOS_CURSO } from './tiposCurso.js';
 
 export const CURSO_SECUENCIA = {
   [TIPOS_CURSO.EQUILIBRIO]: {

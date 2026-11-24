@@ -95,7 +95,7 @@ export const StaffService = {
       await setDoc(doc(db, basePath, 'cursos', 'c2'), { id: 'c2', nombre: 'Intermedio', modulos: ['Teoría', 'Práctica', 'Carretera'], activo: true });
 
       await setDoc(doc(db, basePath, 'instructores', '095xu7THRRXnvRNfCVkm4xFy1vm1'), {
-        id: '095xu7THRRXnvRNfCVkm4xFy1vm1', nombre: 'Armando', email: 'armandoaventurasve@gmail.com', sedes: ['sede2', 'sede1'], activo: true, esPrincipal: true
+        id: '095xu7THRRXnvRNfCVkm4xFy1vm1', nombre: 'Armando', email: 'instructor@example.com', sedes: ['sede2', 'sede1'], activo: true, esPrincipal: true
       });
       await setDoc(doc(db, basePath, 'instructores', 'oImFwkGGjDRxxG2unUB7T762IuA2'), {
         id: 'oImFwkGGjDRxxG2unUB7T762IuA2', nombre: 'Leonardo', email: 'leonardo@example.com', sedes: ['sede2'], activo: true, esPrincipal: false
@@ -104,7 +104,8 @@ export const StaffService = {
       await setDoc(doc(db, basePath, 'motos', '1782055081899'), { id: '1782055081899', tipo: 'Automática', sedes: ['sede1', 'sede2'], activo: true });
       await setDoc(doc(db, basePath, 'motos', '1782055104779'), { id: '1782055104779', tipo: 'Sincrónica', sedes: ['sede2'], activo: true });
 
-      await setDoc(doc(db, basePath, 'admins', 'admin1'), { email: 'armandoaventurasve@gmail.com', role: 'admin' });
+      // T-049: el admin se identifica por custom claim; el doc no guarda email.
+      await setDoc(doc(db, basePath, 'admins', 'admin1'), { role: 'admin' });
 
       return { success: true };
     } catch (e) {
@@ -114,7 +115,8 @@ export const StaffService = {
 
   async cleanExpiredLocks() {
     const { LockService } = await import('../../inscripcion/services/LockService');
-    const today = new Date().toISOString().split('T')[0];
-    return await LockService.limpiarLocksExpirados(today, 'admin');
+    // D7: la limpieza es global por expiresAt; filtrar por usuario/fecha dejaba
+    // la operación inerte. LockService aplica el tope MAX_LIMPIEZA.
+    return await LockService.limpiarLocksExpirados();
   }
 };

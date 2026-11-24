@@ -1,220 +1,129 @@
-// @build: 2026-11-13 | id: ADMIN-RESUMEN-ENTERPRISE-V2 | desc: Fix de últimos completados reales + consulta específica
-import { useContext, useState, useMemo, memo, useCallback, useEffect } from 'react';
+// @build: 2026-11-23 | id: T-065 / ERR-033 | desc: Home admin responsive, KPIs verificables, ingresos por compra y actividad reciente.
+import { useContext, useMemo, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
-import { Button } from '../../../components/UI';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
-import { useToast } from '../../shared/components/ToastProvider';
 import {
-  Award, Bike, Settings, DollarSign, TrendingUp, Calendar,
-  Bell, AlertCircle, Users, BookOpen, Wallet, Activity, Package, GraduationCap
+  Activity, AlertCircle, AlertTriangle, Bell, Bike, BookOpen, Calendar,
+  CheckCircle2, ChevronRight, Clock, DollarSign, GraduationCap,
+  Package, Settings, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
-import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
-import { db } from '../../../firebase';
+import { construirAlertas, msDeFecha } from '../utils/alertasAdmin';
+import { calcularMetricasNegocio } from '../utils/metricasAdmin';
+import {
+  calcularIngresosMes,
+  contarMotosActivas,
+  contarReservasHoy,
+  obtenerActividadReciente,
+} from '../utils/resumenAdmin';
 
-const APP_ID = 'motoescuela-pro-v1';
-
-const TarjetaResumen = memo(({ titulo, valor, color, onClick, icon: Icon }) => (
-  <div onClick={onClick} className={`${color} text-white p-4 rounded-2xl shadow-md cursor-pointer hover:opacity-90 transition-all active:scale-[0.98] relative overflow-hidden`}>
-    <div className="absolute top-0 right-0 w-24 h-24 bg-white opacity-10 rounded-full blur-2xl transform translate-x-8 -translate-y-8"></div>
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest">{titulo}</p>
-        {Icon && <Icon size={18} className="text-white/80" />}
-      </div>
-      <h2 className="text-2xl font-black">{valor}</h2>
+const TarjetaResumen = memo(({ titulo, valor, color, icon: Icon }) => (
+  <div className={`${color} relative overflow-hidden rounded-xl p-3 text-white shadow-sm`}>
+    <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-white/10 blur-xl" />
+    <div className="relative flex items-center justify-between gap-2">
+      <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-widest text-white/80">{titulo}</p>
+      {Icon && <Icon size={14} className="shrink-0 text-white/80" />}
     </div>
+    <h2 className="relative mt-1 truncate text-xl font-black leading-tight" title={String(valor)}>{valor}</h2>
   </div>
 ));
 
-const CursoCompletadoMini = memo(({ reserva, instructorNombre }) => (
-  <div className="flex-shrink-0 w-24 bg-white p-2 rounded-xl shadow-sm border border-gray-100 text-center">
-    <Award size={18} className="text-indigo-500 mx-auto mb-1" />
-    <p className="text-[10px] font-bold text-gray-900 truncate">{reserva.nombre} {reserva.apellido?.charAt(0)}.</p>
-    <p className="text-[9px] text-gray-500 truncate">{instructorNombre}</p>
-  </div>
-));
+const ADMIN = '/admin';
 
-const MiniGraficoBarras = memo(({ datos }) => (
-  <div className="flex items-end gap-1 h-16 mt-2">
-    {datos.map((d, i) => (
-      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-        <div className="w-full bg-indigo-500 rounded-t transition-all" style={{ height: `${Math.max(4, (d.valor / (Math.max(...datos.map(x => x.valor), 1))) * 40)}px` }}></div>
-        <span className="text-[8px] text-gray-500">{d.label}</span>
-      </div>
-    ))}
-  </div>
-));
-
-const BannerAlertas = memo(({ alertas }) => {
-  if (!alertas || alertas.length === 0) return null;
-  return (
-    <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-2">
-      <div className="flex items-center gap-2 text-amber-800"><Bell size={16} /><span className="text-sm font-bold">Alertas del Sistema</span></div>
-      {alertas.map((a, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-amber-700">
-          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-          <span>{a.mensaje}</span>
-        </div>
-      ))}
-    </div>
-  );
-});
+const formatearFechaActividad = (valor) => {
+  const ms = msDeFecha(valor);
+  if (ms === null) return 'Sin fecha';
+  try {
+    return new Date(ms).toLocaleString('es-VE', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return new Date(ms).toLocaleDateString('es-VE');
+  }
+};
 
 const AdminResumen = () => {
-  const { instructores, sedes, motos, horarios, cursos, config, seedDatabase, user, logoutUser, notifications } = useContext(AppContext);
+  const { instructores, sedes, motos, cursos, config, seedDatabase, logoutUser, notifications } = useContext(AppContext);
   const navigate = useNavigate();
-  const { showToast } = useToast();
-  const { reservas, cargando, error } = useAdminReservas();
-  const [ultimosCompletados, setUltimosCompletados] = useState([]);
+  const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
 
   const res = reservas || [];
   const instrs = instructores || [];
   const motosList = motos || [];
-  const hor = horarios || [];
   const cursosList = cursos || [];
+  const packsList = packs || [];
+  const accesosList = accesosTeoricos || [];
 
-  // 1. Consulta específica para los últimos cursos completados REALES
-  useEffect(() => {
-    const cargarUltimos = async () => {
-      try {
-        const reservasRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'reservas');
-        // Intentamos ordenar por updatedAt (requiere índice compuesto)
-        const q = query(
-          reservasRef,
-          where('estadoCurso', '==', 'Aprobado'),
-          orderBy('updatedAt', 'desc'),
-          limit(4)
-        );
-        const snap = await getDocs(q);
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setUltimosCompletados(docs);
-      } catch (err) {
-        console.warn('[AdminResumen] Fallback: sin índice compuesto o updatedAt faltante', err);
-        // Fallback: traer todos los aprobados (hasta 20) y ordenar en memoria por updatedAt o createdAt
-        try {
-          const reservasRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'reservas');
-          const q2 = query(
-            reservasRef,
-            where('estadoCurso', '==', 'Aprobado'),
-            limit(20)
-          );
-          const snap2 = await getDocs(q2);
-          const docs2 = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-          
-          // Ordenar por updatedAt (o createdAt) descendente
-          docs2.sort((a, b) => {
-            const fechaA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
-            const fechaB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
-            return fechaB - fechaA;
-          });
-          
-          setUltimosCompletados(docs2.slice(0, 4));
-        } catch (err2) {
-          console.error('[AdminResumen] Error en fallback:', err2);
-        }
-      }
-    };
-    cargarUltimos();
-  }, []);
-
-  // FIX-CONTABLE: Usar fecha de COMPRA (createdAt) para los ingresos, no la fecha del curso.
-  const ingresosMes = useMemo(() => {
-    const ahora = new Date();
-    const mes = ahora.getMonth();
-    const anio = ahora.getFullYear();
-    return res.filter(r => {
-      if (r.estadoPago !== 'Aprobado') return false;
-      const fecha = r.createdAt?.toDate?.() || (r.fecha ? new Date(r.fecha) : null);
-      if (!fecha) return false;
-      return fecha.getMonth() === mes && fecha.getFullYear() === anio;
-    }).reduce((acc, r) => acc + (Number(r.pagoTotalMoneda) || 0), 0);
-  }, [res]);
+  // Ingresos del mes por FECHA DE COMPRA (no por fecha del curso):
+  // reservas aprobadas que no son hijas de pack + maestras de reservasPack aprobadas.
+  // `calcularIngresosMes` documenta la definición y evita el doble conteo de `pack_sub`.
+  const ingresosMes = useMemo(
+    () => calcularIngresosMes({ reservas: res, packs: packsList }),
+    [res, packsList]
+  );
 
   const hoyStr = new Date().toISOString().split('T')[0];
-  const bloquesOcupadosHoy = useMemo(() => {
-    const activas = res.filter(r => (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') && (r.fecha === hoyStr || r.fecha2 === hoyStr));
-    return activas.length;
-  }, [res, hoyStr]);
-  const totalBloques = hor.filter(h => h.activo && !h.isLunch).length;
+  // La capacidad real por tutores/motos/sedes todavía no existe: se muestra solo el
+  // número de reservas/bloques ocupados hoy, sin denominador.
+  const bloquesOcupadosHoy = useMemo(() => contarReservasHoy(res, hoyStr), [res, hoyStr]);
   const instrActivos = instrs.filter(i => i.activo).length;
+  const motosActivas = useMemo(() => contarMotosActivas(motosList), [motosList]);
 
-  // FIX-CONTABLE: Usar createdAt para el gráfico
-  const datosGrafico = useMemo(() => {
-    const dias = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const fechaStr = d.toISOString().split('T')[0];
-      const total = res.filter(r => {
-        if (r.estadoPago !== 'Aprobado') return false;
-        const fecha = r.createdAt?.toDate?.() || (r.fecha ? new Date(r.fecha) : null);
-        return fecha && fecha.toISOString().split('T')[0] === fechaStr;
-      }).reduce((acc, r) => acc + (Number(r.pagoTotalMoneda) || 0), 0);
-      dias.push({ label: d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }), valor: total });
-    }
-    return dias;
-  }, [res]);
+  const alertas = useMemo(
+    () => construirAlertas({ reservas: res, motos: motosList }),
+    [res, motosList]
+  );
+  const totalAlertas = alertas.length;
 
-  const alertas = useMemo(() => {
-    const lista = [];
-    const ahora = Date.now();
-    const pendientesViejas = res.filter(r => r.estadoPago === 'Pendiente' && r.createdAt && (ahora - r.createdAt.toMillis?.() > 86400000));
-    if (pendientesViejas.length > 0) lista.push({ mensaje: `${pendientesViejas.length} reservas pendientes por más de 24 horas.` });
-    const sinInstructor = res.filter(r => (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') && !r.instructorId);
-    if (sinInstructor.length > 0) lista.push({ mensaje: `${sinInstructor.length} cursos sin instructor asignado.` });
-    const motosInactivas = motosList.filter(m => !m.activo).length;
-    if (motosInactivas > 0) lista.push({ mensaje: `${motosInactivas} motos inactivas.` });
-    return lista;
-  }, [res, motosList]);
+  // Solo lectura: últimos 3 eventos que el sistema ya registra para administración.
+  // No agrega consultas ni crea notificaciones.
+  const actividadReciente = useMemo(
+    () => obtenerActividadReciente(notifications, 3),
+    [notifications]
+  );
 
-  // --- MÉTRICAS DEL NEGOCIO ---
-  const getTipo = (r) => {
-    if (r.tipoCurso) return r.tipoCurso;
-    const c = cursosList.find(x => String(x.id) === String(r.cursoId));
-    return c?.tipoCurso || r.cursoId;
-  };
+  const accesosRapidos = useMemo(() => [
+    {
+      id: 'por-aprobar',
+      etiqueta: 'Por aprobar',
+      valor: res.filter(r => r.estadoPago === 'Pendiente').length,
+      ruta: `${ADMIN}/reservas/lista?filtro=Pendiente`,
+      icon: Clock,
+      tono: 'border-amber-100 bg-amber-50 text-amber-700',
+    },
+    {
+      id: 'packs',
+      etiqueta: 'Packs',
+      valor: packsList.filter(p => p.estadoPago === 'Pendiente').length,
+      ruta: `${ADMIN}/reservas`,
+      icon: Package,
+      tono: 'border-indigo-100 bg-indigo-50 text-indigo-700',
+    },
+    {
+      id: 'rechazos',
+      etiqueta: 'Rechazos',
+      valor: res.filter(r => r.estadoPago === 'Rechazado').length,
+      ruta: `${ADMIN}/reservas/lista?filtro=Rechazado`,
+      icon: AlertCircle,
+      tono: 'border-red-100 bg-red-50 text-red-700',
+    },
+    {
+      id: 'teoricos',
+      etiqueta: 'Teóricos',
+      valor: accesosList.filter(a => a.estadoPago === 'Pendiente').length,
+      ruta: `${ADMIN}/reservas`,
+      icon: GraduationCap,
+      tono: 'border-teal-100 bg-teal-50 text-teal-700',
+    },
+  ], [res, packsList, accesosList]);
 
-  const cursoMasVendido = useMemo(() => {
-    const conteo = {};
-    res.forEach(r => {
-      if (r.estadoPago === 'Aprobado' || r.estadoPago === 'Pendiente') {
-        const tipo = getTipo(r);
-        if (tipo) conteo[tipo] = (conteo[tipo] || 0) + 1;
-      }
-    });
-    let maxTipo = null;
-    let maxCount = 0;
-    Object.entries(conteo).forEach(([tipo, count]) => {
-      if (count > maxCount) { maxCount = count; maxTipo = tipo; }
-    });
-    if (!maxTipo) return { nombre: 'Sin datos', count: 0 };
-    const cursoObj = cursosList.find(c => c.tipoCurso === maxTipo || String(c.id) === String(maxTipo));
-    const nombre = cursoObj?.nombre || maxTipo;
-    return { nombre, count: maxCount };
-  }, [res, cursosList]);
-
-  const conversionEquilibrio = useMemo(() => {
-    const usuariosEq = new Set();
-    const usuariosOtros = new Set();
-    res.forEach(r => {
-      if (getTipo(r) === 'equilibrio' && (r.estadoPago === 'Aprobado' || r.estadoCurso === 'Aprobado')) {
-        usuariosEq.add(r.userId);
-      }
-    });
-    res.forEach(r => {
-      if (getTipo(r) !== 'equilibrio' && r.estadoPago === 'Aprobado') {
-        if (usuariosEq.has(r.userId)) usuariosOtros.add(r.userId);
-      }
-    });
-    const totalEq = usuariosEq.size;
-    const totalConv = usuariosOtros.size;
-    const pct = totalEq > 0 ? Math.round((totalConv / totalEq) * 100) : 0;
-    return { pct, totalEq, totalConv };
-  }, [res]);
+  const { cursoMasVendido, conversionEquilibrio } = useMemo(
+    () => calcularMetricasNegocio(res, cursosList),
+    [res, cursosList]
+  );
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -243,62 +152,145 @@ const AdminResumen = () => {
   />;
 
   return (
-    <AppShell header={header} footer={footer} bgColor="bg-gray-50">
-      <div className="p-4 space-y-4">
-        <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest px-1">Panel Administrativo</h2>
-        
+    <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md lg:max-w-6xl">
+      <div className="flex h-full min-h-0 flex-col gap-2 p-3 lg:gap-3 lg:p-5">
+
         {sedes?.length === 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl mb-2 shadow-sm text-xs font-bold text-yellow-800">
-            ¿El sistema está en blanco? <button onClick={seedDatabase} className="underline ml-2">Inicializar Base de Datos</button>
+          <div className="shrink-0 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-[11px] font-bold text-yellow-800">
+            ¿El sistema está en blanco? <button onClick={seedDatabase} className="underline ml-1">Inicializar Base de Datos</button>
           </div>
         )}
 
-        <BannerAlertas alertas={alertas} />
+        {/* Alerta compacta: una sola fila, siempre navegable al centro de alertas */}
+        <button
+          type="button"
+          onClick={() => navigate(`${ADMIN}/alertas`)}
+          aria-label={totalAlertas === 0
+            ? 'Alertas del sistema: todo al día, 0 pendientes'
+            : `Alertas del sistema: ${totalAlertas} requieren atención`}
+          className={`flex min-h-11 w-full shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${totalAlertas === 0 ? 'border-emerald-100 bg-white hover:bg-emerald-50/60' : 'border-red-100 bg-white hover:bg-red-50/60'}`}
+        >
+          <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${totalAlertas === 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+            {totalAlertas === 0 ? <CheckCircle2 size={16} aria-hidden="true" /> : <AlertTriangle size={16} aria-hidden="true" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-bold text-gray-900">{totalAlertas === 0 ? 'Todo al día' : 'Requiere atención'}</span>
+            <span className="block truncate text-[10px] text-gray-500">
+              {totalAlertas === 0 ? 'Sin pendientes críticos' : 'Toca para ver y resolver'}
+            </span>
+          </span>
+          <span className={`text-lg font-black tabular-nums ${totalAlertas === 0 ? 'text-emerald-600' : 'text-red-600'}`}>{totalAlertas}</span>
+          <ChevronRight size={16} className="shrink-0 text-gray-400" aria-hidden="true" />
+        </button>
 
-        {/* TARJETAS RESUMEN - NUEVA PALETA */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* KPIs de color (sin cambios de paleta) */}
+        <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
           <TarjetaResumen titulo="Ingresos Mes" valor={`${config.monedaPagoStaff || 'USD'} ${ingresosMes}`} color="bg-gradient-to-br from-emerald-600 to-emerald-800" icon={DollarSign} />
-          <TarjetaResumen titulo="Ocupación Hoy" valor={`${bloquesOcupadosHoy}/${totalBloques}`} color="bg-gradient-to-br from-indigo-600 to-indigo-800" icon={Calendar} />
+          <TarjetaResumen titulo="Ocupación Hoy" valor={bloquesOcupadosHoy} color="bg-gradient-to-br from-indigo-600 to-indigo-800" icon={Calendar} />
           <TarjetaResumen titulo="Instructores" valor={instrActivos} color="bg-gradient-to-br from-purple-600 to-purple-800" icon={Users} />
-          <TarjetaResumen titulo="Motos" valor={motosList.length} color="bg-gradient-to-br from-slate-700 to-slate-900" icon={Bike} />
+          <TarjetaResumen titulo="Motos activas" valor={motosActivas} color="bg-gradient-to-br from-slate-700 to-slate-900" icon={Bike} />
         </div>
 
-        {/* NUEVAS MÉTRICAS */}
-        <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 space-y-3">
-          <h3 className="font-bold text-gray-900 text-xs flex items-center gap-2"><TrendingUp size={14} className="text-indigo-600" />Métricas del Negocio</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-3 rounded-lg border border-purple-100">
-              <p className="text-[10px] text-purple-600 font-bold uppercase tracking-wider mb-1">Top Ventas</p>
-              <p className="text-sm font-black text-gray-900 truncate">{cursoMasVendido.nombre}</p>
-              <p className="text-xs text-gray-500">{cursoMasVendido.count} ventas</p>
-            </div>
-            <div className="bg-gradient-to-br from-teal-50 to-emerald-50 p-3 rounded-lg border border-teal-100">
-              <p className="text-[10px] text-teal-600 font-bold uppercase tracking-wider mb-1">Conversión Eq → Otros</p>
-              <p className="text-sm font-black text-gray-900">{conversionEquilibrio.pct}%</p>
-              <p className="text-xs text-gray-500">{conversionEquilibrio.totalConv} de {conversionEquilibrio.totalEq} alumnos</p>
-            </div>
+        {/* Accesos rápidos: no duplican el menú inferior */}
+        <section aria-labelledby="accesos-rapidos" className="shrink-0">
+          <h3 id="accesos-rapidos" className="px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">Acceso rápido</h3>
+          <div className="mt-1 grid grid-cols-4 gap-2 lg:gap-3">
+            {accesosRapidos.map(({ id, etiqueta, valor, ruta, icon: Icon, tono }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => navigate(ruta)}
+                aria-label={`${etiqueta}: ${valor}`}
+                className="flex min-h-[64px] min-w-0 flex-col items-start rounded-xl border border-gray-100 bg-white p-2 text-left shadow-sm transition-colors hover:bg-gray-50"
+              >
+                <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg border ${tono}`}>
+                  <Icon size={13} aria-hidden="true" />
+                </span>
+                <span className="mt-1 text-base font-black leading-none text-gray-900 tabular-nums">{valor}</span>
+                <span className="mt-0.5 block w-full truncate text-[9.5px] font-bold leading-tight text-gray-500">{etiqueta}</span>
+              </button>
+            ))}
           </div>
-        </div>
+        </section>
 
-        {/* GRÁFICO */}
-        <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="font-bold text-gray-900 text-xs mb-1 flex items-center gap-2"><TrendingUp size={14} className="text-indigo-600" />Ingresos últimos 7 días</h3>
-          <MiniGraficoBarras datos={datosGrafico} />
-        </div>
+        {/* Métricas del Negocio: tarjetas de color navegables a la pantalla de métricas */}
+        <button
+          type="button"
+          onClick={() => navigate(`${ADMIN}/metricas`)}
+          aria-label="Ver métricas del negocio"
+          className="w-full shrink-0 rounded-xl border border-gray-100 bg-white p-2.5 text-left shadow-sm transition-colors hover:bg-gray-50"
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-bold text-gray-900">
+              <TrendingUp size={13} className="shrink-0 text-indigo-600" aria-hidden="true" />
+              Métricas del Negocio
+            </span>
+            <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-bold text-indigo-600">
+              Ver más <ChevronRight size={12} aria-hidden="true" />
+            </span>
+          </span>
+          <span className="mt-1.5 grid grid-cols-2 gap-2">
+            <span className="min-w-0 rounded-lg border border-purple-100 bg-gradient-to-br from-purple-50 to-indigo-50 p-2">
+              <span className="block text-[9px] font-bold uppercase tracking-wider text-purple-600">Top Ventas</span>
+              <span className="block truncate text-xs font-black text-gray-900">{cursoMasVendido.nombre}</span>
+              <span className="block text-[10px] text-gray-500">{cursoMasVendido.count} ventas</span>
+            </span>
+            <span className="min-w-0 rounded-lg border border-teal-100 bg-gradient-to-br from-teal-50 to-emerald-50 p-2">
+              <span className="block text-[9px] font-bold uppercase tracking-wider text-teal-600">Conversión Eq → Otros</span>
+              <span className="block text-xs font-black text-gray-900">{conversionEquilibrio.pct}%</span>
+              <span className="block text-[10px] text-gray-500">{conversionEquilibrio.totalConv} de {conversionEquilibrio.totalEq} alumnos</span>
+            </span>
+          </span>
+        </button>
 
-        {/* ÚLTIMOS COMPLETADOS - NUEVA CONSULTA ESPECÍFICA */}
-        <div>
-          <h3 className="font-bold text-gray-900 text-xs mb-2">Últimos Cursos Completados</h3>
-          {ultimosCompletados.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-2">No hay cursos completados aún.</p>
+        {/* Actividad reciente: últimos 3 eventos admin ya registrados (solo lectura). */}
+        <section aria-labelledby="actividad-reciente" className="shrink-0">
+          <h3 id="actividad-reciente" className="px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">Actividad reciente</h3>
+          {actividadReciente.length === 0 ? (
+            <p className="mt-1 rounded-xl border border-gray-100 bg-white px-3 py-2 text-[11px] text-gray-500 shadow-sm">
+              Sin actividad reciente
+            </p>
           ) : (
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {ultimosCompletados.map(r => (
-                <CursoCompletadoMini key={r.id} reserva={r} instructorNombre={instrs.find(i => String(i.id) === String(r.instructorId))?.nombre || 'N/A'} />
-              ))}
-            </div>
+            <ul className="mt-1 grid gap-1.5 lg:grid-cols-3 lg:gap-3">
+              {actividadReciente.map((notif) => {
+                const mensaje = notif.mensaje || 'Evento del sistema';
+                const contenido = (
+                  <>
+                    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gray-100 text-gray-600">
+                      <Bell size={13} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 block text-[11px] font-semibold leading-snug text-gray-900">{mensaje}</span>
+                      <span className="mt-0.5 block text-[10px] text-gray-400">{formatearFechaActividad(notif.createdAt)}</span>
+                    </span>
+                    {notif.reservaId && (
+                      <ChevronRight size={14} className="mt-1 shrink-0 text-indigo-500" aria-hidden="true" />
+                    )}
+                  </>
+                );
+
+                return (
+                  <li key={notif.id} className="min-w-0">
+                    {notif.reservaId ? (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/admin/reserva/${notif.reservaId}`)}
+                        aria-label={`${mensaje}. Ir a la reserva`}
+                        className="flex min-h-11 w-full items-start gap-2 rounded-xl border border-gray-100 bg-white p-2.5 text-left shadow-sm transition-colors hover:bg-gray-50"
+                      >
+                        {contenido}
+                      </button>
+                    ) : (
+                      <div className="flex min-h-11 w-full items-start gap-2 rounded-xl border border-gray-100 bg-white p-2.5 shadow-sm">
+                        {contenido}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </div>
+        </section>
 
       </div>
     </AppShell>

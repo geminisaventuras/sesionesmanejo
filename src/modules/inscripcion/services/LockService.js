@@ -1,11 +1,30 @@
-import { doc, setDoc, query, collection, where, Timestamp, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, query, collection, where, orderBy, limit, Timestamp, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
 import { construirLockIds } from '../utils/solapamientoHelpers';
-import { clasificarConflictoLock } from '../utils/locksHelpers';
+import { clasificarConflictoLock, esMismoSlotLock } from '../utils/locksHelpers';
 
 const MAX_LIMPIEZA = 10;
 const LOCK_DURATION_MS = 10 * 60 * 1000;
 const CLOCK_SKEW_MARGIN_MS = 10 * 1000;
+
+/**
+ * Clasifica la ocupación temporal (legible para cualquier autenticado) para un
+ * conjunto de IDs de lock. Solo considera locks vigentes. Se usa cuando las
+ * reglas rechazan la escritura para distinguir un ocupante real de un error de
+ * sesión/reglas (B-LOCK-PERMISSION-DENIED-GENERICO).
+ */
+async function clasificarOcupacionTemporal(lockIds, userId) {
+  const lecturas = await Promise.allSettled(
+    (lockIds || []).map(id => getDoc(doc(db, 'ocupacionTemporal', id)))
+  );
+  for (const lectura of lecturas) {
+    if (lectura.status !== 'fulfilled' || !lectura.value.exists()) continue;
+    const lock = lectura.value.data();
+    const conflicto = clasificarConflictoLock(lock, userId);
+    if (conflicto) return { conflicto, lock };
+  }
+  return null;
+}
 
 export const LockService = {
   async crearLock(lockId, userId, metadata = {}) {
@@ -33,15 +52,27 @@ export const LockService = {
     // puede ver (propios/admin). Si el conflicto es suyo, mensaje específico;
     // si es ajeno, las reglas no dejan leerlo y el batch devolverá el genérico.
     const lecturas = await Promise.allSettled(lockIds.map(id => getDoc(doc(db, 'locks', id))));
+    let propioMismoSlot = false;
     for (const lectura of lecturas) {
       if (lectura.status !== 'fulfilled' || !lectura.value.exists()) continue;
-      const conflicto = clasificarConflictoLock(lectura.value.data(), userId);
+      const lockExistente = lectura.value.data();
+      const conflicto = clasificarConflictoLock(lockExistente, userId);
+      if (!conflicto) continue;
       if (conflicto === 'lock-own-active') {
+        // D13: mismo usuario + mismo slot = reintento/doble submit o lock
+        // vigente aún válido. Se renueva en vez de bloquearlo como ajeno.
+        if (esMismoSlotLock(lockExistente, metadata)) {
+          propioMismoSlot = true;
+          continue;
+        }
         return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
       }
-      if (conflicto === 'lock-owner-mismatch') {
-        return { success: false, error: { code: 'lock-owner-mismatch', message: 'Este horario acaba de ser separado por otro usuario.' } };
-      }
+      return { success: false, error: { code: 'lock-owner-mismatch', message: 'Este horario acaba de ser separado por otro usuario.' } };
+    }
+
+    if (propioMismoSlot) {
+      const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId);
+      if (reutilizado) return reutilizado;
     }
 
     // Batch atómico: si cualquiera de los IDs por recurso ya existe (mismo
@@ -55,6 +86,65 @@ export const LockService = {
     try {
       await batch.commit();
       return { success: true, data: { lockId, lockIds } };
+    } catch (error) {
+      if (error.code === 'permission-denied') {
+        // Las reglas solo permiten leer `locks` al dueño/admin: un lock ajeno
+        // vivo no se puede distinguir por `locks.getDoc`. `ocupacionTemporal`
+        // sí es legible por cualquier autenticado, así que se usa como fuente
+        // para no mostrar "ocupado por otro usuario" cuando ya se liberó
+        // (B-LOCK-PERMISSION-DENIED-GENERICO / ERR-010).
+        const clasificacion = await clasificarOcupacionTemporal(lockIds, userId);
+        if (clasificacion?.conflicto === 'lock-owner-mismatch') {
+          return { success: false, error: { code: 'lock-owner-mismatch', message: 'Este horario acaba de ser separado por otro usuario.' } };
+        }
+        if (clasificacion?.conflicto === 'lock-own-active') {
+          // D13: si el lock vigente es del mismo usuario y el mismo slot
+          // (p. ej. doble submit en paralelo), se renueva y se reporta éxito.
+          if (esMismoSlotLock(clasificacion.lock, metadata)) {
+            const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId);
+            if (reutilizado) return reutilizado;
+          }
+          return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
+        }
+        return {
+          success: false,
+          error: { code: 'lock-write-denied', message: 'No pudimos separar el horario. Revisa tu sesión o intenta de nuevo.' }
+        };
+      }
+      return { success: false, error: { code: error.code, message: error.message } };
+    }
+  },
+
+  /**
+   * D13: renueva el lock vigente del propio usuario. Devuelve null si ya no
+   * hay locks propios que renovar (el flujo puede intentar la creación normal).
+   */
+  async renovarLocksPropios(lockIds, userId, lockId) {
+    const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
+    const lecturas = await Promise.allSettled(
+      (lockIds || []).map(id => getDoc(doc(db, 'locks', id)))
+    );
+    const propios = [];
+    lecturas.forEach((lectura, index) => {
+      if (lectura.status !== 'fulfilled' || !lectura.value.exists()) return;
+      const lock = lectura.value.data();
+      if (String(lock.userId) === String(userId)) propios.push(lockIds[index]);
+    });
+    if (propios.length === 0) return null;
+    // El lock principal que la reserva leerá debe existir; si el lock vigente
+    // es solo un ID por recurso (dato legacy), no se puede reutilizar sin
+    // inventar un documento incompleto.
+    if (!propios.includes(lockId)) {
+      return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
+    }
+    try {
+      const batch = writeBatch(db);
+      for (const id of propios) {
+        batch.set(doc(db, 'locks', id), { expiresAt }, { merge: true });
+        batch.set(doc(db, 'ocupacionTemporal', id), { expiresAt }, { merge: true });
+      }
+      await batch.commit();
+      return { success: true, data: { lockId, lockIds: propios, renovado: true } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }
@@ -113,11 +203,18 @@ export const LockService = {
       }
 
       // Borrar solo documentos existentes evita evaluar reglas de delete
-      // sobre IDs legacy que nunca llegaron a crearse.
-      const snapshots = await Promise.all(
+      // sobre IDs legacy que nunca llegaron a crearse. allSettled: un ID por
+      // recurso ilegible (p. ej. de otro usuario) no debe impedir liberar el
+      // lock principal propio.
+      const snapshots = await Promise.allSettled(
         lockIds.map(id => getDoc(doc(db, 'locks', id)))
       );
-      const existentes = lockIds.filter((_, index) => snapshots[index].exists());
+      const existentes = lockIds.filter((_, index) =>
+        snapshots[index].status === 'fulfilled' && snapshots[index].value.exists()
+      );
+      if (existentes.length === 0) {
+        return { success: true, data: { lockIds: [] } };
+      }
       const batch = writeBatch(db);
       for (const id of existentes) {
         batch.delete(doc(db, 'ocupacionTemporal', id));
@@ -255,28 +352,34 @@ export const LockService = {
     }
   },
 
-  async limpiarLocksExpirados(fecha, userId) {
-    if (!userId)
-      return { success: false, error: { code: 'missing-fields', message: 'Falta el userId para limpiar locks' } };
+  /**
+   * D7: limpia los locks vencidos de cualquier usuario (máximo MAX_LIMPIEZA
+   * por pasada). No filtra por userId ni por fecha: un lock con
+   * `expiresAt <= now` ya no excluye a nadie y solo ensucia `locks` y
+   * `ocupacionTemporal`. Requiere sesión admin para poder consultar y borrar
+   * locks ajenos (ver firestore.rules).
+   */
+  async limpiarLocksExpirados() {
     try {
-      const locksRef = collection(db, 'locks');
       const q = query(
-        locksRef,
-        where('userId', '==', userId),
-        where('fecha', '==', fecha),
-        where('expiresAt', '<=', Timestamp.now())
+        collection(db, 'locks'),
+        where('expiresAt', '<=', Timestamp.now()),
+        orderBy('expiresAt'),
+        limit(MAX_LIMPIEZA)
       );
       const snapshot = await getDocs(q);
-      const expirados = snapshot.docs.slice(0, MAX_LIMPIEZA);
-      const batchPromises = [];
-      expirados.forEach(d => {
-        const batch = writeBatch(db);
+      if (snapshot.empty) {
+        return { success: true, data: { eliminados: 0, ids: [] } };
+      }
+
+      // Un solo batch: locks/* y su espejo ocupacionTemporal/* se purgan juntos.
+      const batch = writeBatch(db);
+      snapshot.docs.forEach(d => {
         batch.delete(doc(db, 'ocupacionTemporal', d.id));
         batch.delete(d.ref);
-        batchPromises.push(batch.commit().catch(() => {}));
       });
-      await Promise.all(batchPromises);
-      return { success: true, data: { eliminados: expirados.length } };
+      await batch.commit();
+      return { success: true, data: { eliminados: snapshot.docs.length, ids: snapshot.docs.map(d => d.id) } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }

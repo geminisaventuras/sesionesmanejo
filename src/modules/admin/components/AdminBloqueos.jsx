@@ -7,6 +7,7 @@ import { useToast } from '../../shared/components/ToastProvider';
 import { Button, Input } from '../../../components/UI';
 import { Trash2, Calendar, MapPin, Clock, Plus, AlertCircle } from 'lucide-react';
 import { ordenarHorarios } from '../../shared/utils/horarios';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 function formatearRangoFecha(fechaInicio, fechaFin) {
   if (!fechaInicio) return '-';
@@ -209,7 +210,7 @@ const AdminBloqueos = () => {
           >
             <option value="">Todas las sedes</option>
             {sedesDisponibles.map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
+              <option key={s.id} value={s.id}>{nombreSedeCanonico(s)}</option>
             ))}
           </select>
         </div>

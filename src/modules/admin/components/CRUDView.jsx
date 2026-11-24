@@ -4,7 +4,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import { ChevronLeft, Plus, Edit, Power, Key } from 'lucide-react';
 
-const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol, onResetPassword, renderItem }) => {  const { showToast } = useToast();
+const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, onBack, rol, onResetPassword, renderItem, renderTitulo }) => {  const { showToast } = useToast();
   const { user } = useContext(AppContext);
   const [itemEdit, setItemEdit] = useState(null);
   const isAdmin = user?.role === 'admin';
@@ -28,7 +28,7 @@ const CRUDView = memo(({ titulo, items, saveFn, formComponent: FormComponent, on
         {isAdmin && <button type="button" onClick={() => setItemEdit({})} className="bg-[#1d4ed8] text-white p-2 px-3 rounded-xl font-bold flex gap-1 text-sm shadow-md hover:bg-blue-700"><Plus size={16} /> Nuevo</button>}
       </div>
       {(items || []).map(item => {
-        const itemTitle = item.nombre || item.label || (item.marca || item.modelo ? `${item.marca || ''} ${item.modelo || ''}`.trim() : 'Elemento');
+        const itemTitle = renderTitulo ? renderTitulo(item) : (item.nombre || item.label || (item.marca || item.modelo ? `${item.marca || ''} ${item.modelo || ''}`.trim() : 'Elemento'));
                 return (
           <div key={item.id} className={`bg-white p-4 rounded-2xl shadow-sm border mb-3 flex items-center justify-between ${item.activo ? 'border-gray-100' : 'border-red-100 opacity-60'}`}>
             {renderItem ? renderItem(item) : (

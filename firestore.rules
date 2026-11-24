@@ -3,10 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isAuth() { return request.auth != null; }
+    // T-049/ERR-025: identidad admin por custom claim (UID), no por email.
+    // El claim lo asigna exclusivamente Auth Admin en DEV/PROD; no se compara email.
     function isAdmin() {
-      return isAuth() && 
-             request.auth.token.email == 'armandoaventurasve@gmail.com' && 
-             request.auth.token.email_verified == true;
+      // get() evita error de evaluación cuando el token no trae el claim.
+      return isAuth() && request.auth.token.get('admin', false) == true;
     }
     function canUpdateReserva() {
       return isAuth() && (
@@ -245,6 +246,78 @@ service cloud.firestore {
         cercaNumero(m.pagoTotalVES, m.precioTotalCongelado * tasa);
     }
 
+    // B-01 / ERR-029 / T-062: la maestra de pack nace SIEMPRE impaga, con
+    // vencimiento acotado por el `vencimientoDias` del pack (autoridad admin)
+    // y con `subReservas` coherente con el snapshot de cursos. Sin esto, un
+    // estudiante podía autoaprobar su pack y luego crear children Aprobadas.
+    function diasVencimientoPack(p) {
+      let d = p.get('vencimientoDias', 60);
+      return d is int && d > 0 && d <= 730 ? d : 60;
+    }
+
+    function vencimientoMasterValido(p, m) {
+      let v = m.get('vencimiento', null);
+      // +1 día de tolerancia por desfase de reloj del cliente al congelar.
+      return v is timestamp &&
+        v > request.time &&
+        v <= request.time + duration.value(diasVencimientoPack(p), 'd') + duration.value(1, 'd');
+    }
+
+    // `sedesPermitidas` del pack define la cobertura de sedes de la compra.
+    // Semántica (compatibilidad con packs legacy):
+    //   - lista vacía => sin restricción por sede (`sedePermitida` acepta todas).
+    //   - `null`/ausente => se trata como lista vacía (sin restricción).
+    //   - lista no vacía => solo esas sedes; cualquier otro tipo se rechaza.
+    // `packSedesTipoValido` solo rechaza un tipo corrupto (ni null ni list).
+    function packSedesTipoValido(p) {
+      let sedes = p.get('sedesPermitidas', null);
+      return sedes == null || sedes is list;
+    }
+
+    function sedesPackDe(p) {
+      let sedes = p.get('sedesPermitidas', null);
+      return sedes is list ? sedes : [];
+    }
+
+    // `sedesPermitidas` de la maestra no puede ampliar las sedes del pack y,
+    // si el pack restringe, el `sedeId` de la maestra debe estar dentro del
+    // pack. Además, con pack restringido el snapshot no puede quedar vacío:
+    // `sedePermitida()` (líneas 32-38) interpreta `[]` como "sin restricción",
+    // así que un snapshot vacío habilitaba agendar el child en cualquier sede
+    // (residual ERR-029). Legacy (pack `null`/`[]`): snapshot vacío y cualquier
+    // sede siguen permitidos.
+    function sedesMasterValidas(p, m) {
+      let sedesPack = sedesPackDe(p);
+      let sedesMaster = m.get('packSnapshot', {}).get('sedesPermitidas', null);
+      return packSedesTipoValido(p) && (
+        sedesPack.size() == 0 ||
+        (
+          sedesMaster is list &&
+          sedesMaster.size() > 0 &&
+          sedesMaster.toSet().difference(sedesPack.toSet()).size() == 0 &&
+          m.get('sedeId', null) in sedesPack
+        )
+      );
+    }
+
+    // Una subReserva por curso del snapshot; la primera apunta al child
+    // determinista `<packId>_sub_0` que se crea en la misma transacción.
+    function subReservasMasterCoherentes(packReservaId, m) {
+      let ids = m.get('packSnapshot', {}).get('cursoIds', []);
+      return ids is list &&
+        ids.size() > 0 &&
+        m.get('subReservas', []) is list &&
+        m.subReservas.size() == ids.size() &&
+        m.subReservas[0].cursoId == ids[0] &&
+        m.subReservas[0].reservaId == m.get('cursoReservaId', null) &&
+        m.subReservas[0].reservaId == packReservaId + '_sub_0';
+    }
+
+    // B-01: la child de pack solo puede nacer con su espejo de ocupación.
+    function espejoChildCreado(reservaId, childUserId) {
+      return getAfter(/databases/$(database)/documents/ocupacionConfirmada/$(reservaId)).data.userId == childUserId;
+    }
+
     function esLockCorrupto(lockData) {
       return !(
         'userId' in lockData &&
@@ -386,7 +459,8 @@ service cloud.firestore {
         );
         allow delete: if isAdmin();
       }
-      match /admins/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      // T-057: el doc admins solo lo lee un admin; no expone roster a estudiantes.
+      match /admins/{docId} { allow read: if isAdmin(); allow write: if isAdmin(); }
 
       match /reservas/{docId} {
         allow read: if isAuth() && (
@@ -441,12 +515,20 @@ service cloud.firestore {
                               maestraAfter(request.resource.data.packReservaId).subReservas.size() == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
                               maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() > 0 &&
                               request.resource.data.cursoId == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds[0] &&
+                              espejoChildCreado(docId, request.resource.data.userId) &&
                               sedePermitida(maestraAfter(request.resource.data.packReservaId), request.resource.data.sedeId)
                             ) ||
                             // PACK-CHILD-C: agendamiento o reparación admin
                             (
                               request.resource.data.estadoPago == 'Aprobado' &&
                               exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)) &&
+                              // B-01: child Aprobada solo la crea el dueño del pack
+                              // o un admin, y siempre con el child en Pendiente.
+                              (
+                                request.auth.uid == maestraPre(request.resource.data.packReservaId).userId ||
+                                isAdmin()
+                              ) &&
+                              (isAdmin() || request.resource.data.estadoCurso == 'Pendiente') &&
                               maestraPre(request.resource.data.packReservaId).userId == request.resource.data.userId &&
                               maestraPre(request.resource.data.packReservaId).estadoPago == 'Aprobado' &&
                               maestraPre(request.resource.data.packReservaId).estado == 'activo' &&
@@ -462,6 +544,7 @@ service cloud.firestore {
                               maestraPre(request.resource.data.packReservaId).subReservas.size() == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
                               slotLibre(maestraPre(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex]) &&
                               request.resource.data.cursoId == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds[request.resource.data.packCursoIndex] &&
+                              espejoChildCreado(docId, request.resource.data.userId) &&
                               maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
                               maestraAfter(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex].reservaId == docId &&
                               preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
@@ -579,7 +662,18 @@ service cloud.firestore {
         allow read: if isAuth(); allow write: if isAdmin();
       }
 
-      match /packs/{packId} { allow read: if true; allow write: if isAdmin(); }
+      // T-060 / ERR-027: corte del maestro `packs`. Ya no se expone a anónimos:
+      // el catálogo público lee la proyección `packsPublicos` (T-060). El
+      // frontend que aún use `packs` debe migrar a `packsPublicos` antes de
+      // desplegar estas reglas (ver riesgo DEV en el reporte del corte).
+      match /packs/{packId} { allow read: if isAuth(); allow write: if isAdmin(); }
+
+      // T-060 / ERR-027: proyección pública de packs (sin comisiones, déficits ni
+      // datos internos). Lectura anónima para el catálogo público; escritura solo admin.
+      match /packsPublicos/{packId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
 
       match /reservasPack/{packReservaId} {
         allow read: if isAuth() && (
@@ -594,14 +688,21 @@ service cloud.firestore {
           request.resource.data.userId == request.auth.uid &&
           request.resource.data.estado == 'activo' &&
           request.resource.data.cursoActual == 0 &&
+          // B-01 / ERR-029: el pack nace impago; solo el admin lo aprueba.
+          request.resource.data.estadoPago == 'Pendiente' &&
           request.resource.data.subReservas is list &&
           request.resource.data.subReservas.size() > 0 &&
           request.resource.data.precioTotalCongelado > 0 &&
           request.resource.data.packId is string &&
           request.resource.data.pagoTotalVES is number &&
           request.resource.data.pagoTotalVES > 0 &&
+          // B-01: total cobrado == total congelado del snapshot admin.
+          cercaNumero(request.resource.data.pagoTotalMoneda, request.resource.data.precioTotalCongelado) &&
           preciosMasterValidos(packPre(request.resource.data.packId), request.resource.data) &&
-          fxMasterValido(configApp(), request.resource.data);
+          fxMasterValido(configApp(), request.resource.data) &&
+          vencimientoMasterValido(packPre(request.resource.data.packId), request.resource.data) &&
+          subReservasMasterCoherentes(packReservaId, request.resource.data) &&
+          sedesMasterValidas(packPre(request.resource.data.packId), request.resource.data);
         allow update: if isAuth() && (
           isAdmin() ||
           (
@@ -830,7 +931,7 @@ service cloud.firestore {
     }
 
     match /audit_logs/{logId} {
-      allow create: if isAuth() && request.auth.token.email == 'armandoaventurasve@gmail.com';
+      allow create: if isAdmin();
       allow read, update, delete: if false;
     }
 

@@ -1,16 +1,19 @@
 // @build: 2026-09-28.20-45-00 | id: REPOSICION-D2 | backup: CambiarHorarioModal.jsx.backup-20260928-202258 | desc: Modal con modo "Cambiar todo" y modo "Reponer D2" (post-inicio)
 import { useState, useMemo, useCallback } from 'react';
 import { Calendar, Clock, AlertTriangle, X, Repeat } from 'lucide-react';
-import { obtenerLocksActivos, verificarDisponibilidadInstructor, verificarDisponibilidadMoto } from '../utils/reservaHorarioHelpers';
+import { obtenerLocksActivos } from '../utils/reservaHorarioHelpers';
+import { detectarConflictosReprogramacion, mensajeConflictoReprogramacion } from '../utils/reprogramacionConflictos';
 import { isPastBlock, getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { useBloqueosAdmin } from '../../../hooks/useBloqueosAdmin';
 import { useBloqueosProveedor } from '../../../hooks/useBloqueosProveedor';
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
+import { etiquetaMoto } from '../../shared/utils/motosHelpers';
 export default function CambiarHorarioModal({
   reserva,
   ctx,
   onConfirmar,
-  onCancelar
+  onCancelar,
+  onConflicto
 }) {
   const { horarios, ocupacionConfirmada, cursos, instructores, motos } = ctx;
 
@@ -41,6 +44,7 @@ export default function CambiarHorarioModal({
   const [categoriaMotivo, setCategoriaMotivo] = useState('personal');
   const [notasAdmin, setNotasAdmin] = useState('');
   const [advertencias, setAdvertencias] = useState([]);
+  const [conflictos, setConflictos] = useState([]);
   const [validando, setValidando] = useState(false);
 
   // ── Fecha2 automática para modo cambio_total ────────────────
@@ -174,46 +178,29 @@ export default function CambiarHorarioModal({
       }
     }
 
-    const fechaOriginal = modo === 'reponer_d2' ? reserva.fecha : nuevaFecha;
-    const fecha2Final = modo === 'reponer_d2' ? nuevaFecha2 : nuevaFecha2Calculada;
-    const motoValidar = modo === 'reponer_d2'
-      ? (motoEfectiva || reserva.motoAsignadaId)
-      : reserva.motoAsignadaId;
+    // D9: los conflictos de tutor/moto BLOQUEAN el guardado (no son advertencia).
+    // En reponer_d2 solo se evalúa el bloque/fecha de reposición; en cambio
+    // total se evalúan D1 y D2. Se excluye la propia reserva y las canceladas.
+    const fechasValidar = modo === 'reponer_d2'
+      ? [nuevaFecha2].filter(Boolean)
+      : [nuevaFecha, nuevaFecha2Calculada].filter(Boolean);
+    const motoValidar = reserva.traeMoto === 'Sí'
+      ? null
+      : (modo === 'reponer_d2'
+        ? (motoEfectiva || reserva.motoAsignadaId)
+        : reserva.motoAsignadaId);
 
-    const instructorDisponible = verificarDisponibilidadInstructor(
-      reserva.instructorId,
-      fechaOriginal,
-      fecha2Final,
-      horaValidar,
+    const resultadoConflictos = detectarConflictosReprogramacion({
+      reserva,
       ocupacionConfirmada,
-      reserva.id
-    );
+      fechas: fechasValidar,
+      horaId: horaValidar,
+      instructorId: reserva.instructorId,
+      motoId: motoValidar,
+      excluirReservaId: reserva.id
+    });
 
-    if (!instructorDisponible) {
-      advertenciasTemp.push({
-        tipo: 'instructor',
-        mensaje: 'El instructor asignado puede tener conflictos en el nuevo horario.'
-      });
-    }
-
-    if (motoValidar) {
-      const motoDisponible = verificarDisponibilidadMoto(
-        motoValidar,
-        fechaOriginal,
-        fecha2Final,
-        horaValidar,
-        ocupacionConfirmada,
-        reserva.id
-      );
-
-      if (!motoDisponible) {
-        advertenciasTemp.push({
-          tipo: 'moto',
-          mensaje: 'La moto puede tener conflictos en el nuevo horario.'
-        });
-      }
-    }
-
+    setConflictos(resultadoConflictos.conflictos);
     setAdvertencias(advertenciasTemp);
     setValidando(false);
   }, [nuevaFecha, nuevaFecha2, nuevaFecha2Calculada, modo, horaIdReposicion, nuevoHoraId, motoReposicionId, reserva, ocupacionConfirmada, horarios, bloqueosAdmin, bloqueosProvF1, bloqueosProvF2, fechaEfectiva1, fechaEfectiva2, motos]);
@@ -242,9 +229,11 @@ export default function CambiarHorarioModal({
       return;
     }
 
-    const motoFinal = modo === 'reponer_d2'
-      ? (motoReposicionId || reserva.motoAsignadaId)
-      : reserva.motoAsignadaId;
+    const motoFinal = reserva.traeMoto === 'Sí'
+      ? null
+      : (modo === 'reponer_d2'
+        ? (motoReposicionId || reserva.motoAsignadaId)
+        : reserva.motoAsignadaId);
     if (motoFinal && labelFinal) {
       const bloqueadoProv = (bloqueosProvF1 || []).some(b =>
         afectaProveedor(b, motoFinal, fechaEfectiva1, labelFinal, obtenerProveedorMoto(motoFinal)));
@@ -255,6 +244,38 @@ export default function CambiarHorarioModal({
         return;
       }
     }
+
+    // D9: revalidación en el click. Si aparece un conflicto entre la validación
+    // y la confirmación (race con otra reserva), se bloquea y se audita como
+    // intento bloqueado. No existe override silencioso.
+    const fechasFinal = modo === 'reponer_d2'
+      ? [nuevaFecha2].filter(Boolean)
+      : [nuevaFecha, nuevaFecha2Calculada].filter(Boolean);
+    const conflictoFinal = detectarConflictosReprogramacion({
+      reserva,
+      ocupacionConfirmada,
+      fechas: fechasFinal,
+      horaId: horaFinal,
+      instructorId: reserva.instructorId,
+      motoId: motoFinal,
+      excluirReservaId: reserva.id
+    });
+    if (conflictoFinal.bloqueado) {
+      setConflictos(conflictoFinal.conflictos);
+      onConflicto?.({
+        modo,
+        motivo,
+        categoriaMotivo,
+        notasAdmin,
+        conflictos: conflictoFinal.conflictos,
+        antes: { fecha: reserva.fecha, fecha2: reserva.fecha2, horaId: reserva.horaId },
+        despues: modo === 'reponer_d2'
+          ? { fecha: reserva.fecha, fecha2: nuevaFecha2, horaId: reserva.horaId, horaIdReposicion }
+          : { fecha: nuevaFecha, fecha2: nuevaFecha2Calculada, horaId: nuevoHoraId }
+      });
+      return;
+    }
+    setConflictos([]);
 
     if (modo === 'reponer_d2') {
       onConfirmar({
@@ -279,11 +300,12 @@ export default function CambiarHorarioModal({
     }
   };
 
-  const puedeConfirmar = !reservaCancelada && (modo === 'reponer_d2'
+  const puedeConfirmar = !reservaCancelada && conflictos.length === 0 && (modo === 'reponer_d2'
     ? (!!nuevaFecha2 && !!horaIdReposicion && !!motivo && !validando)
     : (!!nuevaFecha && !!nuevoHoraId && !!motivo && !validando));
 
   const motosDisponibles = (motos || []).filter(m => m.activo !== false);
+  const motoOriginal = (motos || []).find(m => String(m.id) === String(reserva.motoAsignadaId));
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -314,7 +336,7 @@ export default function CambiarHorarioModal({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => { setModo('reponer_d2'); setAdvertencias([]); }}
+                  onClick={() => { setModo('reponer_d2'); setAdvertencias([]); setConflictos([]); }}
                   className={`py-2 px-3 rounded-lg text-xs font-bold transition-colors ${
                     modo === 'reponer_d2'
                       ? 'bg-blue-600 text-white'
@@ -325,7 +347,7 @@ export default function CambiarHorarioModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setModo('cambio_total'); setAdvertencias([]); }}
+                  onClick={() => { setModo('cambio_total'); setAdvertencias([]); setConflictos([]); }}
                   className={`py-2 px-3 rounded-lg text-xs font-bold transition-colors ${
                     modo === 'cambio_total'
                       ? 'bg-blue-600 text-white'
@@ -378,6 +400,7 @@ export default function CambiarHorarioModal({
                     setNuevaFecha2(e.target.value);
                     setHoraIdReposicion('');
                     setAdvertencias([]);
+                    setConflictos([]);
                   }}
                   min={hoy}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500"
@@ -423,16 +446,17 @@ export default function CambiarHorarioModal({
                     onChange={(e) => {
                       setMotoReposicionId(e.target.value);
                       setAdvertencias([]);
+                      setConflictos([]);
                       validarSeleccion({ motoId: e.target.value });
                     }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500"
                   >
-                    <option value="">Misma moto original ({reserva.motoAsignadaId.slice(0,8)})</option>
+                    <option value="">Misma moto original ({motoOriginal ? etiquetaMoto(motoOriginal) : `#${String(reserva.motoAsignadaId).slice(-6)}`})</option>
                     {motosDisponibles
                       .filter(m => String(m.id) !== String(reserva.motoAsignadaId))
                       .map(m => (
                         <option key={m.id} value={m.id}>
-                          {m.nombre || m.marca || m.id.slice(0,8)} ({m.tipo || 'moto'})
+                          {etiquetaMoto(m)}
                         </option>
                       ))}
                   </select>
@@ -456,6 +480,7 @@ export default function CambiarHorarioModal({
                     setNuevaFecha(e.target.value);
                     setNuevoHoraId('');
                     setAdvertencias([]);
+                    setConflictos([]);
                   }}
                   min={hoy}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500"
@@ -531,6 +556,22 @@ export default function CambiarHorarioModal({
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500"
             />
           </div>
+
+          {/* ── Conflictos bloqueantes (D9) ───────────────────── */}
+          {conflictos.length > 0 && (
+            <div
+              data-testid="conflictos-reprogramacion"
+              className="bg-red-50 border-2 border-red-300 p-3 rounded-xl"
+            >
+              <h4 className="font-bold text-red-900 text-xs mb-1 flex items-center gap-1">
+                <AlertTriangle size={14} />
+                No se puede reprogramar: tutor o moto ocupados
+              </h4>
+              <p className="text-[11px] text-red-800">
+                {mensajeConflictoReprogramacion(conflictos)}
+              </p>
+            </div>
+          )}
 
           {/* ── Advertencias ─────────────────────────────────── */}
           {advertencias.length > 0 && (

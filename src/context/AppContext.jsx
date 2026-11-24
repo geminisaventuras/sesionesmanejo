@@ -14,8 +14,9 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   const auth = useAuthProvider(showToast);
-  const cfg = useConfigProvider(auth.authReady,auth.fbUser);
+  // T-049: `role === 'admin'` viene del custom claim validado en AuthProvider.
   const isAdmin = auth.user?.role === 'admin';
+  const cfg = useConfigProvider(auth.authReady, auth.fbUser, isAdmin);
   const firestore = useFirestoreProvider(auth.fbUser, auth.authReady, isAdmin, showToast, auth.user);
 
   useNotificationsProvider(

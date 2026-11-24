@@ -76,6 +76,26 @@ export function comisionProveedorReserva(reserva, config = {}) {
   return numero(config?.pagoProveedor);
 }
 
+/**
+ * ERR-013: guardia de pagos a staff. Solo una reserva con el pago del
+ * estudiante `Aprobado` es pagable. `PagosStaffService.crearPago` la revalida
+ * dentro de la transacción para que un cambio de estado concurrente
+ * (cancelación, rechazo o reverso) no genere un cobro inválido. Pura: no lee
+ * ni escribe Firestore.
+ */
+export function estadoPagoReservaPagable(reserva) {
+  if (!reserva) return { pagable: false, motivo: 'reserva-no-existe' };
+  if (reserva.estadoPago === 'Aprobado') return { pagable: true, motivo: null };
+  if (reserva.estadoPago === 'Cancelado') {
+    return { pagable: false, motivo: 'reserva-cancelada' };
+  }
+  return {
+    pagable: false,
+    motivo: 'reserva-no-aprobada',
+    estadoPago: reserva.estadoPago ?? null
+  };
+}
+
 export function esPendienteInstructor(reserva, staffId, { permitirColaboracion = false } = {}) {
   if (!reserva || reserva.estadoPago !== 'Aprobado') return false;
 
@@ -239,6 +259,42 @@ export function calcularRelevoTutor(reserva, {
   };
 
   if (!inicioCurso) {
+    // Volver al original antes de iniciar no es un relevo nuevo: conserva el
+    // pago existente (total o parcial) y solo genera deuda por lo pagado a otros.
+    const originalId = previoMap?.d1?.instructorId || reserva.instructorOriginalId || origenId;
+    if (idIgual(instructorDestinoId, originalId)) {
+      const totalPagado = previoMap
+        ? redondear2(Object.values(previoMap).reduce((acc, asignacion) => {
+          const pagado = asignacion?.pagado === true || numero(asignacion?.montoPagado) > 0;
+          return acc + (pagado ? numero(asignacion?.montoPagado, asignacion?.monto) : 0);
+        }, 0))
+        : (legacyPagado ? total : 0);
+      const pagoId = reserva.pagoInstructorId ||
+        previoMap?.d1?.pagoId ||
+        previoMap?.d2?.pagoId ||
+        previoMap?.unico?.pagoId ||
+        null;
+      const nombre = previoMap?.d1?.nombre ||
+        previoMap?.d2?.nombre ||
+        previoMap?.unico?.nombre ||
+        instructorDestinoNombre ||
+        '';
+      previas.forEach((asignacion) => {
+        if (idIgual(asignacion.instructorId, instructorDestinoId)) return;
+        agregarDeuda(asignacion.instructorId, cobradoDe(asignacion), 'relevo_tutor_no_servido');
+      });
+      const pagado = totalPagado >= redondear2(total) - 0.004;
+      pagosInstructorDia.unico = {
+        instructorId: originalId,
+        nombre,
+        monto: total,
+        montoPagado: totalPagado,
+        pagado,
+        pagoId
+      };
+      return { pagosInstructorDia, deudas, pagadoInstructor: pagado };
+    }
+
     // El nuevo tutor cobra el 100%; todo lo ya pagado a otros es deuda.
     previas.forEach((asignacion) => {
       if (idIgual(asignacion.instructorId, instructorDestinoId)) return;
@@ -256,6 +312,47 @@ export function calcularRelevoTutor(reserva, {
   } else {
     const { d1, d2 } = repartirComision(total);
     const originalId = previoMap?.d1?.instructorId || reserva.instructorOriginalId || origenId;
+
+    // Si se vuelve al tutor original, no es un relevo nuevo: el pago existente
+    // cubre D1+D2 y no debe quedar un D2 pendiente ni una deuda por “sobrepago”.
+    if (idIgual(instructorDestinoId, originalId)) {
+      const totalPagado = previoMap
+        ? redondear2(Object.values(previoMap).reduce((acc, asignacion) => {
+          const pagado = asignacion?.pagado === true || numero(asignacion?.montoPagado) > 0;
+          return acc + (pagado ? numero(asignacion?.montoPagado, asignacion?.monto) : 0);
+        }, 0))
+        : (legacyPagado ? total : 0);
+
+      if (totalPagado >= redondear2(total) - 0.004) {
+        const pagoIdOriginal = reserva.pagoInstructorId ||
+          previoMap?.d1?.pagoId ||
+          previoMap?.d2?.pagoId ||
+          previoMap?.unico?.pagoId ||
+          null;
+        const nombreOriginal = previoMap?.d1?.nombre ||
+          previoMap?.d2?.nombre ||
+          previoMap?.unico?.nombre ||
+          instructorDestinoNombre ||
+          '';
+
+        // Regla operativa: si no hay un cambio real de D2, el pago es uno solo
+        // completo (no se vuelve a partir en 7.5 + 7.5).
+        pagosInstructorDia.unico = {
+          instructorId: originalId,
+          nombre: nombreOriginal,
+          monto: total,
+          montoPagado: total,
+          pagado: true,
+          pagoId: pagoIdOriginal
+        };
+
+        return {
+          pagosInstructorDia,
+          deudas,
+          pagadoInstructor: true
+        };
+      }
+    }
 
     let cobradoD1 = 0;
     let pagoIdD1 = null;
@@ -453,6 +550,89 @@ export function esPendienteProveedor(reserva, staffId, config = {}) {
  * original y también a un proveedor D2 anterior que ya cobró y deja de servir.
  * Devuelve un array; puede haber más de un deudor por reserva.
  */
+/**
+ * Relevo de proveedor con la misma regla del tutor:
+ * - No iniciado: 100% al proveedor destino; lo cobrado por el anterior es deuda.
+ * - Iniciado: D1 original / D2 nuevo (o la lógica de Reponer D2).
+ * - Volver al original: conserva el pago completo y no genera deuda.
+ * Se apoya en calcularRelevoTutor para no duplicar reglas.
+ */
+export function calcularRelevoProveedor(reserva, {
+  proveedorDestinoId,
+  proveedorDestinoNombre = '',
+  inicioCurso = false,
+  config = {}
+} = {}) {
+  if (!reserva || !proveedorDestinoId) return null;
+
+  const mapa = reserva.pagosProveedorDia || null;
+  const pagosInstructorDia = mapa
+    ? Object.fromEntries(Object.entries(mapa).map(([dia, entrada]) => [
+      dia,
+      {
+        instructorId: entrada?.proveedorId ?? null,
+        nombre: entrada?.nombre || '',
+        monto: entrada?.monto,
+        montoPagado: entrada?.montoPagado,
+        pagado: entrada?.pagado,
+        pagoId: entrada?.pagoId || null
+      }
+    ]))
+    : null;
+
+  const sintetica = {
+    ...reserva,
+    instructorId: reserva.proveedorId,
+    instructorOriginalId: reserva.proveedorOriginalId,
+    instructorAnteriorId: reserva.proveedorAnteriorId,
+    pagadoInstructor: reserva.pagadoProveedor === true,
+    pagoInstructorId: reserva.pagoProveedorId || null,
+    comisionInstructor: comisionProveedorReserva(reserva, config),
+    pagosInstructorDia,
+    esReservaCompartida: false,
+    instructoresInvolucrados: []
+  };
+
+  const out = calcularRelevoTutor(sintetica, {
+    instructorDestinoId: proveedorDestinoId,
+    instructorDestinoNombre: proveedorDestinoNombre,
+    inicioCurso
+  });
+  if (!out) return null;
+
+  const pagosProveedorDia = {};
+  for (const [dia, entrada] of Object.entries(out.pagosInstructorDia || {})) {
+    pagosProveedorDia[dia] = {
+      proveedorId: entrada.instructorId ?? null,
+      nombre: entrada.nombre || '',
+      monto: entrada.monto,
+      montoPagado: entrada.montoPagado,
+      pagado: entrada.pagado === true,
+      pagoId: entrada.pagoId || null
+    };
+  }
+  const pagoProveedorId = Object.values(pagosProveedorDia)
+    .map((entrada) => entrada.pagoId)
+    .find(Boolean) || null;
+
+  const deudas = (out.deudas || []).map((deuda) => ({
+    proveedorId: deuda.instructorId,
+    monto: deuda.monto,
+    motivo: deuda.motivo === 'relevo_tutor_no_servido'
+      ? 'relevo_proveedor_no_servido'
+      : deuda.motivo === 'relevo_tutor_sobrepago'
+        ? 'relevo_proveedor_sobrepago'
+        : deuda.motivo
+  }));
+
+  return {
+    pagosProveedorDia,
+    pagadoProveedor: out.pagadoInstructor === true,
+    pagoProveedorId,
+    deudas
+  };
+}
+
 export function calcularDeudasReprogramacionD2(reserva, config = {}) {
   if (!reserva) return [];
 

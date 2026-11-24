@@ -1,7 +1,9 @@
-// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-MODAL-CURSO | desc: Terminología legal - sesión, tutor, vehículo de práctica.
+// @build: 2026-11-22 | id: FT-034-MODAL-CURSO-A11Y | desc: Foco inicial, trap, Escape y restauración del modal de curso.
+import { useRef } from 'react';
 import { X, Clock, Users, Shirt, Droplet, HardHat, Bike, CheckCircle2, AlertCircle } from 'lucide-react';
 import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 import { calcularDias, formatearDias } from '../../shared/utils/duraciones';
+import useModalAccesible from '../hooks/useModalAccesible';
 const formatearDuracion = (minutos) => {
   if (!minutos && minutos !== 0) return 'N/A';
   const horas = Math.floor(minutos / 60);
@@ -13,6 +15,13 @@ const formatearDuracion = (minutos) => {
 
 
 export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, onInscribirme }) {
+  const cerrarRef = useRef(null);
+  const dialogRef = useModalAccesible({
+    open: Boolean(curso),
+    onClose,
+    initialFocusRef: cerrarRef
+  });
+
   if (!curso) return null;
 
    const tieneMotoIncluida = curso.motoIncluida !== false;
@@ -23,11 +32,13 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        tabIndex={-1}
         className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -36,8 +47,10 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
             {curso.nombre}
           </h2>
           <button
+            ref={cerrarRef}
+            type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             aria-label="Cerrar"
           >
             <X size={24} />
@@ -194,14 +207,17 @@ export default function ModalCursoDetalle({ curso, prerequisitoLabel, onClose, o
               </div>
             ) : (
               <button
+                type="button"
+                disabled={curso.id == null}
                 onClick={() => onInscribirme(curso.id)}
-                className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Inscribirme ahora
               </button>
             );
           })()}
           <button
+            type="button"
             onClick={onClose}
             className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >

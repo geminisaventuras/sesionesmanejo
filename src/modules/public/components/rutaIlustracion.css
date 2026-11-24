@@ -1,0 +1,159 @@
+/* Motion de las ilustraciones de la Ruta de sesiones.
+   Capas CSS/SVG sobre los WebP; sin dependencias ni peticiones externas. */
+
+.ruta-arte {
+  margin: 0;
+  width: 100%;
+  max-width: 26rem;
+}
+
+.ruta-arte__lienzo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1600 / 893;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.ruta-arte__marco {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+
+.ruta-arte--visto .ruta-arte__marco {
+  will-change: transform;
+}
+
+.ruta-arte__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ruta-arte__capa {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---------- frames base ---------- */
+.ruta-arte__anillo { opacity: 0.5; }
+.ruta-arte__punto { opacity: 0.45; }
+.ruta-arte__checkpoint { opacity: 1; }
+.ruta-arte__racha,
+.ruta-arte__racha-lateral { opacity: 0.7; }
+
+/* ---------- etapa 1: flotación, punto de gravedad y anillo ---------- */
+.ruta-arte--visto.ruta-arte--equilibrio .ruta-arte__marco {
+  animation: ruta-arte-flotar 4.4s ease-in-out 0.5s infinite;
+}
+
+.ruta-arte--equilibrio .ruta-arte__anillo {
+  animation: ruta-arte-respirar 3.6s ease-in-out 0.55s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ruta-arte--equilibrio .ruta-arte__punto {
+  animation: ruta-arte-latir 1.8s ease-in-out 0.6s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* ---------- etapa 2: push-in frontal y rachas ---------- */
+.ruta-arte--visto.ruta-arte--basicas .ruta-arte__marco {
+  animation: ruta-arte-acercar 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+}
+
+.ruta-arte--basicas .ruta-arte__racha {
+  animation: ruta-arte-racha 1.6s ease-out 0.5s infinite;
+  transform-box: fill-box;
+}
+
+.ruta-arte--basicas .ruta-arte__racha:nth-of-type(2) { animation-delay: 0.72s; }
+.ruta-arte--basicas .ruta-arte__racha:nth-of-type(3) { animation-delay: 0.94s; }
+
+/* ---------- etapa 3: push-in, checkpoints y rachas laterales ---------- */
+.ruta-arte--visto.ruta-arte--practica .ruta-arte__marco {
+  animation: ruta-arte-acercar 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+}
+
+.ruta-arte--visto.ruta-arte--practica .ruta-arte__checkpoint {
+  animation: ruta-arte-encender 0.5s ease-out 0.95s both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ruta-arte--visto.ruta-arte--practica .ruta-arte__checkpoint:nth-of-type(2) { animation-delay: 1.15s; }
+.ruta-arte--visto.ruta-arte--practica .ruta-arte__checkpoint:nth-of-type(3) { animation-delay: 1.35s; }
+
+.ruta-arte--practica .ruta-arte__racha-lateral {
+  animation: ruta-arte-lateral 2.6s ease-in-out 0.6s infinite;
+  transform-box: fill-box;
+}
+
+.ruta-arte--practica .ruta-arte__racha-lateral:nth-of-type(2) { animation-delay: 0.9s; }
+.ruta-arte--practica .ruta-arte__racha-lateral:nth-of-type(3) { animation-delay: 1.2s; }
+
+/* ---------- keyframes ---------- */
+@keyframes ruta-arte-flotar {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(2px); }
+}
+
+@keyframes ruta-arte-latir {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.35); }
+}
+
+@keyframes ruta-arte-respirar {
+  0%, 100% { transform: scale(1); opacity: 0.45; }
+  50% { transform: scale(1.07); opacity: 0.85; }
+}
+
+@keyframes ruta-arte-racha {
+  0% { opacity: 0; transform: translateX(10px); }
+  35% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateX(-18px); }
+}
+
+@keyframes ruta-arte-acercar {
+  from { transform: scale(1); }
+  to { transform: scale(1.03); }
+}
+
+@keyframes ruta-arte-encender {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ruta-arte-lateral {
+  0% { opacity: 0; transform: translateX(12px); }
+  40% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateX(-14px); }
+}
+
+/* Va al final: `animation` es un shorthand y resetea `animation-play-state`.
+   Con la misma especificidad que los loops, el orden decide la pausa. */
+.ruta-arte .ruta-arte__bucle { animation-play-state: paused; }
+.ruta-arte--visto .ruta-arte__bucle { animation-play-state: running; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ruta-arte *,
+  .ruta-arte *::before,
+  .ruta-arte *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .ruta-arte__marco { transform: none !important; }
+  .ruta-arte__checkpoint { opacity: 1 !important; transform: none !important; }
+}

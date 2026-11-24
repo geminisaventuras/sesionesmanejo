@@ -2,6 +2,7 @@
 import React, { useContext } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Package, GraduationCap } from 'lucide-react';
 import { AppContext } from '../../../context/AppContextValue';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 
 export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
   const ctx = useContext(AppContext);
@@ -114,7 +115,7 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
         >
           <option value="">Selecciona sede</option>
           {sedesPermitidas.map(s => (
-            <option key={s.id} value={s.id}>{s.nombre}</option>
+            <option key={s.id} value={s.id}>{nombreSedeCanonico(s)}</option>
           ))}
         </select>
         {sedesPermitidas.length === 0 && (

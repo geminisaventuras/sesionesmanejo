@@ -1,6 +1,6 @@
 // @build: 2026-11-12 | id: WHATSAPP-SERVICE-V1 | desc: Plantillas de mensajes centralizadas + Maps + Helpers
 // Aplica reglas: dominio prod, dirección exacta, código corto, recordatorio 15 min.
-import { formatearSede } from '../utils/sedesHelpers';
+import { formatearSede } from '../utils/sedesHelpers.js';
 const BASE_URL = 'https://motoapp.website';
 
 export const getBaseUrl = () => BASE_URL;
@@ -13,34 +13,58 @@ export const formatearTelefonoVE = (telStr) => {
   return tel.length >= 11 ? tel : null;
 };
 
-// Coordenadas exactas de las sedes (para abrir el pin en Maps sin fallos)
-const COORDENADAS_SEDES = {
-  'ucv': '10.489872304195245, -66.88481411546675',        // Caracas (UCV)
-  'caracas': '10.489872304195245, -66.88481411546675',
-  'villa': '10.470516554614811, -66.59752921091554',      // Guarenas (Villa)
-  'guarenas': '10.470516554614811, -66.59752921091554',
-  'montalban': '10.466822378537012, -66.9727309588204',   // Montalbán
+// Coordenadas exactas de las sedes (para abrir el pin en Maps sin fallos).
+// El ID manda: los nombres pueden repetirse ("Caracas") o cambiar en DEV.
+const COORDENADAS_POR_ID = {
+  'sede1': '10.470516554614811, -66.59752921091554',        // Guarenas (Villa)
+  'sede2': '10.489872304195245, -66.88481411546675',        // Caracas (UCV)
+  '1793924508290': '10.466822378537012, -66.9727309588204', // Caracas Montalbán
 };
+
+// Los nombres específicos van antes del genérico "caracas" para no devolver UCV en Montalbán.
+const COORDENADAS_POR_NOMBRE_ESPECIFICO = [
+  { clave: 'montalban', coords: '10.466822378537012, -66.9727309588204' },
+  { clave: 'ciudad universitaria', coords: '10.489872304195245, -66.88481411546675' },
+  { clave: 'ucv', coords: '10.489872304195245, -66.88481411546675' },
+  { clave: 'villa', coords: '10.470516554614811, -66.59752921091554' },
+  { clave: 'guarenas', coords: '10.470516554614811, -66.59752921091554' },
+];
+
+const COORDENADAS_POR_NOMBRE_GENERICO = [
+  { clave: 'caracas', coords: '10.489872304195245, -66.88481411546675' },
+];
+
+const normalizarClaveSede = (valor) =>
+  String(valor == null ? '' : valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 
 export const linkMapaSede = (sede) => {
   if (!sede) return '';
-  
-  // Intentar buscar por nombre o ID de sede en las coordenadas exactas
-  const nombreSede = (sede.nombre || '').toLowerCase();
-  const idSede = (sede.id || '').toLowerCase();
-  
-  let coords = null;
-  for (const [key, value] of Object.entries(COORDENADAS_SEDES)) {
-    if (nombreSede.includes(key) || idSede.includes(key)) {
-      coords = value;
-      break;
+
+  // 1) Pin por ID (sede1, sede2, 1793924508290).
+  const idSede = normalizarClaveSede(sede.id);
+  let coords = idSede ? COORDENADAS_POR_ID[idSede] : null;
+
+  // 2) Pin por nombre: específicos primero y genéricos al final.
+  if (!coords) {
+    const nombreSede = normalizarClaveSede(sede.nombre);
+    for (const { clave, coords: pin } of COORDENADAS_POR_NOMBRE_ESPECIFICO) {
+      if (nombreSede.includes(clave)) { coords = pin; break; }
+    }
+    if (!coords) {
+      for (const { clave, coords: pin } of COORDENADAS_POR_NOMBRE_GENERICO) {
+        if (nombreSede.includes(clave)) { coords = pin; break; }
+      }
     }
   }
-  
+
   // Si encontramos coordenadas exactas, usamos el pin. Si no, caemos en la búsqueda por texto.
   const query = coords ? coords : `${sede.nombre || ''}, ${sede.direccion || ''}`.trim();
   if (!query) return '';
-  
+
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 };
 export const codigoReservaCorto = (id) => {

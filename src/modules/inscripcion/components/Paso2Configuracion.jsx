@@ -4,6 +4,7 @@ import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
+import { formatearSede } from '../../shared/utils/sedesHelpers';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
   const tipoCurso = curso.tipoCurso;
@@ -368,7 +369,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         >
           <option value="">Selecciona sede</option>
           {sedesPermitidas.map(s => (
-            <option key={s.id} value={s.id}>{s.nombre}{s.direccion ? ` - ${s.direccion}` : ''}</option>
+            <option key={s.id} value={s.id}>{formatearSede(s)}</option>
           ))}
         </select>
         {cursoSeleccionado?.sedesPermitidas?.length > 0 && sedesPermitidas.length === 0 && (

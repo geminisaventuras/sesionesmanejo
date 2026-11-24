@@ -1,25 +1,33 @@
-// @build: 2026-09-30 | id: LEGAL-TERMINOLOGIA-CURSOS | desc: Terminología legal - sesiones, tutores. Se agrega LegalFooter.
-import { useState, useEffect } from 'react';
+// @build: 2026-11-22 | id: FT-034-CURSOS-PUBLICOS | desc: Ruta pública "La Vía" mobile-first con estados de error y vacío neutro.
+import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, doc, onSnapshot, getDoc, query, where } from 'firebase/firestore';import { db } from '../../../firebase';
+import { collection, doc, onSnapshot, getDoc, query, where } from 'firebase/firestore';
+import { db } from '../../../firebase';
 import { CURSO_SECUENCIA } from '../../../constants/cursoSecuencia';
-import { AlertCircle, Clock, MapPin, Phone, CheckCircle, GraduationCap, ChevronLeft } from 'lucide-react';
+import { AlertCircle, ChevronDown, Clock, Mail, MapPin, Phone } from 'lucide-react';
 import ModalCursoDetalle from '../components/ModalCursoDetalle';
-import TextoEnriquecido from '../../shared/components/TextoEnriquecido';
 import LegalFooter from '../../shared/components/LegalFooter';
-import { calcularDias, formatearDias } from '../../shared/utils/duraciones';
+import RutaAprendizaje from '../components/RutaAprendizaje';
+import RutaProgreso from '../components/RutaProgreso';
+import { ETAPAS_RUTA } from '../utils/rutaAprendizaje';
+import { PACKS_SOURCE } from '../utils/packsSource';
+import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
+import { AppContext } from '../../../context/AppContextValue';
+
 const APP_ID = 'motoescuela-pro-v1';
 
-
-const formatearDuracion = (minutos) => {
-  if (!minutos && minutos !== 0) return 'N/A';
-  const horas = Math.floor(minutos / 60);
-  const mins = minutos % 60;
-  if (horas === 0) return `${mins} min`;
-  if (mins === 0) return `${horas} ${horas === 1 ? 'hora' : 'horas'}`;
-  return `${horas}h ${mins} min`;
+const capitalizar = (texto) => {
+  const valor = String(texto || '').trim();
+  return valor ? valor.charAt(0).toUpperCase() + valor.slice(1) : '';
 };
+
+const nombreSedePublica = (sede) => {
+  const canonico = nombreSedeCanonico(sede);
+  if (canonico !== '—') return canonico;
+  return capitalizar(sede?.id) || 'Sede';
+};
+
 const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
   // A2.2: preferir curso.prerequisitos (editable), fallback al hardcode
   const prereqs = Array.isArray(curso?.prerequisitos)
@@ -31,7 +39,7 @@ const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
   const labels = {
     basico_auto: 'Sesión Básica Automática',
     basico_sincro: 'Sesión Básica Sincrónica',
-    general: 'Práctica en la Vía'
+    general: 'Refuerzo Práctico'
   };
 
   // Preferir nombre real del curso si está en la lista; fallback al label hardcodeado
@@ -41,72 +49,123 @@ const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
   }).join(' o ');
 };
 
-function AvisoMoto({ curso }) {
-  const motoIncluida = curso?.motoIncluida;
-  const tiposMoto = curso?.tiposMotoEscuela || [];
-  const precioAlquiler = curso?.precioAlquilerMoto || 0;
-
-  if (motoIncluida === false) {
-    return (
-      <div className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm">
-        <AlertCircle className="w-4 h-4" />
-        <span>Debes traer tu propia moto</span>
+function CargandoRuta() {
+  return (
+    <main id="ruta-contenido" tabIndex={-1} className="mx-auto w-full max-w-3xl px-4 pb-12 ruta-offset-top sm:px-6">
+      <h1 className="sr-only">Cargando ruta de aprendizaje</h1>
+      <div className="ruta-skeleton h-8 w-40" />
+      <div className="ruta-skeleton mt-3 h-12 w-11/12" />
+      <div className="ruta-skeleton mt-3 h-5 w-full" />
+      <div className="ruta-skeleton mt-2 h-5 w-4/5" />
+      <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+        <div className="ruta-skeleton h-12 w-full" />
+        <div className="ruta-skeleton h-12 w-full" />
       </div>
-    );
-  }
-
-  if (motoIncluida === true) {
-    const tiposLabel = tiposMoto.length > 0 ? ` (${tiposMoto.join(' o ')})` : '';
-    return (
-      <div className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-        <CheckCircle className="w-4 h-4" />
-        <span>Incluye vehículo de práctica{tiposLabel}</span>
-        {precioAlquiler > 0 && <span className="ml-1 font-bold">+${precioAlquiler}</span>}
+      <div className="mt-8 space-y-4">
+        <div className="ruta-skeleton h-64 w-full" />
+        <div className="ruta-skeleton h-64 w-full" />
+        <div className="ruta-skeleton h-64 w-full" />
       </div>
-    );
-  }
+    </main>
+  );
+}
 
-  return null;
+function ErrorRuta({ mensaje, onReintentar }) {
+  return (
+    <main id="ruta-contenido" tabIndex={-1} className="mx-auto w-full max-w-3xl px-4 pb-12 ruta-offset-top sm:px-6">
+      <div role="alert" className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <AlertCircle size={22} aria-hidden="true" className="mt-0.5 shrink-0 text-red-600" />
+          <div>
+            <h1 className="text-2xl font-black text-slate-900">No pudimos cargar tu ruta</h1>
+            <p className="mt-1 break-words text-sm text-slate-600">{mensaje}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onReintentar}
+          className="mt-4 inline-flex min-h-[48px] items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition-transform duration-150 hover:bg-blue-700 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          Reintentar
+        </button>
+      </div>
+    </main>
+  );
 }
 
 export default function CursosPublicosView() {
   const navigate = useNavigate();
+  const ctx = useContext(AppContext);
   const [cursos, setCursos] = useState([]);
+  const [packs, setPacks] = useState([]);
   const [contacto, setContacto] = useState(null);
   const [sedes, setSedes] = useState(null);
-    const [cursoDetalle, setCursoDetalle] = useState(null);
+  const [cursoDetalle, setCursoDetalle] = useState(null);
   const [avisoBasico, setAvisoBasico] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [errorCursos, setErrorCursos] = useState(null);
+  const [errorPacks, setErrorPacks] = useState(null);
+  const [reintento, setReintento] = useState(0);
 
   useEffect(() => {
     const cursosRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'cursos');
-const q = query(cursosRef, where('activo', '==', true));
-const unsub = onSnapshot(q, (snap) => {
-          const activos = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => {
-          const ordenA = CURSO_SECUENCIA[a.tipoCurso]?.orden || 99;
-          const ordenB = CURSO_SECUENCIA[b.tipoCurso]?.orden || 99;
-          return ordenA - ordenB;
-        });
-      setCursos(activos);
-      setLoading(false);
-    });
+    const q = query(cursosRef, where('activo', '==', true));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const activos = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ordenA = CURSO_SECUENCIA[a.tipoCurso]?.orden || 99;
+            const ordenB = CURSO_SECUENCIA[b.tipoCurso]?.orden || 99;
+            return ordenA - ordenB;
+          });
+        setCursos(activos);
+        setErrorCursos(null);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[CursosPublicosView] Error cargando cursos:', error);
+        setErrorCursos('Revisa tu conexión e inténtalo de nuevo. No se muestran datos parciales.');
+        setLoading(false);
+      }
+    );
 
     return () => unsub();
-  }, []);
+  }, [reintento]);
 
   useEffect(() => {
+    // T-060: fuente configurable (default `packs`; staging puede usar `packsPublicos`).
+    const packsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', PACKS_SOURCE);
+    const q = query(packsRef, where('activo', '==', true));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setPacks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setErrorPacks(null);
+      },
+      (error) => {
+        console.error('[CursosPublicosView] Error cargando packs:', error);
+        setErrorPacks('No pudimos cargar los packs en este momento.');
+      }
+    );
+
+    return () => unsub();
+  }, [reintento]);
+
+  useEffect(() => {
+    let activo = true;
     async function cargarContacto() {
       try {
         const contactoSnap = await getDoc(doc(db, 'informacionPublica', 'contacto'));
-        if (contactoSnap.exists()) setContacto(contactoSnap.data());
+        if (activo && contactoSnap.exists()) setContacto(contactoSnap.data());
       } catch (error) {
         console.warn('[CursosPublicosView] Error leyendo contacto:', error);
       }
     }
 
     cargarContacto();
+    return () => { activo = false; };
   }, []);
 
   useEffect(() => {
@@ -117,19 +176,29 @@ const unsub = onSnapshot(q, (snap) => {
           setSedes(docSnap.data());
         } else {
           console.warn('[CursosPublicosView] Documento sedes no encontrado');
-          setSedes(null);
+          setSedes({});
         }
       },
       (error) => {
         console.error('[CursosPublicosView] Error leyendo sedes:', error);
-        setSedes(null);
+        setSedes({});
       }
     );
 
     return () => unsubscribe();
   }, []);
 
-    const handleInscribirme = (cursoId) => {
+  useEffect(() => {
+    if (!avisoBasico) return undefined;
+    const cerrarConEsc = (evento) => {
+      if (evento.key === 'Escape') setAvisoBasico(null);
+    };
+    window.addEventListener('keydown', cerrarConEsc);
+    return () => window.removeEventListener('keydown', cerrarConEsc);
+  }, [avisoBasico]);
+
+  const handleInscribirme = (cursoId) => {
+    if (cursoId == null) return;
     const curso = (cursos || []).find(c => String(c.id) === String(cursoId));
     const esBasico = curso?.tipoCurso === 'basico_auto' || curso?.tipoCurso === 'basico_sincro';
     const tienePrereq = Array.isArray(curso?.prerequisitos) && curso.prerequisitos.length > 0;
@@ -184,205 +253,204 @@ const unsub = onSnapshot(q, (snap) => {
     }
   };
 
-  if (loading) {
+  const reintentar = () => {
+    setErrorCursos(null);
+    setErrorPacks(null);
+    setLoading(true);
+    setReintento(n => n + 1);
+  };
+
+  const prerequisitoDe = (curso) => getPrerequisitoLabel(curso?.tipoCurso, curso, cursos);
+  const estaBloqueado = (curso) => {
+    const tienePrereq = Array.isArray(curso?.prerequisitos) && curso.prerequisitos.length > 0;
+    const esBasico = curso?.tipoCurso === 'basico_auto' || curso?.tipoCurso === 'basico_sincro';
+    return tienePrereq && !esBasico;
+  };
+
+  const skipLink = (
+    <a
+      href="#ruta-contenido"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-sm focus:font-bold focus:text-blue-700 focus:shadow-lg"
+    >
+      Saltar a la ruta
+    </a>
+  );
+
+  if (errorCursos) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando sesiones...</p>
-        </div>
+      <div className="min-h-screen bg-slate-50">
+        {skipLink}
+        <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} mostrarEtapas={false} />
+        <ErrorRuta mensaje={errorCursos} onReintentar={reintentar} />
+        <LegalFooter />
       </div>
     );
   }
 
+  if (loading) {
     return (
-    <div className="min-h-screen bg-gray-50">
-          <button
-        onClick={() => navigate('/')}
-        className="fixed top-4 left-4 z-40 bg-black/30 backdrop-blur rounded-full p-2 text-white hover:bg-black/40 transition-colors"
-        aria-label="Volver"
-      >
-        <ChevronLeft size={24} />
-      </button>
-
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-16">
-        <div className="max-w-6xl mx-auto px-4 text-center">
-          <GraduationCap className="w-16 h-16 mx-auto mb-4" />
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Nuestras Sesiones de Manejo</h1>
-          <p className="text-xl text-blue-100 max-w-3xl mx-auto">
-            Acompañamiento privado con tutores de amplia experiencia. Elige la sesión que mejor se adapte a tu nivel y objetivos.
-          </p>
-        </div>
+      <div className="min-h-screen bg-slate-50">
+        {skipLink}
+        <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} mostrarEtapas={false} />
+        <CargandoRuta />
+        <LegalFooter />
       </div>
+    );
+  }
 
-      <div className="max-w-6xl mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {cursos.map(curso => (
-            <div key={curso.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow">
-              <div className="bg-blue-50 p-4 border-b">
-                <h2 className="text-xl font-bold text-gray-900 mb-2">{curso.nombre}</h2>
-                              <AvisoMoto curso={curso} />
-              </div>
+  // Sedes públicas: no asumir claves "caracas"/"guarenas". Se itera el objeto,
+  // se usa el nombre canónico cuando existe y se agrupan horarios idénticos.
+  const sedesLista = Object.entries(sedes || {})
+    .map(([clave, valor]) => {
+      if (!valor || typeof valor !== 'object') return null;
+      return { ...valor, id: valor.id == null ? clave : valor.id };
+    })
+    .filter(Boolean);
 
-              <div className="p-4 space-y-4">
-                <TextoEnriquecido texto={curso.descripcion} className="text-gray-700 text-sm" />
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Clock className="w-4 h-4" />
-                    <span><strong>Duración:</strong> {formatearDuracion(curso.duracionTotal)} · {formatearDias(calcularDias(curso.duracionTotal))}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <span className="text-2xl font-bold text-blue-600">${curso.precioBase || 0}</span>
-                    <span className="text-gray-500">USD</span>
-                  </div>
-                </div>
+  const gruposHorario = [];
+  const indiceHorario = new Map();
+  for (const sede of sedesLista) {
+    const horario = String(sede.horario || '').trim();
+    if (!horario) continue;
+    if (!indiceHorario.has(horario)) {
+      const grupo = { horario, sedes: [] };
+      indiceHorario.set(horario, grupo);
+      gruposHorario.push(grupo);
+    }
+    indiceHorario.get(horario).sedes.push(sede);
+  }
 
-                {curso.modulos && curso.modulos.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold text-sm text-gray-900 mb-2">Contenido de la sesión:</h3>
-                    <ul className="space-y-1">
-                      {curso.modulos.slice(0, 4).map((modulo, i) => (
-                        <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
-                          <span className="text-blue-600 mt-0.5">•</span>
-                          <span>{typeof modulo === 'string' ? modulo : modulo.nombre}</span>
-                        </li>
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {skipLink}
+
+      <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} />
+
+      <main id="ruta-contenido" tabIndex={-1} className="ruta-offset-top">
+        <RutaAprendizaje
+          cursos={cursos}
+          packs={packs}
+          anonimo={!ctx.fbUser}
+          cursosTeoricos={ctx.fbUser ? (ctx.cursosTeoricos || []) : []}
+          prerequisitoDe={prerequisitoDe}
+          estaBloqueado={estaBloqueado}
+          onInscribirme={handleInscribirme}
+          onVerDetalle={setCursoDetalle}
+          onVerPack={() => navigate('/packs')}
+          packsError={errorPacks}
+          onReintentarPacks={reintentar}
+        />
+      </main>
+
+      <section aria-labelledby="sedes-titulo" className="mx-auto w-full max-w-3xl px-4 pb-8 pt-2 sm:px-6">
+        <h2 id="sedes-titulo" className="text-2xl font-black text-slate-900">Sedes y horarios</h2>
+        <details className="mt-3 rounded-2xl border border-slate-200 bg-white">
+          <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <span className="inline-flex items-center gap-2">
+              <MapPin size={17} aria-hidden="true" className="text-blue-600" />
+              Ver ubicaciones y horarios
+            </span>
+            <ChevronDown size={18} aria-hidden="true" className="shrink-0 text-slate-500" />
+          </summary>
+          <div className="border-t border-slate-100 px-4 py-4">
+            {sedes ? (
+              sedesLista.length > 0 ? (
+                <div className="space-y-4">
+                  {gruposHorario.length > 0 && (
+                    <div className="space-y-2 text-sm text-slate-600">
+                      {gruposHorario.map((grupo) => (
+                        grupo.sedes.length > 1 ? (
+                          <p key={grupo.horario} className="flex items-start gap-2 font-bold">
+                            <Clock size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500" />
+                            <span>{grupo.horario}</span>
+                          </p>
+                        ) : (
+                          <p key={grupo.horario} className="flex items-start gap-2">
+                            <Clock size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500" />
+                            <span>
+                              <strong>{nombreSedePublica(grupo.sedes[0])}:</strong> {grupo.horario}
+                            </span>
+                          </p>
+                        )
                       ))}
-                      {curso.modulos.length > 4 && (
-                        <li className="text-xs text-gray-500 italic">+ {curso.modulos.length - 4} módulos más</li>
-                      )}
-                    </ul>
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                                {getPrerequisitoLabel(curso.tipoCurso, curso, cursos) && (
-                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded">
-                    <p className="text-xs text-yellow-800 flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                      <span>
-                                                <strong>Requisito:</strong> {getPrerequisitoLabel(curso.tipoCurso, curso, cursos)}.
-                      </span>
-                    </p>
+                  <div className="space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-700">
+                    {sedesLista.map((sede) => (
+                      <p key={sede.id} className="flex items-start gap-2">
+                        <MapPin size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-600" />
+                        <span className="break-words">
+                          <strong>{nombreSedePublica(sede)}:</strong>{' '}
+                          {sede.direccion}
+                          {sede.puntoReferencia && ` (${sede.puntoReferencia})`}
+                        </span>
+                      </p>
+                    ))}
                   </div>
-                )}
-
-                                <div className="flex flex-col gap-2 pt-2">
-                  <button
-                    onClick={() => setCursoDetalle(curso)}
-                    className="w-full border-2 border-blue-600 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm"
-                  >
-                    Leer más
-                  </button>
-                                    {(() => {
-                    const tienePrereq = Array.isArray(curso.prerequisitos) && curso.prerequisitos.length > 0;
-                    const esBasico = curso.tipoCurso === 'basico_auto' || curso.tipoCurso === 'basico_sincro';
-                    const bloqueado = tienePrereq && !esBasico;
-                    return bloqueado ? (
-                      <div className="w-full bg-gray-100 text-gray-500 px-4 py-3 rounded-lg text-center font-medium text-sm">
-                        Requiere sesión previa
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleInscribirme(curso.id)}
-                        className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                      >
-                        Inscribirme
-                      </button>
-                    );
-                  })()}
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-           <div className="bg-white py-12">
-        <div className="max-w-6xl mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center mb-8">Ubicación</h2>
-
-          {sedes ? (
-            <div className="space-y-4 max-w-3xl mx-auto">
-              {sedes.caracas && sedes.guarenas && sedes.caracas.horario === sedes.guarenas.horario ? (
-                <p className="text-center text-gray-600 font-bold">
-                  🕐 {sedes.caracas.horario}
-                </p>
               ) : (
-                <div className="space-y-2 text-sm text-gray-600">
-                  {sedes.caracas && (
-                    <p className="text-center">
-                      <strong>Caracas:</strong> {sedes.caracas.horario}
-                    </p>
-                  )}
-                  {sedes.guarenas && (
-                    <p className="text-center">
-                      <strong>Guarenas:</strong> {sedes.guarenas.horario}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-3 text-sm text-gray-700 border-t pt-4">
-                {sedes.caracas && (
-                  <p>
-                    <strong>📍 {sedes.caracas.nombre}:</strong>{' '}
-                    {sedes.caracas.direccion}
-                    {sedes.caracas.puntoReferencia && ` (${sedes.caracas.puntoReferencia})`}
-                  </p>
-                )}
-                {sedes.guarenas && (
-                  <p>
-                    <strong>📍 {sedes.guarenas.nombre}:</strong>{' '}
-                    {sedes.guarenas.direccion}
-                    {sedes.guarenas.puntoReferencia && ` (${sedes.guarenas.puntoReferencia})`}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-gray-500">Cargando información de sedes...</p>
-          )}
-        </div>
-      </div>
+                <p className="text-sm text-slate-500">Información de sedes no disponible.</p>
+              )
+            ) : (
+              <p className="text-sm text-slate-500">Cargando información de sedes...</p>
+            )}
+          </div>
+        </details>
+      </section>
 
       {contacto && (
-        <div className="bg-gray-100 py-12">
-          <div className="max-w-4xl mx-auto px-4 text-center">
-            <h2 className="text-3xl font-bold mb-6">¿Tienes dudas? Contáctanos</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <section aria-labelledby="contacto-titulo" className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6">
+          <h2 id="contacto-titulo" className="text-2xl font-black text-slate-900">¿Tienes dudas?</h2>
+          <details className="mt-3 rounded-2xl border border-slate-200 bg-white">
+            <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <span className="inline-flex items-center gap-2">
+                <Phone size={17} aria-hidden="true" className="text-blue-600" />
+                Ver teléfono, WhatsApp y correo
+              </span>
+              <ChevronDown size={18} aria-hidden="true" className="shrink-0 text-slate-500" />
+            </summary>
+            <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-4 sm:grid-cols-3">
               <a
                 href={`tel:${contacto.telefono}`}
-                className="bg-white p-6 rounded-lg shadow block hover:shadow-lg transition-all cursor-pointer"
+                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
-                <Phone className="w-8 h-8 text-blue-600 mx-auto mb-3" />
-                <h3 className="font-bold mb-2">Teléfono</h3>
-                <p className="text-gray-700">{contacto.telefono}</p>
+                <Phone size={18} aria-hidden="true" className="shrink-0 text-blue-600" />
+                <span className="break-words">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Teléfono</span>
+                  {contacto.telefono}
+                </span>
               </a>
 
               <a
                 href={`https://wa.me/${String(contacto.whatsapp).replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-white p-6 rounded-lg shadow block hover:shadow-lg transition-all cursor-pointer"
+                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
-                <Phone className="w-8 h-8 text-green-600 mx-auto mb-3" />
-                <h3 className="font-bold mb-2">WhatsApp</h3>
-                <p className="text-gray-700">{contacto.whatsapp}</p>
+                <Phone size={18} aria-hidden="true" className="shrink-0 text-emerald-600" />
+                <span className="break-words">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">WhatsApp</span>
+                  {contacto.whatsapp}
+                </span>
               </a>
 
               <a
                 href={`mailto:${contacto.email}`}
-                className="bg-white p-6 rounded-lg shadow block hover:shadow-lg transition-all cursor-pointer"
+                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
-                <Clock className="w-8 h-8 text-orange-600 mx-auto mb-3" />
-                <h3 className="font-bold mb-2">Correo</h3>
-                <p className="text-gray-700">{contacto.email}</p>
+                <Mail size={18} aria-hidden="true" className="shrink-0 text-orange-600" />
+                <span className="break-words">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Correo</span>
+                  {contacto.email}
+                </span>
               </a>
             </div>
-          </div>
-        </div>
+          </details>
+        </section>
       )}
 
-           {cursoDetalle && (
+      {cursoDetalle && (
         <ModalCursoDetalle
           curso={cursoDetalle}
           prerequisitoLabel={getPrerequisitoLabel(cursoDetalle.tipoCurso, cursoDetalle, cursos)}
@@ -397,39 +465,47 @@ const unsub = onSnapshot(q, (snap) => {
       {/* A2.2-bis: Aviso para básicos con prereq de Equilibrio */}
       {avisoBasico && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={() => setAvisoBasico(null)}
         >
           <div
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="aviso-basico-titulo"
+            aria-describedby="aviso-basico-descripcion"
+            className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-orange-500" aria-hidden="true" />
               <div>
-                <h2 className="text-lg font-bold text-gray-900 mb-2">Aviso importante</h2>
-                <p className="text-sm text-gray-700 mb-3">
+                <h2 id="aviso-basico-titulo" className="mb-2 text-lg font-bold text-slate-900">
+                  Aviso importante
+                </h2>
+                <p id="aviso-basico-descripcion" className="mb-3 text-sm text-slate-700">
                   Esta sesión (<strong>{avisoBasico.nombre}</strong>) recomienda haber completado la sesión de <strong>Equilibrio</strong> primero.
                 </p>
-                <p className="text-sm text-gray-700 mb-2">
+                <p className="mb-2 text-sm text-slate-700">
                   Si ya sabes andar en bicicleta o has manejado moto y tienes equilibrio, puedes continuar.
                 </p>
-                <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-2">
-                  ⚠️ Si te estás saltando la sesión de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance de la sesión será muy lento.
+                <p className="rounded-lg border border-orange-200 bg-orange-50 p-2 text-xs text-orange-700">
+                  Si te estás saltando la sesión de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance de la sesión será muy lento.
                 </p>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => confirmarAvisoBasico(true)}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                className="min-h-[48px] w-full rounded-lg bg-blue-600 py-3 font-medium text-white transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 Hacer Equilibrio primero
               </button>
               <button
+                type="button"
                 onClick={() => confirmarAvisoBasico(false)}
-                className="w-full border-2 border-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                className="min-h-[48px] w-full rounded-lg border-2 border-slate-200 py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 Ya sé andar, continuar
               </button>
@@ -442,3 +518,4 @@ const unsub = onSnapshot(q, (snap) => {
     </div>
   );
 }
+

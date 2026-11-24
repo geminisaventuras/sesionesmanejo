@@ -42,7 +42,7 @@ const InstructorPanel = () => {
           const horario = (horarios || []).find(h => String(h.id) === String(r.horaId));
           const moto = (motos || []).find(m => String(m.id) === String(r.motoAsignadaId));
           const sede = (sedes || []).find(s => String(s.id) === String(r.sedeId));
-          const diaSemana = r.fecha1 ? DIAS_SEMANA[new Date(r.fecha1 + 'T12:00:00').getDay()] : '';
+          const diaSemana = r.fecha1 ? DIAS_SEMANA[new Date(r.fecha1 + 'T12:00:00Z').getUTCDay()] : '';
           return (
             <div key={r.id} className="bg-white p-5 rounded-2xl shadow-sm border border-blue-200">
               <div className="flex justify-between items-start mb-3"><div><h3 className="font-black text-lg text-gray-900">{r.nombre} {r.apellido}</h3><p className="text-xs text-gray-500">{r.telefono} | {r.zona}</p></div><span className={`text-[10px] font-black px-2 py-1 rounded ${r.estadoPago === 'Pendiente' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-700'}`}>{r.estadoPago === 'Pendiente' ? 'Pago Pendiente' : 'Confirmada'}</span></div>
@@ -62,7 +62,7 @@ const InstructorPanel = () => {
             {completadas.map(r => {
               const horario = (horarios || []).find(h => String(h.id) === String(r.horaId));
               const moto = (motos || []).find(m => String(m.id) === String(r.motoAsignadaId));
-              const diaSemana = r.fecha1 ? DIAS_SEMANA[new Date(r.fecha1 + 'T12:00:00').getDay()] : '';
+              const diaSemana = r.fecha1 ? DIAS_SEMANA[new Date(r.fecha1 + 'T12:00:00Z').getUTCDay()] : '';
               return (
                 <div key={r.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
                   <div><p className="font-bold text-sm text-gray-900">{r.nombre} {r.apellido}</p><p className="text-xs text-gray-500">{r.fecha1} ({diaSemana}) · {horario?.label} · {moto?.marca} {moto?.modelo}</p></div>
