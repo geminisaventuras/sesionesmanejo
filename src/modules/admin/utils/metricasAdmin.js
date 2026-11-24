@@ -1,8 +1,7 @@
-// @build: 2026-11-23 | id: T-065 | desc: Cálculos de las tarjetas de Métricas del Negocio y del gráfico de ingresos.
-//
-// Réplica exacta de los cálculos que ya mostraba AdminResumen (mismos filtros y
-// redondeos) para compartirlos entre el Home y la pantalla /admin/metricas sin
-// alterar ningún KPI.
+// @build: 2026-11-23 | id: T-065 / ERR-033 | desc: Cálculos de las tarjetas de Métricas del Negocio y del gráfico de ingresos (USD, fecha de compra VET).
+
+import { esHijaDePack, fechaCompraMs, montoIngresoUSD, referenciaFechaVET } from './resumenAdmin.js';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria.js';
 
 export const tipoDeReserva = (reserva, cursos = []) => {
   if (reserva?.tipoCurso) return reserva.tipoCurso;
@@ -60,30 +59,45 @@ export function calcularMetricasNegocio(reservas = [], cursos = []) {
   };
 }
 
-const fechaDePago = (reserva) => reserva.createdAt?.toDate?.() || (reserva.fecha ? new Date(reserva.fecha) : null);
+export const restarDiasVET = (fecha, dias) => {
+  const [anio, mes, dia] = fecha.split('-').map(Number);
+  return new Date(Date.UTC(anio, mes - 1, dia - dias, 12)).toISOString().slice(0, 10);
+};
 
-export function calcularIngresosUltimosDias(reservas = [], { ahora = new Date(), dias = 7 } = {}) {
-  const lista = reservas || [];
+const etiquetaDiaVET = (fecha) => {
+  const [anio, mes, dia] = fecha.split('-').map(Number);
+  return new Date(Date.UTC(anio, mes - 1, dia, 12))
+    .toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+};
+
+/**
+ * Ingresos de los últimos días por FECHA DE COMPRA en USD, con la misma definición
+ * del Home (T-065/ERR-033): reservas individuales aprobadas sin hijas de pack +
+ * maestras de `reservasPack`. `reserva.fecha` (fecha del curso) no es fecha de pago.
+ */
+export function calcularIngresosUltimosDias(
+  reservas = [],
+  { ahora = new Date(), dias = 7, packs = [] } = {}
+) {
   const totalDias = Math.max(1, Number(dias) || 7);
-  const puntos = [];
+  const hoyVET = obtenerFechaVenezuela(referenciaFechaVET(ahora));
 
-  for (let i = totalDias - 1; i >= 0; i--) {
-    const dia = new Date(ahora);
-    dia.setDate(dia.getDate() - i);
-    const fechaStr = dia.toISOString().split('T')[0];
-    const total = lista
-      .filter((reserva) => {
-        if (reserva.estadoPago !== 'Aprobado') return false;
-        const fecha = fechaDePago(reserva);
-        return fecha && fecha.toISOString().split('T')[0] === fechaStr;
-      })
-      .reduce((acc, reserva) => acc + (Number(reserva.pagoTotalMoneda) || 0), 0);
-
-    puntos.push({
-      label: dia.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
-      valor: total,
-    });
+  const porDia = new Map();
+  for (const doc of [...(reservas || []).filter((r) => !esHijaDePack(r)), ...(packs || [])]) {
+    if (doc?.estadoPago !== 'Aprobado' || doc?.estadoCurso === 'Cancelado') continue;
+    const ms = fechaCompraMs(doc);
+    if (ms === null) continue;
+    const dia = obtenerFechaVenezuela(new Date(ms));
+    porDia.set(dia, (porDia.get(dia) || 0) + montoIngresoUSD(doc));
   }
 
+  const puntos = [];
+  for (let i = totalDias - 1; i >= 0; i--) {
+    const fecha = restarDiasVET(hoyVET, i);
+    puntos.push({
+      label: etiquetaDiaVET(fecha),
+      valor: porDia.get(fecha) || 0,
+    });
+  }
   return puntos;
 }

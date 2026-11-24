@@ -9,6 +9,7 @@ import LegalFooter from '../../shared/components/LegalFooter';
 import TarjetaPackRuta from '../components/TarjetaPackRuta';
 import { construirRutaAprendizaje } from '../utils/rutaAprendizaje';
 import { packRequierePreciosTeoricos, resolverPrecioPackPublico } from '../utils/precioPackPublico';
+import { recargosSedeDePack } from '../../inscripcion/utils/packPublico';
 import { PACKS_SOURCE } from '../utils/packsSource';
 import useRevealRuta from '../hooks/useRevealRuta';
 import useModalAccesible from '../hooks/useModalAccesible';
@@ -185,7 +186,15 @@ export default function PacksPublicosView() {
     return { base, final, cursosPack, ahorro: base - final };
   };
 
-  const ruta = useMemo(() => construirRutaAprendizaje(cursos, packs), [cursos, packs]);
+  const packsConRecargos = useMemo(
+    () => (Array.isArray(packs) ? packs : []).map((pack) =>
+      Array.isArray(pack?.recargosSede)
+        ? pack
+        : { ...pack, recargosSede: recargosSedeDePack(pack, ctx.sedes || []) }
+    ),
+    [packs, ctx.sedes]
+  );
+  const ruta = useMemo(() => construirRutaAprendizaje(cursos, packsConRecargos), [cursos, packsConRecargos]);
 
   const reintentar = () => {
     setErrorPacks(null);

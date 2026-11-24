@@ -10,6 +10,18 @@ export function parseHora(str) {
   return hours * 60 + mins;
 }
 
+// T-100 / ERR-052: proyección determinista del inicio del bloque para las
+// reglas. VET es UTC-4 fijo (ADR-006); el offset se guarda junto al inicio
+// para que `firestore.rules` no lo hardcodee. Si cambia la zona, se vuelve a
+// ejecutar el backfill (ADR-016).
+export const TZ_OFFSET_VET_MIN = -240;
+
+/** Minutos desde medianoche VET a partir del label "HH:MM AM - HH:MM AM". */
+export function inicioMinDesdeLabel(label) {
+  const inicio = String(label || '').split('-')[0]?.trim() ?? '';
+  return parseHora(inicio);
+}
+
 export function ordenarHorarios(horarios) {
   return [...horarios].sort((a, b) => {
     const horaA = parseHora(a.horaInicio) ?? parseHora(a.label?.split('-')[0]?.trim()) ?? 0;

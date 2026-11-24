@@ -81,7 +81,7 @@ export function calcularPrecioIndividual({
     throw new Error('El curso no tiene un precio base válido.');
   }
 
-  const recargoSedeCents = esGuarenas ? toCents(config?.recargoGuarenas) : 0;
+  const recargoSedeCents = toCents(sede?.recargo);
   const recargoSinBiciCents = sabeBicicleta === 'No' ? toCents(config?.recargoSinBici) : 0;
   const descuentoMotoPropiaCents = traeMoto === 'Sí' ? toCents(config?.descuentoMotoPropia) : 0;
   const recargoAlquilerMotoCents = (traeMoto !== 'Sí' && curso?.motoIncluida !== false)

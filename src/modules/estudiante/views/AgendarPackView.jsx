@@ -34,7 +34,7 @@ export function AgendarPackView() {
   const navigate = useNavigate();
   const ctx = useContext(AppContext);
   const { showToast } = useToast();
-  const { cursos = [], sedes = [], instructores = [], motos = [], horarios = [], user, fbUser, logoutUser, notifications = [] } = ctx;
+  const { cursos = [], sedes = [], instructores = [], motos = [], proveedoresPublicos = [], horarios = [], user, fbUser, logoutUser, notifications = [] } = ctx;
 
   const uid = fbUser?.uid || user?.uid;
 
@@ -83,7 +83,7 @@ export function AgendarPackView() {
     const d = new Date(fecha1 + 'T12:00:00');
     d.setDate(d.getDate() + 1);
     return d.toISOString().split('T')[0];
-  }, [fecha1]);
+  }, [fecha1, cursoUnDiaPack]);
 
   // FIX-PROVEEDOR-D2: los bloqueos del proveedor deben incluir D1 y D2.
   const { bloqueos: bloqueosProveedor, cargando: cargandoProveedor } = useBloqueosProveedorEstado(fecha1, true, fecha2CalcOcupacion);
@@ -300,6 +300,7 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
     horarios,
     instructores,
     motos,
+    proveedoresPublicos,
     reservasConfirmadas: ocupacionConfirmada || [],    activeLocks,
     selectingBlockId,
     currentUserId: uid,
@@ -489,7 +490,10 @@ const sedeNombre = formatearSede(sedeObj) || sedeDefault;
       fecha: fecha1,
       horaId: bloque.id,
       instructorId: bloque.instructorId,
-      motoAsignadaId: bloque.motoAsignadaId || null
+      motoAsignadaId: bloque.motoAsignadaId || null,
+      // ERR-048: retener D1+D2 con la misma fecha2 que usa la reserva.
+      fecha2: disponibilidad?.fecha2Calc || null,
+      horaId2: bloque.id
     });
 
       if (res.success) {

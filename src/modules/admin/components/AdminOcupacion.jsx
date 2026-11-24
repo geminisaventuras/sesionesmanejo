@@ -1,4 +1,4 @@
-// @build: 2026-11-23 | id: ADMIN-OCUPACION-MOVIL | desc: Layout móvil de Ocupación: fecha dentro de filtros, estados en una fila, lista de sedes del día y detalle por sede (T-070).
+// @build: 2026-11-24 | id: ADMIN-OCUPACION-MOVIL | desc: Layout móvil de Ocupación con selector de los 7 días, lista de sedes del día elegido y atajo al día con sedes (T-104).
 import { useContext, useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
@@ -16,10 +16,11 @@ import { etiquetaMoto } from '../../shared/utils/motosHelpers';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import { useOcupacionPorRango } from '../../../hooks/useOcupacionPorRango';
 import { calcularEstadoBloque, construirRangoFechas } from '../utils/ocupacionHelpers';
+import { agregarSedesDia, indiceDiaConSedes, siguienteDiaConSedes } from '../utils/ocupacionMovil';
 import { limpiarSeleccionesOcupacion, opcionesFiltrosOcupacion } from '../utils/filtrosOcupacion';
 import {
   Calendar, MapPin, BookOpen, Activity, Wallet, Settings, Lock, Clock,
-  ChevronRight, ArrowLeft, Eraser
+  ChevronRight, ArrowLeft, Eraser, XCircle
 } from 'lucide-react';
 
 const CONFIG_ESTADO = {
@@ -28,6 +29,7 @@ const CONFIG_ESTADO = {
   lleno: { color: 'bg-red-100 text-red-700 border-red-300', icon: null },
   retenido: { color: 'bg-blue-100 text-blue-800 border-blue-300', icon: Clock },
   bloqueado: { color: 'bg-gray-200 text-gray-700 border-gray-400', icon: Lock },
+  cerrado: { color: 'bg-gray-100 text-gray-500 border-gray-300', icon: XCircle },
   parcial_bloqueado: { color: 'bg-gray-100 text-gray-600 border-gray-300', icon: null },
 };
 
@@ -38,6 +40,7 @@ const LEYENDA_ESTADOS = [
   { label: 'Lleno', color: 'bg-red-100 border-red-300' },
   { label: 'Retenido', color: 'bg-blue-100 border-blue-300 border-dashed', icon: Clock },
   { label: 'Bloqueado', color: 'bg-gray-200 border-gray-400' },
+  { label: 'Cerrado', color: 'bg-gray-100 border-gray-300', icon: XCircle },
 ];
 
 const CHIP_DIA = {
@@ -67,6 +70,8 @@ const describirCelda = ({ bloque, fecha, info, sedeNombre }) => {
   partes.push(bloque?.label || 'Bloque', fecha, String(info?.estado || '').replace('_', ' '));
   if (info?.estado === 'bloqueado') {
     if (info.motivo) partes.push(`motivo: ${info.motivo}`);
+  } else if (info?.estado === 'cerrado') {
+    partes.push('horario vencido');
   } else {
     partes.push(`${info?.disponibles ?? 0}/${info?.total ?? 0} disponibles`);
     if (info?.instructores?.total > 0) {
@@ -96,7 +101,8 @@ function CeldaOcupacion({ bloque, fecha, info, sedeNombre, onSeleccionar }) {
   const config = CONFIG_ESTADO[info.estado] || CONFIG_ESTADO.lleno;
   const Icono = config.icon;
   const esBloqueado = info.estado === 'bloqueado';
-  const sinRecursos = !esBloqueado && info.total === 0 && info.disponibles === 0 && !info.motivo;
+  const esCerrado = info.estado === 'cerrado';
+  const sinRecursos = !esBloqueado && !esCerrado && info.total === 0 && info.disponibles === 0 && !info.motivo;
   const esRetenido = info.estado === 'retenido';
   const descripcion = describirCelda({ bloque, fecha, info, sedeNombre });
 
@@ -109,6 +115,8 @@ function CeldaOcupacion({ bloque, fecha, info, sedeNombre, onSeleccionar }) {
       className={`flex h-11 w-full min-w-[44px] items-center justify-center gap-0.5 rounded-lg border text-[10.5px] font-extrabold leading-none transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${config.color} ${esRetenido ? 'border-dashed' : ''}`}
     >
       {esBloqueado ? (
+        <Icono size={14} aria-hidden="true" />
+      ) : esCerrado ? (
         <Icono size={14} aria-hidden="true" />
       ) : sinRecursos ? (
         <span className="text-gray-400">—</span>
@@ -295,6 +303,14 @@ const AdminOcupacion = memo(() => {
   const [celdaSeleccionada, setCeldaSeleccionada] = useState(null);
   const [purgandoLocks, setPurgandoLocks] = useState(false);
 
+  // ERR-051: tick de 60 s para que un bloque que cruza su hora de inicio pase
+  // a "cerrado" sin recargar. Se inyecta como `ahora` en la matriz.
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalo = setInterval(() => setAhora(Date.now()), 60_000);
+    return () => clearInterval(intervalo);
+  }, []);
+
   // Ventana de 7 días sobre el string VET; un campo vacío/inválido no lanza.
   const rango = useMemo(() => construirRangoFechas(fechaInicio, 7), [fechaInicio]);
   const fechaFin = rango.fechaFin;
@@ -372,11 +388,12 @@ const AdminOcupacion = memo(() => {
           bloqueosInstructores,
           bloqueosProveedor,
           filtros,
+          ahora,
         });
       }
     }
     return result;
-  }, [dias, bloquesActivos, instructores, motos, cursos, reservasSemana, ocupacionSemana, locksSemana, bloqueosAdmin, bloqueosInstructores, bloqueosProveedor, filtroSede, filtroCurso, filtroInstructor, filtroMoto]);
+  }, [dias, bloquesActivos, instructores, motos, cursos, reservasSemana, ocupacionSemana, locksSemana, bloqueosAdmin, bloqueosInstructores, bloqueosProveedor, filtroSede, filtroCurso, filtroInstructor, filtroMoto, ahora]);
 
   const nombreSede = useCallback((sedeId) => {
     const sede = (sedes || []).find((s) => String(s.id) === String(sedeId));
@@ -443,49 +460,41 @@ const AdminOcupacion = memo(() => {
     return { resumen, sinRecursos };
   }, [filtroSede, rango.valido, dias, bloquesActivos, matriz, sedes]);
 
-  // Lista móvil del día seleccionado: mismo `porSede`, agregado solo para presentar.
-  const vistaDiaSede = useMemo(() => {
+  // T-104: la lista móvil se calcula para los 7 días (mismo `porSede`, sin consultas nuevas)
+  // para que el usuario pueda elegir día y para detectar dónde sí hay sedes.
+  const vistasPorDia = useMemo(() => {
     if (filtroSede || !rango.valido || dias.length === 0) return [];
-    const fecha = dias[0];
-    const porSede = new Map();
-
-    for (const bloque of bloquesActivos) {
-      const info = matriz[fecha]?.[bloque.id];
-      const lista = Array.isArray(info?.porSede) ? info.porSede : [];
-      for (const sedeInfo of lista) {
-        const clave = String(sedeInfo?.sedeId ?? '');
-        if (!clave) continue;
-        const previo = porSede.get(clave) || {
-          sedeId: clave,
-          total: 0,
-          disponibles: 0,
-          retenidos: 0,
-          bloqueados: 0,
-          celdas: 0,
-        };
-        porSede.set(clave, {
-          sedeId: clave,
-          total: previo.total + (Number(sedeInfo.total) || 0),
-          disponibles: previo.disponibles + (Number(sedeInfo.disponibles) || 0),
-          retenidos: previo.retenidos + (Array.isArray(sedeInfo.locks) ? sedeInfo.locks.length : 0),
-          bloqueados: previo.bloqueados + (sedeInfo.estado === 'bloqueado' ? 1 : 0),
-          celdas: previo.celdas + 1,
-        });
-      }
-    }
-
-    const ordenCatalogo = new Map((sedes || []).map((sede, indice) => [String(sede.id), indice]));
-    const ordenarPorCatalogo = (a, b) => {
-      const ia = ordenCatalogo.has(a) ? ordenCatalogo.get(a) : Number.MAX_SAFE_INTEGER;
-      const ib = ordenCatalogo.has(b) ? ordenCatalogo.get(b) : Number.MAX_SAFE_INTEGER;
-      if (ia !== ib) return ia - ib;
-      return String(a).localeCompare(String(b));
-    };
-
-    return Array.from(porSede.values())
-      .filter((s) => s.celdas > 0 && (s.total > 0 || s.retenidos > 0 || s.bloqueados > 0))
-      .sort((a, b) => ordenarPorCatalogo(a.sedeId, b.sedeId));
+    return dias.map((fecha) => agregarSedesDia({
+      fecha,
+      bloques: bloquesActivos,
+      matriz,
+      sedes,
+    }));
   }, [filtroSede, rango.valido, dias, bloquesActivos, matriz, sedes]);
+
+  // La selección guarda la ventana: si cambian los `dias`, vuelve al día por defecto.
+  const ventanaClave = dias[0] || '';
+  const [seleccionDia, setSeleccionDia] = useState({ ventana: '', fecha: '' });
+  const fechaElegida = seleccionDia.ventana === ventanaClave && seleccionDia.fecha
+    ? seleccionDia.fecha
+    : null;
+
+  const indicePorDefecto = useMemo(() => indiceDiaConSedes(vistasPorDia), [vistasPorDia]);
+
+  const indiceDiaSeleccionado = useMemo(() => {
+    const indice = fechaElegida ? dias.indexOf(fechaElegida) : -1;
+    return indice >= 0 ? indice : indicePorDefecto;
+  }, [fechaElegida, dias, indicePorDefecto]);
+
+  const vistaDiaSede = vistasPorDia[indiceDiaSeleccionado] || [];
+  const fechaDiaSeleccionado = dias[indiceDiaSeleccionado] || '';
+  const indiceSiguienteConSedes = vistaDiaSede.length === 0
+    ? siguienteDiaConSedes(vistasPorDia, indiceDiaSeleccionado)
+    : -1;
+
+  const elegirDia = useCallback((fecha) => {
+    setSeleccionDia({ ventana: ventanaClave, fecha: fecha || '' });
+  }, [ventanaClave]);
 
   const obtenerInfoSede = (sedeId) => (fecha, bloqueId) => {
     const info = matriz[fecha]?.[bloqueId];
@@ -795,14 +804,59 @@ const AdminOcupacion = memo(() => {
   } else {
     contenido = (
       <div className="min-w-0">
-        {/* Móvil: lista de sedes del día seleccionado; tocar abre el detalle. */}
+        {/* Móvil: selector de los 7 días + lista de sedes del día elegido. */}
         <div className="min-w-0 lg:hidden">
+          <div className="mb-1.5 min-w-0">
+            <div
+              role="group"
+              aria-label="Día de la ventana de 7 días"
+              className="-mx-1 flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-1 py-1"
+            >
+              {dias.map((fecha, indice) => {
+                const activo = indice === indiceDiaSeleccionado;
+                const conSedes = (vistasPorDia[indice]?.length || 0) > 0;
+                return (
+                  <button
+                    key={fecha}
+                    type="button"
+                    onClick={() => elegirDia(fecha)}
+                    aria-pressed={activo}
+                    aria-label={`Ver ocupación del ${formatearDia(fecha)}${conSedes ? ', con sedes' : ', sin sedes'}`}
+                    className={`flex min-h-11 min-w-[48px] shrink-0 flex-col items-center justify-center gap-1 rounded-lg border px-2 text-[11px] font-extrabold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${activo ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <span>{formatearDia(fecha)}</span>
+                    <span
+                      aria-hidden="true"
+                      className={`h-1.5 w-1.5 rounded-full ${conSedes ? 'bg-green-500' : 'bg-gray-300'}`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {vistaDiaSede.length === 0 ? (
-            <MensajeEstado>Sin sedes con cupo para el {formatearDia(dias[0])}.</MensajeEstado>
+            <div className="rounded-xl bg-white p-4 text-center">
+              <p className="m-0 text-xs font-bold text-gray-500">
+                Sin sedes con cupo para el {formatearDia(fechaDiaSeleccionado)}.
+                {indiceSiguienteConSedes >= 0
+                  ? ` Hay sedes el ${formatearDia(dias[indiceSiguienteConSedes])}.`
+                  : ''}
+              </p>
+              {indiceSiguienteConSedes >= 0 ? (
+                <button
+                  type="button"
+                  onClick={() => elegirDia(dias[indiceSiguienteConSedes])}
+                  className="mt-2 inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 text-[11.5px] font-extrabold text-blue-800 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+                >
+                  Ver el {formatearDia(dias[indiceSiguienteConSedes])}
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
           ) : (
             <>
               <h2 className="sr-only">
-                Ocupación por sede del {formatearDia(dias[0])}
+                Ocupación por sede del {formatearDia(fechaDiaSeleccionado)}
               </h2>
               <ul role="list" className="m-0 list-none space-y-2 p-0">
                 {vistaDiaSede.map((sede) => {
@@ -812,7 +866,7 @@ const AdminOcupacion = memo(() => {
                       <FilaSedeDia
                         nombre={nombre}
                         datos={sede}
-                        fecha={dias[0]}
+                        fecha={fechaDiaSeleccionado}
                         onAbrir={() => setFiltroSede(sede.sedeId)}
                       />
                     </li>
@@ -940,13 +994,13 @@ const AdminOcupacion = memo(() => {
                 <span className="text-gray-600">Estado:</span>
                 <span className="font-bold">{celdaSeleccionada.info.estado.toUpperCase()}</span>
               </div>
-              {celdaSeleccionada.info.estado !== 'bloqueado' && (
+              {!['bloqueado', 'cerrado'].includes(celdaSeleccionada.info.estado) && (
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-600">Cupo:</span>
                   <span className="font-bold">{celdaSeleccionada.info.disponibles}/{celdaSeleccionada.info.total}</span>
                 </div>
               )}
-              {celdaSeleccionada.info.estado !== 'bloqueado' && celdaSeleccionada.info.instructores?.total > 0 && (
+              {!['bloqueado', 'cerrado'].includes(celdaSeleccionada.info.estado) && celdaSeleccionada.info.instructores?.total > 0 && (
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-600">Tutores:</span>
                   <span className="font-bold">
@@ -954,7 +1008,7 @@ const AdminOcupacion = memo(() => {
                   </span>
                 </div>
               )}
-              {celdaSeleccionada.info.estado !== 'bloqueado' && celdaSeleccionada.info.motos?.requerida && (
+              {!['bloqueado', 'cerrado'].includes(celdaSeleccionada.info.estado) && celdaSeleccionada.info.motos?.requerida && (
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-600">Motos:</span>
                   <span className="font-bold">
@@ -962,7 +1016,7 @@ const AdminOcupacion = memo(() => {
                   </span>
                 </div>
               )}
-              {celdaSeleccionada.info.estado === 'bloqueado' && (
+              {['bloqueado', 'cerrado'].includes(celdaSeleccionada.info.estado) && (
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-600">Motivo:</span>
                   <span className="font-bold">{celdaSeleccionada.info.motivo}</span>

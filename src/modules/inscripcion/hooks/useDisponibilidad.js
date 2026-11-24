@@ -1,5 +1,5 @@
 // @build: 2026-09-10.00-41-00 | id: FIX-028-PRIORIDAD-INSTRUCTOR-B | backup: useDisponibilidad.js.backup-20260910-004100 | desc: Prioridad determinista in-line para estado reactivo de UI
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 const MAX_DIAS_RESERVA = 30;
@@ -88,6 +88,14 @@ export function useDisponibilidad({
   getTodayStr, clockTick, currentUserId
 }) {
   const today = getTodayStr();
+
+  // ERR-051: tick interno de 60 s para reevaluar `isPastBlock` sin recargar.
+  // No añade listeners ni consultas: solo fuerza el recálculo de los memos.
+  const [tickInterno, setTickInterno] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalo = setInterval(() => setTickInterno(Date.now()), 60_000);
+    return () => clearInterval(intervalo);
+  }, []);
   const maxDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + MAX_DIAS_RESERVA - 1);
@@ -166,7 +174,7 @@ const ocupacionCache = useMemo(() => {
       cursor.setDate(cursor.getDate() + 1);
     }
     return dias;
-  }, [form.sedeId, form.tipoMoto, form.traeMoto, maxDate, today, horarios, instructores, motos, ocupacionCache, clockTick]);
+  }, [form.sedeId, form.tipoMoto, form.traeMoto, maxDate, today, horarios, instructores, motos, ocupacionCache, clockTick, tickInterno]);
 
   const bloques = useMemo(() => {
     if (!form.fecha1 || !form.sedeId || !form.tipoMoto) return [];
@@ -181,7 +189,7 @@ const ocupacionCache = useMemo(() => {
       if (lockId && form.horaId === b.id) return { ...info, disponible: true, reason: '', restaurado: true };
       return info;
     });
-  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, lockId, form.horaId, today, instructores, motos, horarios, fecha2Calc, selectingBlockId, ocupacionCache, clockTick]);
+  }, [form.fecha1, form.sedeId, form.tipoMoto, form.traeMoto, lockId, form.horaId, today, instructores, motos, horarios, fecha2Calc, selectingBlockId, ocupacionCache, clockTick, tickInterno]);
 
   return { diasDisponibles, bloques, fecha2Calc, maxDate, cargando };
 }

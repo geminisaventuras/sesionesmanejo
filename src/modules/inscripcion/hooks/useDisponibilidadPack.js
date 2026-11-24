@@ -1,11 +1,12 @@
-// @build: 2026-09-27.A2.17 | id: HOOK-DISPONIBILIDAD-PACK | desc: Disponibilidad para agendar curso del pack (copia de evaluarDisponibilidad de InscripcionView con bloqueos admin/proveedor)
-import { useMemo } from 'react';
+// @build: 2026-11-23 | id: PROVEEDOR-INACTIVO | desc: Disponibilidad para agendar curso del pack; excluye motos de proveedor inactivo (activo === false).
+import { useEffect, useMemo, useState } from 'react';
 import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros } from '../utils/locksHelpers';
 import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaProveedor } from '../../shared/utils/bloqueosHelpers';
 import { calcularNecesitaMoto, puedeCalcularDisponibilidad } from '../../shared/utils/motoHelpers';
 import { obtenerPermitidosCurso, MOTIVO_CURSO_SIN_INSTRUCTORES, mensajeCursoSinInstructores } from '../utils/instructoresPermitidos';
+import { filtrarMotosProveedorActivo } from '../utils/recursosHelpers';
 const MAX_DIAS_RESERVA = 30;
 
 const getCaracasTime = () => {
@@ -33,13 +34,18 @@ const isPastBlock = (fecha, label, todayStr) => {
 
 // ─── Función pura (idéntica a InscripcionView.evaluarDisponibilidad) ────
 const evaluarDisponibilidad = ({
-  form, horarios, instructores, motos, reservasConfirmadas, activeLocks,
+    form, horarios, instructores, motos, proveedoresPublicos, reservasConfirmadas, activeLocks,
   selectingBlockId, currentUserId, todayStr, lockId,
   bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
 }) => {
   // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
   // Si el curso tiene motoIncluida: false, NUNCA se busca moto de escuela.
   const { necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
+
+  // PROVEEDOR-INACTIVO: motos de un proveedor con `activo === false` no se
+  // ofrecen para agendar el pack. Filtro puro, aplicado una sola vez.
+  // Fuente: espejo público `proveedoresPublicos` (`{ id, activo }`).
+  const motosPermitidas = filtrarMotosProveedorActivo(motos, proveedoresPublicos);
 
   // D10: fail-closed. Sin `instructoresPermitidos` configurado (vacío o
   // ausente) NADIE puede impartir el curso: no se listan tutores ni bloques.
@@ -145,7 +151,7 @@ const evaluarDisponibilidad = ({
 
     let motosDisponibles = [];
     if (necesitaMoto) {
-      motosDisponibles = (motos || [])
+      motosDisponibles = (motosPermitidas || [])
         .filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId))
         .filter(m => !isMotoOcupada(m.id, bloque.id, fecha1, fecha2));
     }
@@ -179,7 +185,11 @@ const evaluarDisponibilidad = ({
        const instructoresTotal = (instructores || [])
       .filter(estaPermitido)
       .filter(i => i.activo && (i.sedes || []).includes(form.sedeId));
-    const motosTotal = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+    const motosTotal = (motosPermitidas || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+    // PROVEEDOR-INACTIVO: si había motos elegibles y todas quedaron fuera por
+    // proveedor inactivo, se muestra el estado "No disponible" existente.
+    const motosElegiblesBase = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+    const sinMotoPorProveedorInactivo = necesitaMoto && motosTotal.length === 0 && motosElegiblesBase.length > 0;
        const instructoresLibresSinLocks = instructoresTotal.filter(i => !reservasDeOtros.some(r => {
       if (r.instructorId !== i.id) return false;
       if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloque.id) return true;
@@ -201,6 +211,7 @@ const evaluarDisponibilidad = ({
       if (instructoresLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
     } else {
+      if (sinMotoPorProveedorInactivo) return { ...bloque, disponible: false, reason: 'NO_DISPONIBLE', instructorId: null, motoAsignadaId: null };
       if (instructoresLibresSinLocks === 0 || motosLibresSinLocks === 0) return { ...bloque, disponible: false, reason: 'RESERVADO', instructorId: null, motoAsignadaId: null };
       return { ...bloque, disponible: false, reason: 'EN_ESPERA_PAGO', instructorId: null, motoAsignadaId: null };
     }
@@ -247,6 +258,7 @@ export function useDisponibilidadPack({
   horarios,
   instructores,
   motos,
+  proveedoresPublicos,
   reservasConfirmadas,
   activeLocks,
   selectingBlockId,
@@ -259,6 +271,14 @@ export function useDisponibilidadPack({
   sedeSeleccionada,
   clockTick = 0
 }) {
+  // ERR-051: tick interno de 60 s para reevaluar `isPastBlock` sin recargar.
+  // No añade listeners ni consultas: solo fuerza el recálculo del memo.
+  const [tickInterno, setTickInterno] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalo = setInterval(() => setTickInterno(Date.now()), 60_000);
+    return () => clearInterval(intervalo);
+  }, []);
+
   return useMemo(() => {
     const emptyResult = { diasDisponibles: [], bloques: [], fecha2Calc: null, maxDate: null, error: null };
 
@@ -280,14 +300,15 @@ export function useDisponibilidadPack({
     const cursoUnDia = (cursoSeleccionado?.duracionTotal || 240) <= 120;
     return evaluarDisponibilidad({
       form, horarios, instructores, motos,
+      proveedoresPublicos,
       reservasConfirmadas, activeLocks,
       selectingBlockId, currentUserId, todayStr, lockId,
       bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin
     });
   }, [
-    form, horarios, instructores, motos, reservasConfirmadas, activeLocks,
+  form, horarios, instructores, motos, proveedoresPublicos, reservasConfirmadas, activeLocks,
     selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor,
-    bloqueosAdmin, cursoSeleccionado, sedeSeleccionada, clockTick
+    bloqueosAdmin, cursoSeleccionado, sedeSeleccionada, clockTick, tickInterno
   ]);
 }
 

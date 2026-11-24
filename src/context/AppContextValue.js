@@ -2,7 +2,7 @@ import { createContext } from 'react';
 
 export const AppContext = createContext({
   config: {}, sedes: [], horarios: [], cursos: [],
-  instructores: [], proveedores: [], motos: [],
+  instructores: [], proveedores: [], proveedoresPublicos: [], motos: [],
   reservas: [], movimientos: [], admins: [],
   user: null, toast: null, autoLoginData: null,
   fbUser: null, authReady: false, activeLocks: [],

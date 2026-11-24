@@ -43,6 +43,18 @@ export default function TarjetaPackRuta({
   const final = Number(precio?.final);
   const ahorro = Number(precio?.ahorro);
   const mostrarPrecio = Boolean(precio) && Number.isFinite(base) && base > 0;
+  const sesionesPack = Array.isArray(pack?.cursoIds) ? pack.cursoIds.length : cursos.length;
+  const recargosSede = Array.isArray(pack?.recargosSede)
+    ? pack.recargosSede
+        .filter((sede) => sede && typeof sede === 'object')
+        .map((sede) => ({
+          id: String(sede.id ?? ''),
+          nombre: typeof sede.nombre === 'string' ? sede.nombre.trim() : '',
+          recargo: Math.max(0, Number(sede.recargo) || 0),
+        }))
+        .filter((sede) => sede.id && sede.nombre)
+    : [];
+  const tieneRecargoSede = recargosSede.some((sede) => sede.recargo > 0);
 
   const etiquetaCobertura = pack?.cubreRutaCompleta
     ? 'Recomendado'
@@ -168,11 +180,35 @@ export default function TarjetaPackRuta({
               </span>
             </div>
             <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-indigo-300 pt-2">
-              <span className="text-sm font-bold text-slate-800">Precio final:</span>
+              <span className="text-sm font-bold text-slate-800">
+                {tieneRecargoSede ? 'Precio base (sin recargo de sede):' : 'Precio final:'}
+              </span>
               <span className="text-2xl font-black text-indigo-700 sm:text-3xl">
                 ${(Number.isFinite(final) ? final : base).toFixed(2)}
               </span>
             </div>
+            {tieneRecargoSede && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                <p className="text-[11px] font-black uppercase tracking-wide text-amber-900">
+                  El total varía por sede (recargo por sesión)
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {recargosSede.map((sede) => (
+                    <li key={sede.id} className="flex items-baseline justify-between gap-2 text-[11px] text-amber-900">
+                      <span className="min-w-0 break-words">{sede.nombre}</span>
+                      <span className="shrink-0 font-bold">
+                        {sede.recargo > 0
+                          ? `+$${sede.recargo.toFixed(2)} × ${sesionesPack} = +$${(sede.recargo * sesionesPack).toFixed(2)}`
+                          : 'sin recargo'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[10px] leading-snug text-amber-800">
+                  El recargo se suma por cada sesión al elegir la sede; el precio base no lo incluye.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

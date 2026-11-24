@@ -143,7 +143,7 @@ const { showToast } = useToast();
             <div className="px-4 pb-4 space-y-3">
               <Input label="Precio Base Curso" type="number" value={localCfg.precioBase} onChange={e => setLocalCfg({ ...localCfg, precioBase: e.target.value })} icon={DollarSign} />
               <div className="grid grid-cols-2 gap-3">
-                <Input label="Recargo Sede Guarenas" type="number" value={localCfg.recargoGuarenas} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} />
+                <Input label="Recargo Sede Guarenas (legacy)" type="number" value={localCfg.recargoGuarenas} onChange={e => setLocalCfg({ ...localCfg, recargoGuarenas: e.target.value })} disabled />
                 <Input label="Recargo sin Bici" type="number" value={localCfg.recargoSinBici} onChange={e => setLocalCfg({ ...localCfg, recargoSinBici: e.target.value })} />
                 <Input label="Desc. Trae Moto" type="number" value={localCfg.descuentoMotoPropia} onChange={e => setLocalCfg({ ...localCfg, descuentoMotoPropia: e.target.value })} />
                 <Input label="Desc. Promocional" type="number" value={localCfg.descuentoPromo} onChange={e => setLocalCfg({ ...localCfg, descuentoPromo: e.target.value })} disabled={!localCfg.promocionActiva} />

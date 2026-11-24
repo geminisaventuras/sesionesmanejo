@@ -2,6 +2,7 @@
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { db, firebaseConfig } from '../../shared/firebase/firebase';
 import { collection, doc, setDoc, getDocs, writeBatch, Timestamp } from 'firebase/firestore';
+import { separarConfiguracion } from '../../shared/utils/configuracionHelpers.js';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -56,7 +57,7 @@ export const StaffService = {
         return { success: false, error: { code: 'already-seeded', message: 'La base de datos ya tiene datos.' } };
       }
 
-      await setDoc(doc(db, basePath, 'configuraciones', 'main'), {
+      const configSeed = {
         monedaPagoStaff: 'USD',
         tasaUSD: 600,
         tasaEUR: 700,
@@ -75,7 +76,13 @@ export const StaffService = {
           codigo: '0134'
         },
         monedaCobroClientes: 'EUR'
-      });
+      };
+      // ADR-009 fase 2: separar lo operativo de lo fiscal/interno desde el seed.
+      const { operativa, privada } = separarConfiguracion(configSeed);
+      await setDoc(doc(db, basePath, 'configuraciones', 'main'), operativa);
+      if (Object.keys(privada).length > 0) {
+        await setDoc(doc(db, basePath, 'configuraciones', 'privada'), privada);
+      }
 
       await setDoc(doc(db, basePath, 'sedes', 'sede1'), { id: 'sede1', nombre: 'Guarenas', direccion: 'Av. Principal', activo: true });
       await setDoc(doc(db, basePath, 'sedes', 'sede2'), { id: 'sede2', nombre: 'Caracas', direccion: 'Centro', activo: true });

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { normalizarConfigNumerica } from '../modules/shared/utils/configNumerica';
-import { fusionarConfiguracion } from '../modules/shared/utils/configuracionHelpers';
+import { fusionarConfiguracion, separarConfiguracion } from '../modules/shared/utils/configuracionHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -61,7 +61,13 @@ export function useConfigProvider(authReady, fbUser, isAdmin = false) {
     const payload = normalizarConfigNumerica(newCfg);
     if (db && fbUser) {
       try {
-       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), payload, { merge: true });
+        // ADR-009 fase 2: `main` solo recibe lo operativo; lo fiscal/interno va a `privada`.
+        // `pagoProveedor` sigue en `main` como compatibilidad explícita.
+        const { operativa, privada } = separarConfiguracion(payload);
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'main'), operativa, { merge: true });
+        if (isAdmin && Object.keys(privada).length > 0) {
+          await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'configuraciones', 'privada'), privada, { merge: true });
+        }
       } catch (err) {
         console.warn('[ConfigProvider] Error al guardar configuración:', err.code);
       }

@@ -1,19 +1,21 @@
 // Archivo: src/modules/inscripcion/services/ReservaService.js
-// @build: 2026-11-21.A+ | id: PACK-PRECIOS-SNAPSHOT | backup: backup/pack-precios-a-20261121-150045/src/modules/inscripcion/services/ReservaService.js | desc: Compra/agendamiento usan precios congelados A+ del pack y la maestra; no confían en cursoSnapshot para dinero.
+// @build: 2026-11-23 | id: PROVEEDOR-INACTIVO | desc: Compra/agendamiento bloquean motos de proveedor con activo === false; precios congelados sin cambios.
 import { db, auth } from '../../shared/firebase/firebase';
 import { collection, doc, runTransaction, updateDoc, getDocs, getDoc, setDoc, deleteDoc, Timestamp, serverTimestamp, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { validarInscripcionCompleta } from '../../shared/schemas/validations';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { LockService } from './LockService';
-import { construirSlotsObjetivo, construirLockIds, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
-import { consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
-import { resolverTraeMoto, seleccionarValoresCurso, packBloqueaNuevaCompra } from '../utils/packPricing.js';
+import { construirSlotsObjetivo, construirLockIds, construirLocksPorSlot, detectarLocksActivos, detectarSolapamiento } from '../utils/solapamientoHelpers';
+import { consultarBloqueosGlobalesPorFechas, consultarBloqueosInstructores, consultarLocksTemporalesPorFechas, consultarOcupacionPorFechas } from './ocupacionRepository';
+import { detectarBloqueosAgenda } from '../../shared/utils/bloqueosHelpers';
+import { resolverTraeMoto, seleccionarValoresCurso, packBloqueaNuevaCompra, calcularRecargoSedePack } from '../utils/packPricing.js';
 import { calcularPrecioIndividual, resolverTraeMotoIndividual, resolverTasaFXVigente, calcularPagoTotalVES } from '../utils/precioIndividual.js';
 import { resumenAccesoId } from '../../shared/utils/accesoTeoricoResumen';
 import { validarCorreccionPago } from '../utils/pagoHelpers';
-import { validarInstructorAsignado, validarMotoAsignada } from '../utils/recursosHelpers';
+import { validarInstructorAsignado, validarMotoAsignada, proveedorBloqueado } from '../utils/recursosHelpers';
 import { validarInstructorPermitidoCurso } from '../utils/instructoresPermitidos';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
+import { evaluarSlotPasado, fechaVetHoy } from '../../shared/utils/reservaHelpers.js';
 
 const appId = 'motoescuela-pro-v1';
 
@@ -62,7 +64,41 @@ async function cargarMotoParaReserva(motoId) {
   }
 }
 
-async function validarRecursosReserva({ instructorId, motoId, sedeId, curso, exigirPermitidosCurso = false }) {
+/**
+ * Decisión del Operador (2026-11-23): carga el proveedor de la moto asignada
+ * para bloquear la venta si `activo === false`.
+ *
+ * Fuente: espejo público `proveedoresPublicos/{id}` (`{ id, activo }`), legible
+ * por cualquier autenticado. No se lee la colección privada `proveedores`, que
+ * solo es legible por admin o por el propio proveedor (`firestore.rules`).
+ *
+ * Política ante fallos (documentada):
+ *  - Doc inexistente → tolerante (`data: null`). No se puede afirmar que el
+ *    proveedor esté inactivo y hay motos legacy sin doc de espejo. La regla de
+ *    Firestore de la reserva individual sigue siendo la autoridad (exige el
+ *    doc y `activo != false`); en packs la validación es defensa en
+ *    profundidad.
+ *  - Error de red o `permission-denied` → tolerante con warn. Fallar cerrado
+ *    aquí rompería todo el registro público. Una sola lectura por creación.
+ */
+async function cargarProveedorParaReserva(proveedorId) {
+  const id = proveedorId === null || proveedorId === undefined ? '' : String(proveedorId).trim();
+  if (!id) return { ok: true, data: null };
+  try {
+    const snap = await getDoc(doc(db, rutaCatalogo('proveedoresPublicos'), id));
+    if (snap.exists()) return { ok: true, data: { id: snap.id, ...snap.data() } };
+    return { ok: true, data: null };
+  } catch (err) {
+    // `permission-denied` es esperado si cambia la política del espejo. No se
+    // registra para no llenar la consola en cada registro.
+    if (err?.code !== 'permission-denied') {
+      console.warn('[ReservaService] Proveedor de la moto no verificable:', err?.code);
+    }
+    return { ok: true, data: null };
+  }
+}
+
+async function validarRecursosReserva({ instructorId, motoId, sedeId, curso, exigirPermitidosCurso = false, requiereMoto = false }) {
   const [instructor, moto] = await Promise.all([
     cargarInstructorParaReserva(instructorId),
     cargarMotoParaReserva(motoId)
@@ -73,8 +109,8 @@ async function validarRecursosReserva({ instructorId, motoId, sedeId, curso, exi
   const checkInstructor = validarInstructorAsignado({ instructor: instructor.data, sedeId });
   if (!checkInstructor.ok) return { ok: false, error: { code: checkInstructor.code, message: checkInstructor.message } };
 
-  // D10: los packs fallan cerrado si el curso no declara `instructoresPermitidos`.
-  // La inscripción individual mantiene su comportamiento actual (UI fail-closed).
+  // D10/T-054: packs e inscripción individual fallan cerrado si el curso no
+  // declara `instructoresPermitidos`; las reglas de Firestore ya lo exigen.
   if (exigirPermitidosCurso) {
     const checkPermitido = validarInstructorPermitidoCurso({ curso, instructorId });
     if (!checkPermitido.ok) {
@@ -82,8 +118,37 @@ async function validarRecursosReserva({ instructorId, motoId, sedeId, curso, exi
     }
   }
 
+  // ERR-049: la variante "moto de la app" no puede confirmarse sin moto.
+  if (requiereMoto && !motoId) {
+    return {
+      ok: false,
+      error: {
+        code: 'moto-requerida',
+        message: 'Este curso usa moto de Moto App. Elige una moto para continuar.'
+      }
+    };
+  }
+
   const checkMoto = validarMotoAsignada({ moto: moto.data, motoId, sedeId, curso });
   if (!checkMoto.ok) return { ok: false, error: { code: checkMoto.code, message: checkMoto.message } };
+
+  // Decisión del Operador (2026-11-23): un proveedor con `activo === false`
+  // no puede vender. Se valida el proveedor de la MOTO asignada (autoridad,
+  // no el `proveedorId` del navegador), en una sola lectura por creación.
+  // Sin moto (moto propia o curso sin moto) no aplica.
+  const proveedorIdMoto = moto.data?.proveedorId;
+  if (proveedorIdMoto) {
+    const proveedor = await cargarProveedorParaReserva(proveedorIdMoto);
+    if (proveedorBloqueado(proveedor.data)) {
+      return {
+        ok: false,
+        error: {
+          code: 'proveedor-inactivo',
+          message: 'La moto asignada pertenece a un proveedor inactivo. Elige otro horario.'
+        }
+      };
+    }
+  }
 
   return { ok: true, data: { instructor: instructor.data, moto: moto.data } };
 }
@@ -113,6 +178,51 @@ async function cargarCursoParaPack(cursoId) {
 // Kill-switch de build: si se desactiva, el cross-check se omite (solo para rollback operativo).
 const SOLAPAMIENTO_CROSSCHECK_ENABLED = true;
 
+// ERR-046: los bloqueos de proveedor guardan horaInicio/horaFin, no `horaId`.
+// Se carga el label del horario para aplicar `afectaProveedor` sin duplicar
+// su parser. Si el label falta, la validación de bloqueos falla cerrada.
+async function cargarHoraLabels(horaIds = []) {
+  const unicos = [...new Set((horaIds || []).filter(Boolean).map(String))];
+  const entradas = await Promise.all(unicos.map(async (horaId) => {
+    try {
+      const snap = await getDoc(doc(db, rutaCatalogo('horarios'), horaId));
+      return [horaId, snap.exists() ? (snap.data().label || null) : null];
+    } catch (error) {
+      console.warn('[SOLAPAMIENTO] No se pudo leer el horario', { horaId, code: error?.code });
+      return [horaId, null];
+    }
+  }));
+  return new Map(entradas);
+}
+
+/**
+ * ERR-051: guard fail-closed de horario vencido antes de la transacción.
+ * - fecha pasada (VET) => `slot-past` sin necesidad de label;
+ * - fecha futura => permitido;
+ * - hoy => se lee el label con `cargarHoraLabels`; si no se puede leer se
+ *   rechaza `slot-no-verificable`; si el bloque ya inició, `slot-past`.
+ * Al rechazar se libera el lock para no retener cupo inservible.
+ */
+async function validarSlotNoVencido({ fecha, horaId, lockId }) {
+  const ahora = new Date();
+  const hoy = fechaVetHoy(ahora);
+  let label = null;
+  if (fecha === hoy && horaId) {
+    const labels = await cargarHoraLabels([horaId]);
+    label = labels.get(String(horaId)) || null;
+  }
+  const resultado = evaluarSlotPasado({ fecha, label, ahora });
+  if (!resultado.ok && lockId) {
+    await LockService.liberarLock(lockId).catch(err => {
+      console.warn('[ReservaService] No se pudo liberar el lock vencido', {
+        lockId,
+        error: err?.message
+      });
+    });
+  }
+  return resultado;
+}
+
 /**
  * Cross-check de ocupacion antes de crear una reserva (BUG-2).
  * Se ejecuta fuera de runTransaction porque el SDK cliente no permite queries
@@ -124,8 +234,11 @@ async function validarDisponibilidadAntesDeCrear({
   fecha,
   fecha2 = null,
   horaId,
+  horaId2 = null,
   instructorId = null,
   motoAsignadaId = null,
+  motoProveedorId = null,
+  sedeId = null,
   userId = null,
   lockId = null,
   contexto = 'reserva'
@@ -135,25 +248,103 @@ async function validarDisponibilidadAntesDeCrear({
     return { ok: true };
   }
 
-  const slots = construirSlotsObjetivo({ fecha, fecha2, horaId });
+  const slots = construirSlotsObjetivo({ fecha, fecha2, horaId, horaId2 });
   if (slots.length === 0 || !instructorId) return { ok: true };
 
   const fechas = [...new Set(slots.map(s => s.fecha))];
   const traceId = `SOL-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    const [ocupacion, locks] = await Promise.all([
+    const [ocupacion, locks, bloqueosGlobales, bloqueosInstructores, labels] = await Promise.all([
       consultarOcupacionPorFechas(fechas),
-      consultarLocksTemporalesPorFechas(fechas)
+      consultarLocksTemporalesPorFechas(fechas),
+      motoAsignadaId
+        ? consultarBloqueosGlobalesPorFechas(fechas)
+        : Promise.resolve({ bloqueos: [], truncado: false }),
+      instructorId
+        ? consultarBloqueosInstructores(instructorId)
+        : Promise.resolve({ bloqueos: [], truncado: false }),
+      cargarHoraLabels(slots.map(s => s.bloqueId))
     ]);
 
-    if (ocupacion.truncado || locks.truncado) {
+    if (ocupacion.truncado || locks.truncado || bloqueosGlobales.truncado || bloqueosInstructores.truncado) {
       console.error('[SOLAPAMIENTO] Consulta truncada; fail-closed.', { traceId, contexto, fechas });
       return {
         ok: false,
         error: {
           code: 'ocupacion-no-verificable',
           message: 'No pudimos verificar la disponibilidad. Intenta de nuevo en unos segundos.',
+          traceId
+        }
+      };
+    }
+
+    // ERR-046: la UI ya descarta bloqueos de agenda, pero la creación debe
+    // volver a validarlos. Sin label no se puede evaluar un bloqueo de
+    // proveedor: fail-closed solo si existen bloqueos que revisar.
+    const slotsConLabel = slots.map(slot => ({
+      ...slot,
+      horaLabel: labels.get(String(slot.bloqueId)) || null
+    }));
+    const hayBloqueosProveedor = Boolean(motoAsignadaId) && bloqueosGlobales.bloqueos.length > 0;
+    if (hayBloqueosProveedor && slotsConLabel.some(slot => !slot.horaLabel)) {
+      console.error('[SOLAPAMIENTO] Bloqueo de proveedor sin label de horario; fail-closed.', {
+        traceId,
+        contexto,
+        fechas
+      });
+      return {
+        ok: false,
+        error: {
+          code: 'ocupacion-no-verificable',
+          message: 'No pudimos verificar la disponibilidad. Intenta de nuevo en unos segundos.',
+          traceId
+        }
+      };
+    }
+
+    let motoProveedorIdResuelto = motoProveedorId;
+    if (motoAsignadaId && !motoProveedorIdResuelto && hayBloqueosProveedor) {
+      try {
+        const motoSnap = await getDoc(doc(db, rutaCatalogo('motos'), String(motoAsignadaId)));
+        if (motoSnap.exists()) motoProveedorIdResuelto = motoSnap.data().proveedorId || null;
+      } catch (error) {
+        console.warn('[SOLAPAMIENTO] No se pudo resolver el proveedor de la moto', {
+          traceId,
+          motoAsignadaId,
+          code: error?.code
+        });
+      }
+    }
+
+    const conflictosAgenda = detectarBloqueosAgenda({
+      slots: slotsConLabel,
+      instructorId,
+      motoId: motoAsignadaId,
+      motoProveedorId: motoProveedorIdResuelto,
+      sedeId,
+      bloquesGlobales: bloqueosGlobales.bloqueos,
+      bloquesInstructores: bloqueosInstructores.bloqueos
+    });
+
+    if (conflictosAgenda.length > 0) {
+      console.warn('[SOLAPAMIENTO] Agenda bloqueada', { traceId, contexto, conflictosAgenda });
+
+      if (lockId) {
+        await LockService.liberarLock(lockId).catch(err => {
+          console.warn('[SOLAPAMIENTO] No se pudo liberar el lock', {
+            traceId,
+            lockId,
+            error: err?.message
+          });
+        });
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: 'slot-blocked',
+          message: 'Ese horario está bloqueado en la agenda. Elige otro bloque.',
           traceId
         }
       };
@@ -440,7 +631,9 @@ export const ReservaService = {
       instructorId: reservaData.instructorId,
       motoId: motoObjetivo,
       sedeId: reservaData.sedeId,
-      curso: cursoData
+      curso: cursoData,
+      // T-054: la regla individual exige la allowlist del curso (fail-closed).
+      exigirPermitidosCurso: true
     });
     if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
 
@@ -448,13 +641,24 @@ export const ReservaService = {
       fecha: reservaData.fecha,
       fecha2: reservaData.fecha2 || null,
       horaId: reservaData.horaId,
+      horaId2: reservaData.horaId2 || null,
       instructorId: reservaData.instructorId || null,
       motoAsignadaId: motoObjetivo,
+      motoProveedorId: validacionRecursos.data?.moto?.proveedorId || null,
+      sedeId: reservaData.sedeId,
       userId: reservaData.userId,
       lockId,
       contexto: 'crearReserva'
     });
     if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
+
+    // ERR-051: un bloque ya iniciado no se puede reservar.
+    const guardSlot = await validarSlotNoVencido({
+      fecha: reservaData.fecha,
+      horaId: reservaData.horaId,
+      lockId
+    });
+    if (!guardSlot.ok) return { success: false, error: guardSlot.error };
 
     const reservasRef = collection(db, 'artifacts', appId, 'public', 'data', 'reservas');
     const reservaDoc = doc(reservasRef);
@@ -506,17 +710,35 @@ export const ReservaService = {
           throw crearError('lock-mismatch', 'El bloqueo no coincide con el horario seleccionado.');
         }
 
+        // ERR-048: una sesión de 2 días exige que el lock retenga D2. Un lock
+        // D1-only (legacy o incompleto) no autoriza la reserva: fail-closed.
+        if (reservaData.fecha2 && String(reservaData.fecha2) !== String(reservaData.fecha)) {
+          const lockFecha2 = lockData.fecha2 || null;
+          if (!lockFecha2 || String(lockFecha2) !== String(reservaData.fecha2)) {
+            throw crearError('lock-date-mismatch', 'El bloqueo no cubre la fecha del segundo día. Elige otro horario.');
+          }
+          const lockHora2 = lockData.horaId2 || lockData.horaId;
+          const reservaHora2 = reservaData.horaId2 || reservaData.horaId;
+          if (String(lockHora2) !== String(reservaHora2)) {
+            throw crearError('lock-date-mismatch', 'El bloqueo no cubre el horario del segundo día. Elige otro horario.');
+          }
+        }
+
         // Los locks nuevos se escriben con IDs por instructor y por moto.
         // En una transacción no se pueden hacer queries, pero sí leer los
         // documentos deterministas: así se cierra la ventana de carrera.
         const lockIds = construirLockIds({
           lockId,
           fecha: lockData.fecha,
+          fecha2: lockData.fecha2 || null,
           horaId: lockData.horaId,
+          horaId2: lockData.horaId2 || null,
           instructorId: lockData.instructorId,
           motoAsignadaId: lockData.motoAsignadaId
         });
-        const recursosEsperados = lockData.esquema === 'recursos-v1' ? lockIds : [lockId];
+        const recursosEsperados = (lockData.esquema === 'recursos-v1' || lockData.fecha2)
+          ? lockIds
+          : [lockId];
         for (const id of recursosEsperados) {
           if (id === lockId) continue;
           const recursoSnap = await transaction.get(doc(db, 'locks', id));
@@ -552,10 +774,15 @@ export const ReservaService = {
           pagoCedula: reservaData.pagoCedula,
           pagoRef: reservaData.pagoRef,
           id: reservaDoc.id,
+          lockId,
           estadoPago: 'Pendiente',
           estadoCurso: 'Pendiente',
           precio: precioSnapshot.precioTotal,
-          proveedorId: traeMotoResuelto === 'Sí' ? null : (reservaData.proveedorId || null),
+          // B-04: el proveedor sale de la moto validada (autoridad del catálogo),
+          // no del `proveedorId` que envía el navegador. Sin moto no hay proveedor.
+          proveedorId: motoObjetivo
+            ? (validacionRecursos.data?.moto?.proveedorId || null)
+            : null,
           pin: reservaData.pin || null,
           comisionInstructor: precioSnapshot.comisionInstructor,
           comisionProveedor: precioSnapshot.comisionProveedor,
@@ -599,7 +826,7 @@ export const ReservaService = {
       // Un lock que no autorizó la reserva (vencido, corrupto, de otro usuario
       // o que no coincide) queda inservible: liberarlo evita que el cupo
       // aparezca ocupado hasta 10 min sin que nadie esté pagando (ERR-010).
-      if (['slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch'].includes(codigo)) {
+      if (['slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-date-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch'].includes(codigo)) {
         await LockService.liberarLock(lockId).catch(() => {});
       }
       return {
@@ -660,13 +887,23 @@ export const ReservaService = {
       fecha: packData.fecha || null,
       fecha2: packData.fecha2 || null,
       horaId: packData.horaId || null,
+      horaId2: packData.horaId2 || null,
       instructorId: packData.instructorId || null,
       motoAsignadaId: packData.motoAsignadaId || null,
+      sedeId: packData.sedeId || null,
       userId: usuarioActual.uid,
       lockId,
       contexto: 'crearReservaPack'
     });
     if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
+
+    // ERR-051: un bloque ya iniciado no se puede comprar en pack.
+    const guardSlot = await validarSlotNoVencido({
+      fecha: packData.fecha || null,
+      horaId: packData.horaId || null,
+      lockId
+    });
+    if (!guardSlot.ok) return { success: false, error: guardSlot.error };
 
     // B-FX-CONCILIACION: la tasa del pack se congela desde la configuración,
     // nunca desde el payload del navegador.
@@ -682,6 +919,19 @@ export const ReservaService = {
       return { success: false, error: { code: 'fx-config-unavailable', message: 'No pudimos validar la tasa de cambio. Revisa tu conexión e intenta de nuevo.' } };
     }
     const tasaFX = resolverTasaFXVigente(configData);
+
+    // ERR-053 / ADR-017: el recargo de sede sale del catálogo autoritativo,
+    // nunca del payload del navegador.
+    let recargoSedeUnitario = 0;
+    if (packData.sedeId != null && packData.sedeId !== '') {
+      const sedeSnap = await getDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'sedes', String(packData.sedeId))
+      );
+      if (!sedeSnap.exists()) {
+        return { success: false, error: { code: 'sede-no-valida', message: 'La sede elegida ya no está disponible.' } };
+      }
+      recargoSedeUnitario = Math.max(0, Number(sedeSnap.data()?.recargo) || 0);
+    }
 
     // D11: revalidar el tutor y la moto efectiva del primer curso del pack
     // antes de consumir el lock. La moto sale del snapshot congelado, no del
@@ -704,7 +954,8 @@ export const ReservaService = {
         motoId: motoEfectivaPre,
         sedeId: packData.sedeId,
         curso: cursoAutoridadPre.data,
-        exigirPermitidosCurso: true
+        exigirPermitidosCurso: true,
+        requiereMoto: traeMotoPre !== 'Sí'
       });
       if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
     }
@@ -754,7 +1005,7 @@ export const ReservaService = {
           throw new Error('El horario ya no está disponible');
         }
         const lockData = lockSnap.data();
-        const lockIds = lockData.esquema === 'recursos-v1'
+        const lockIds = (lockData.esquema === 'recursos-v1' || lockData.fecha2)
           ? construirLockIds({ lockId, ...lockData })
           : [lockId];
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
@@ -763,6 +1014,27 @@ export const ReservaService = {
         if (lockCorrupto) throw new Error('El bloqueo del horario es inválido. Elige otro horario.');
         if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw new Error('El horario está bloqueado por otro usuario');
+        }
+
+        // ERR-048: el pack puede cubrir 2 días. Si la reserva declara fecha2,
+        // el lock debe declararla y retener D2; un lock D1-only falla cerrado.
+        if (packData.fecha2 && String(packData.fecha2) !== String(packData.fecha)) {
+          if (!lockData.fecha2 || String(lockData.fecha2) !== String(packData.fecha2)) {
+            throw new Error('El bloqueo no cubre la fecha del segundo día. Elige otro horario.');
+          }
+        }
+
+        // Verifica que D2 (principal + IDs por recurso) siga siendo del usuario
+        // antes de purgarlo. D1 ya quedó validado con el lock principal.
+        const docsD2 = lockData.fecha2
+          ? construirLocksPorSlot({ lockId, ...lockData })
+            .filter(doc => String(doc.fecha) === String(lockData.fecha2))
+          : [];
+        for (const docD2 of docsD2) {
+          const recursoSnap = await transaction.get(doc(db, 'locks', docD2.id));
+          if (!recursoSnap.exists() || String(recursoSnap.data().userId) !== String(usuarioActual.uid)) {
+            throw new Error('El bloqueo del segundo día cambió. Elige otro horario.');
+          }
         }
 
         // PACK-CHILD-C: el ID determinista garantiza una sola child por pack+índice.
@@ -787,8 +1059,18 @@ export const ReservaService = {
           throw new Error('El snapshot de cursos o precios del pack está incompleto. Recarga e intenta de nuevo.');
         }
 
-        // FX congelado del pack: total USD × tasa vigente, redondeado a centavos.
-        const pagoTotalVESPack = calcularPagoTotalVES(preciosPack.precioTotal, tasaFX);
+        // ERR-053 / ADR-017: recargo de sede por sesión práctica, después del
+        // descuento del pack. El snapshot base del pack no cambia.
+        const recargoPack = calcularRecargoSedePack({
+          sesiones: preciosPack.cursoIds.length,
+          recargoSede: recargoSedeUnitario,
+        });
+        const precioTotalPack = Number(
+          (Number(preciosPack.precioTotal) + recargoPack.recargoSedeTotal).toFixed(2)
+        );
+
+        // FX congelado del pack: total USD (con recargo) × tasa vigente.
+        const pagoTotalVESPack = calcularPagoTotalVES(precioTotalPack, tasaFX);
         const fxCongelado = {
           version: 1,
           monedaBase: 'USD',
@@ -809,6 +1091,9 @@ export const ReservaService = {
           motoAsignadaId: packData.motoAsignadaId,
           proveedorId: packData.proveedorId
         });
+        const recargoEq = recargoPack.recargoSedeUnitario;
+        const precioEqConRecargo = Number((valoresEq.precio + recargoEq).toFixed(2));
+        const deficitEqConRecargo = Number((valoresEq.deficitComision - recargoEq).toFixed(2));
 
         // 6. Vencimiento congelado
         const vencimientoDias = Number(pack.vencimientoDias) || 60;
@@ -836,7 +1121,11 @@ export const ReservaService = {
             descuentoValor: Number(preciosPack.descuentoValor) || 0,
             vencimientoDias
           },
-          preciosCongelados: { ...preciosPack },
+          preciosCongelados: {
+            ...preciosPack,
+            recargoSedeUnitario: recargoPack.recargoSedeUnitario,
+            recargoSedeTotal: recargoPack.recargoSedeTotal,
+          },
           // FIX-PACK-SEDE-POR-SESION: mapa de cursoId → sedesPermitidas del curso.
           // Se congela al comprar el pack (maestra inmutable post-compra).
           // Permite validar intersección curso ∩ pack en reglas Firestore sin joins.
@@ -853,7 +1142,9 @@ export const ReservaService = {
             valor: Number(preciosPack.descuentoValor) || 0,
             monto: Number(preciosPack.descuentoMonto) || 0
           },
-          precioTotalCongelado: Number(preciosPack.precioTotal) || 0,
+          precioTotalCongelado: precioTotalPack,
+          recargoSedeUnitario: recargoPack.recargoSedeUnitario,
+          recargoSedeTotal: recargoPack.recargoSedeTotal,
           fechaCompra: Timestamp.now(),
           vencimiento: Timestamp.fromMillis(vencimientoMs),
           estado: 'activo',
@@ -863,7 +1154,7 @@ export const ReservaService = {
           sedeId: packData.sedeId || null,
           tipoMoto: packData.tipoMoto || null,
           traeMotoPorCurso: packData.traeMotoPorCurso || {},
-          pagoTotalMoneda: Number(preciosPack.precioTotal) || 0,
+          pagoTotalMoneda: precioTotalPack,
           pagoTotalVES: pagoTotalVESPack,
           fxCongelado,
           pagoBanco: packData.pagoBanco || null,
@@ -928,9 +1219,9 @@ export const ReservaService = {
           traeMoto: traeMotoEq,
           sabeBicicleta: 'No', // implícito por pack
           proveedorId: valoresEq.proveedorId,
-          pagoTotalMoneda: valoresEq.precio,
+          pagoTotalMoneda: precioEqConRecargo,
           // VES prorrateado del child con la tasa congelada de la maestra.
-          pagoTotalVES: calcularPagoTotalVES(valoresEq.precio, tasaFX),
+          pagoTotalVES: calcularPagoTotalVES(precioEqConRecargo, tasaFX),
           pagoBanco: packData.pagoBanco || null,
           pagoTelefono: packData.pagoTelefono || null,
           pagoCedula: packData.pagoCedula || null,
@@ -939,13 +1230,14 @@ export const ReservaService = {
           createdAt: Timestamp.now(),
           estadoPago: 'Pendiente',
           estadoCurso: 'Pendiente',
-          precio: valoresEq.precio,
+          precio: precioEqConRecargo,
           precioBaseOriginal: valoresEq.precioBaseOriginal,
           descuentoAplicado: descuentoEqAplicado,
           comisionInstructor: valoresEq.comisionInstructor,
           comisionProveedor: valoresEq.comisionProveedor,
-          deficitComision: valoresEq.deficitComision,
-          comisionAbsorbidaPorNegocio: valoresEq.deficitComision,
+          deficitComision: deficitEqConRecargo,
+          comisionAbsorbidaPorNegocio: deficitEqConRecargo,
+          recargoSede: recargoEq,
           pin: packData.pin || null,
           terminosAceptados: packData.terminosAceptados === true,
           fechaAceptacionTerminos: packData.fechaAceptacionTerminos || null,
@@ -1057,7 +1349,8 @@ export const ReservaService = {
           motoId: motoEfectivaPre,
           sedeId: packData.sedeId || maestraPre.sedeId || null,
           curso: cursoAutoridadPre.data,
-          exigirPermitidosCurso: true
+          exigirPermitidosCurso: true,
+          requiereMoto: traeMotoPre !== 'Sí'
         });
         if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
         recursosPre = validacionRecursos.data;
@@ -1075,13 +1368,24 @@ export const ReservaService = {
       fecha: packData.fecha || null,
       fecha2: packData.fecha2 || null,
       horaId: packData.horaId || null,
+      horaId2: packData.horaId2 || null,
       instructorId: packData.instructorId || null,
       motoAsignadaId: packData.motoAsignadaId || null,
+      motoProveedorId: recursosPre?.moto?.proveedorId || null,
+      sedeId: packData.sedeId || null,
       userId: usuarioActual.uid,
       lockId,
       contexto: 'agendarSiguienteCursoPack'
     });
     if (!chequeoOcupacion.ok) return { success: false, error: chequeoOcupacion.error };
+
+    // ERR-051: un bloque ya iniciado no se puede agendar desde un pack.
+    const guardSlot = await validarSlotNoVencido({
+      fecha: packData.fecha || null,
+      horaId: packData.horaId || null,
+      lockId
+    });
+    if (!guardSlot.ok) return { success: false, error: guardSlot.error };
 
     const crearError = (code, message) => {
       const error = new Error(message);
@@ -1149,7 +1453,7 @@ export const ReservaService = {
           throw crearError('slot-occupied', 'El horario ya no está disponible');
         }
         const lockData = lockSnap.data();
-        const lockIds = lockData.esquema === 'recursos-v1'
+        const lockIds = (lockData.esquema === 'recursos-v1' || lockData.fecha2)
           ? construirLockIds({ lockId, ...lockData })
           : [lockId];
         const lockExpirado = !lockData.expiresAt || lockData.expiresAt.toMillis() <= Date.now();
@@ -1158,6 +1462,26 @@ export const ReservaService = {
         if (lockCorrupto) throw crearError('lock-invalid', 'El bloqueo del horario es inválido. Elige otro horario.');
         if (String(lockData.userId) !== String(usuarioActual.uid)) {
           throw crearError('lock-owner-mismatch', 'El horario está bloqueado por otro usuario');
+        }
+
+        // ERR-048: si la sesión del pack es de 2 días, el lock debe declarar y
+        // retener D2. Un lock D1-only falla cerrado.
+        if (packData.fecha2 && String(packData.fecha2) !== String(packData.fecha)) {
+          if (!lockData.fecha2 || String(lockData.fecha2) !== String(packData.fecha2)) {
+            throw crearError('lock-date-mismatch', 'El bloqueo no cubre la fecha del segundo día. Elige otro horario.');
+          }
+        }
+
+        // Verifica D2 (principal + IDs por recurso) antes de purgarlo.
+        const docsD2 = lockData.fecha2
+          ? construirLocksPorSlot({ lockId, ...lockData })
+            .filter(doc => String(doc.fecha) === String(lockData.fecha2))
+          : [];
+        for (const docD2 of docsD2) {
+          const recursoSnap = await transaction.get(doc(db, 'locks', docD2.id));
+          if (!recursoSnap.exists() || String(recursoSnap.data().userId) !== String(usuarioActual.uid)) {
+            throw crearError('lock-resource-mismatch', 'El bloqueo del segundo día cambió. Elige otro horario.');
+          }
         }
 
         // PACK-CHILD-C: verificar que el documento determinista aún no exista.
@@ -1186,6 +1510,11 @@ export const ReservaService = {
           motoAsignadaId: packData.motoAsignadaId,
           proveedorId: packData.proveedorId
         });
+        // ERR-053 / ADR-017: el recargo pagado al comprar queda congelado en la
+        // maestra; una sesión posterior no se reprecia aunque cambie de sede.
+        const recargoSesion = Number(preciosCongelados.recargoSedeUnitario) || 0;
+        const precioConRecargo = Number((valores.precio + recargoSesion).toFixed(2));
+        const deficitConRecargo = Number((valores.deficitComision - recargoSesion).toFixed(2));
 
         // Tasa congelada de la maestra; fallback a la tasa implícita histórica.
         const tasaFXMaestra = Number(maestra.fxCongelado?.tasaFX) > 0
@@ -1267,9 +1596,9 @@ export const ReservaService = {
           sabeBicicleta: 'Sí', // implícito por pack (ya completó Equilibrio)
           proveedorId: valores.proveedorId,
           createdAt: serverTimestamp(),
-          pagoTotalMoneda: valores.precio,
-          // VES prorrateado del child con la tasa congelada de la maestra.
-          pagoTotalVES: calcularPagoTotalVES(valores.precio, tasaFXMaestra),
+          pagoTotalMoneda: precioConRecargo,
+          // VES prorrateado del child (incluye recargo) con la tasa congelada.
+          pagoTotalVES: calcularPagoTotalVES(precioConRecargo, tasaFXMaestra),
           pagoBanco: maestra.pagoBanco || null,
           pagoTelefono: maestra.pagoTelefono || null,
           pagoCedula: maestra.pagoCedula || null,
@@ -1278,13 +1607,14 @@ export const ReservaService = {
           createdAt: Timestamp.now(),
           estadoPago: 'Aprobado', // ya pagó el pack
           estadoCurso: 'Pendiente',
-          precio: valores.precio,
+          precio: precioConRecargo,
           precioBaseOriginal: valores.precioBaseOriginal,
           descuentoAplicado,
           comisionInstructor: valores.comisionInstructor,
           comisionProveedor: valores.comisionProveedor,
-          deficitComision: valores.deficitComision,
-          comisionAbsorbidaPorNegocio: valores.deficitComision,
+          deficitComision: deficitConRecargo,
+          comisionAbsorbidaPorNegocio: deficitConRecargo,
+          recargoSede: recargoSesion,
           pin: null,
           terminosAceptados: true,
           fechaAceptacionTerminos: new Date().toISOString(),
@@ -1355,7 +1685,7 @@ export const ReservaService = {
       // Igual que en crearReserva: si el lock ya no sirve, se libera para no
       // dejar el cupo ocupado hasta su expiración (ERR-010).
       if ([
-        'slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch',
+        'slot-occupied', 'lock-expired', 'lock-invalid', 'lock-mismatch', 'lock-date-mismatch', 'lock-resource-mismatch', 'lock-owner-mismatch',
         // D11: recursos inválidos dejan el lock inservible.
         'instructor-not-found', 'instructor-inactivo', 'instructor-sede-invalida',
         // D10: tutor no habilitado o curso sin allowlist dejan el lock inservible.

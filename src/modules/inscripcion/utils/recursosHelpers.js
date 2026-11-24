@@ -1,4 +1,4 @@
-// @build: 2026-11-22 | id: ERR-020-D11 | desc: Validación pura de instructor/moto asignados antes de crear una reserva (fail-closed).
+// @build: 2026-11-23 | id: PROVEEDOR-INACTIVO | desc: Validación pura de instructor/moto asignados antes de crear una reserva (fail-closed) + proveedor inactivo no vende.
 
 const normalizarTexto = (valor) => String(valor ?? '')
   .trim()
@@ -56,4 +56,40 @@ export function validarMotoAsignada({ moto, motoId, sedeId, curso } = {}) {
     return error('moto-tipo-incompatible', 'La moto asignada no es compatible con este curso. Elige otro horario.');
   }
   return { ok: true };
+}
+
+/**
+ * Decisión del Operador (2026-11-23): un proveedor con `activo === false` no
+ * puede vender. `activo === true` o el campo ausente se consideran permitidos
+ * (compatibilidad con datos legacy). Sin documento de proveedor no hay dato:
+ * esta función recibe el doc ya resuelto y, si es `null`/`undefined`, lo deja
+ * pasar. La ausencia de doc ≠ inactivo.
+ */
+export function proveedorBloqueado(proveedor) {
+  return proveedor?.activo === false;
+}
+
+/**
+ * Excluye de la disponibilidad las motos cuyo proveedor está inactivo.
+ * - Solo aplica cuando la moto declara `proveedorId`.
+ * - Si no se conoce el proveedor (id sin doc en la lista entregada), la moto
+ *   se conserva: en DEV/legacy la ausencia de doc no equivale a inactivo y la
+ *   regla de Firestore sigue siendo la autoridad al escribir la reserva.
+ * - Moto sin `proveedorId` (moto propia/escuela sin proveedor) se conserva.
+ * No muta el arreglo recibido.
+ */
+export function filtrarMotosProveedorActivo(motos, proveedores) {
+  if (!Array.isArray(motos) || motos.length === 0) return [];
+  const porId = new Map(
+    (Array.isArray(proveedores) ? proveedores : [])
+      .map(proveedor => [normalizarId(proveedor?.id), proveedor])
+      .filter(([id]) => Boolean(id))
+  );
+  return motos.filter(moto => {
+    const proveedorId = normalizarId(moto?.proveedorId);
+    if (!proveedorId) return true;
+    const proveedor = porId.get(proveedorId);
+    if (!proveedor) return true;
+    return !proveedorBloqueado(proveedor);
+  });
 }

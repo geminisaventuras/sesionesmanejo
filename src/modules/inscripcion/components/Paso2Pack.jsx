@@ -3,6 +3,7 @@ import React, { useContext } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Package, GraduationCap } from 'lucide-react';
 import { AppContext } from '../../../context/AppContextValue';
 import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
+import { calcularRecargoSedePack } from '../utils/packPricing';
 
 export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
   const ctx = useContext(AppContext);
@@ -57,6 +58,16 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
     ? (precioBase * (Number(pack.descuentoValor) || 0)) / 100
     : (Number(pack.descuentoValor) || 0));
   const precioFinal = preciosPack?.precioTotal ?? Math.max(0, precioBase - descuentoMonto);
+  // ERR-053 / ADR-017: recargo de la sede elegida por cada sesión práctica.
+  const sedeSeleccionada = (sedes || []).find(s => String(s.id) === String(form.sedeId));
+  const sesionesPracticas = cursosPack.length;
+  const recargoPack = calcularRecargoSedePack({
+    sesiones: sesionesPracticas,
+    recargoSede: sedeSeleccionada?.recargo,
+  });
+  const recargoSedeUnitario = recargoPack.recargoSedeUnitario;
+  const recargoSedeTotal = recargoPack.recargoSedeTotal;
+  const precioFinalConRecargo = Number((precioFinal + recargoSedeTotal).toFixed(2));
 
   const traeMotoPorCurso = form.traeMotoPorCurso || {};
 
@@ -121,6 +132,18 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
         {sedesPermitidas.length === 0 && (
           <p className="text-xs text-red-700 mt-1 ml-1">
             Este pack no está disponible en ninguna sede activa.
+          </p>
+        )}
+        {sedesPermitidas.length > 1 && (
+          <p className="text-[11px] text-gray-500 mt-1 ml-1">
+            El total del pack varía según la sede: cada sesión suma el recargo de la sede elegida.
+          </p>
+        )}
+        {sedeSeleccionada && (
+          <p className={`text-xs mt-1 ml-1 font-semibold ${recargoSedeUnitario > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {recargoSedeUnitario > 0
+              ? `${nombreSedeCanonico(sedeSeleccionada)} suma $${recargoSedeUnitario.toFixed(2)} por sesión: +$${recargoSedeTotal.toFixed(2)} por ${sesionesPracticas} ${sesionesPracticas === 1 ? 'sesión' : 'sesiones'}.`
+              : `${nombreSedeCanonico(sedeSeleccionada)} no tiene recargo por sesión.`}
           </p>
         )}
       </div>
@@ -218,10 +241,19 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
       <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-200 space-y-1 text-sm">
         <div className="flex justify-between"><span className="text-gray-600">Suma base:</span><span className="font-bold">${precioBase.toFixed(2)}</span></div>
         <div className="flex justify-between text-red-600"><span>Descuento:</span><span className="font-bold">-${descuentoMonto.toFixed(2)}</span></div>
+        {recargoSedeTotal > 0 && (
+          <div className="flex justify-between text-amber-700">
+            <span>Recargo sede ({sesionesPracticas} × ${recargoSedeUnitario.toFixed(2)}):</span>
+            <span className="font-bold">+${recargoSedeTotal.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between border-t border-indigo-300 pt-1 mt-1 text-base">
           <span className="font-bold text-gray-800">Total del pack:</span>
-          <span className="font-black text-indigo-700">${precioFinal.toFixed(2)}</span>
+          <span className="font-black text-indigo-700">${precioFinalConRecargo.toFixed(2)}</span>
         </div>
+        {recargoSedeTotal > 0 && (
+          <p className="text-[10px] text-indigo-600">El recargo se cobra por sesión y no forma parte del descuento del pack.</p>
+        )}
       </div>
     </div>
   );

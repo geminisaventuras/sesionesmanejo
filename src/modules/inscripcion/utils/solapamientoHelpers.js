@@ -27,16 +27,62 @@ export function motoValida(motoId) {
 // IDs deterministas por recurso. El lock principal conserva el ID que usa la UI,
 // y estos IDs adicionales hacen que dos combinaciones distintas no puedan
 // reservar el mismo instructor o la misma moto en el mismo bloque.
-export function construirLockIds({ lockId, fecha, horaId, instructorId, motoAsignadaId }) {
-  const ids = [];
-  if (lockId) ids.push(String(lockId));
+//
+// ERR-048: una sesión de 2 días debe retener D1 y D2. El helper devuelve el
+// payload por documento ({ id, fecha, horaId, esPrincipal }) para que el
+// servicio escriba cada slot con SU fecha/hora, sin que D2 herede la de D1.
+export function construirLocksPorSlot({
+  lockId,
+  fecha,
+  fecha2 = null,
+  horaId,
+  horaId2 = null,
+  instructorId,
+  motoAsignadaId
+}) {
+  const docs = [];
+  const vistos = new Set();
+  const agregar = (id, slotFecha, slotHora, esPrincipal) => {
+    if (!id || !slotFecha || !slotHora || vistos.has(id)) return;
+    vistos.add(id);
+    docs.push({ id, fecha: slotFecha, horaId: slotHora, esPrincipal });
+  };
+
+  // D1: principal + IDs por recurso (comportamiento histórico). El principal
+  // se conserva aunque el doc legacy esté incompleto: liberar/renovar deben
+  // poder al menos apuntar al ID que conoce la UI.
+  if (lockId) {
+    if (fecha && horaId) {
+      agregar(String(lockId), fecha, horaId, true);
+    } else if (!vistos.has(String(lockId))) {
+      vistos.add(String(lockId));
+      docs.push({ id: String(lockId), fecha: fecha || null, horaId: horaId || null, esPrincipal: true });
+    }
+  }
   if (fecha && horaId && instructorId) {
-    ids.push(`${fecha}_${horaId}_instructor_${instructorId}`);
+    agregar(`${fecha}_${horaId}_instructor_${instructorId}`, fecha, horaId, false);
   }
   if (fecha && horaId && motoValida(motoAsignadaId)) {
-    ids.push(`${fecha}_${horaId}_moto_${motoAsignadaId}`);
+    agregar(`${fecha}_${horaId}_moto_${motoAsignadaId}`, fecha, horaId, false);
   }
-  return [...new Set(ids)];
+
+  // D2: mismo esquema, pero con la fecha y el bloque propios del segundo día.
+  // Sin instructor no hay ID principal determinista que D2 pueda retener.
+  const horaD2 = horaId2 || horaId;
+  if (fecha2 && String(fecha2) !== String(fecha) && horaD2 && instructorId) {
+    const sufijoMoto = motoValida(motoAsignadaId) ? String(motoAsignadaId) : 'sinmoto';
+    agregar(`${fecha2}_${horaD2}_${instructorId}_${sufijoMoto}`, fecha2, horaD2, true);
+    agregar(`${fecha2}_${horaD2}_instructor_${instructorId}`, fecha2, horaD2, false);
+    if (motoValida(motoAsignadaId)) {
+      agregar(`${fecha2}_${horaD2}_moto_${motoAsignadaId}`, fecha2, horaD2, false);
+    }
+  }
+
+  return docs;
+}
+
+export function construirLockIds(metadata = {}) {
+  return construirLocksPorSlot(metadata).map(doc => doc.id);
 }
 
 // Slots que ocupa la reserva objetivo: fecha + fecha2 con su bloque efectivo.

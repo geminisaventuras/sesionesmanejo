@@ -330,6 +330,7 @@ export default function CursosPublicosView() {
         <RutaAprendizaje
           cursos={cursos}
           packs={packs}
+          sedes={ctx.sedes || []}
           anonimo={!ctx.fbUser}
           cursosTeoricos={ctx.fbUser ? (ctx.cursosTeoricos || []) : []}
           prerequisitoDe={prerequisitoDe}

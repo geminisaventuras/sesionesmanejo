@@ -7,6 +7,22 @@ const fromCents = (cents) => Number((cents / 100).toFixed(2));
 const cents = (value) => Math.max(0, toCents(value));
 
 /**
+ * ERR-053 / ADR-017: recargo de sede por sesión práctica. Se calcula fuera del
+ * snapshot base del pack (que sigue siendo independiente de la sede) y se suma
+ * al total al comprar. `sesiones` es el número de cursos del pack: los módulos
+ * teóricos no pagan recargo de sede.
+ */
+export function calcularRecargoSedePack({ sesiones = 0, recargoSede = 0 } = {}) {
+  const unitCents = cents(recargoSede);
+  const totalSesiones = Math.max(0, Math.floor(Number(sesiones) || 0));
+  return {
+    sesiones: totalSesiones,
+    recargoSedeUnitario: fromCents(unitCents),
+    recargoSedeTotal: fromCents(unitCents * totalSesiones),
+  };
+}
+
+/**
  * Calcula el snapshot financiero de un pack.
  * Los cursos deben venir en el orden de cursoIds. Los precios se redondean
  * una sola vez y el servicio debe copiarlos verbatim.

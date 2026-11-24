@@ -7,7 +7,10 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import { Activity, Award, BookOpen, Calendar, Settings, TrendingUp, Wallet } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
-import { calcularIngresosUltimosDias, calcularMetricasNegocio } from '../utils/metricasAdmin';
+import { useIngresosPorCompra } from '../hooks/useIngresosPorCompra';
+import { calcularIngresosUltimosDias, calcularMetricasNegocio, restarDiasVET } from '../utils/metricasAdmin';
+import { MONEDA_INGRESOS } from '../utils/resumenAdmin';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../../firebase';
 
@@ -45,7 +48,7 @@ const MiniGraficoBarras = memo(({ datos }) => {
 });
 
 const AdminMetricas = () => {
-  const { instructores, cursos, config, logoutUser, notifications } = useContext(AppContext);
+  const { instructores, cursos, logoutUser, notifications } = useContext(AppContext);
   const navigate = useNavigate();
   const { reservas, cargando, error } = useAdminReservas();
   const [ultimosCompletados, setUltimosCompletados] = useState([]);
@@ -99,7 +102,19 @@ const AdminMetricas = () => {
     [res, cursosList]
   );
 
-  const datosGrafico = useMemo(() => calcularIngresosUltimosDias(res, { dias: 7 }), [res]);
+  // ERR-050: el gráfico usa la misma fuente de compra que el KPI del Home
+  // (createdAt/fechaCompra), no el listener de 100 por fecha de curso.
+  const hoyStr = useMemo(() => obtenerFechaVenezuela(), []);
+  const desdeVentana = useMemo(
+    () => new Date(`${restarDiasVET(hoyStr, 6)}T00:00:00-04:00`).toISOString(),
+    [hoyStr]
+  );
+  const { reservas: reservasCompras, packs: packsCompras } = useIngresosPorCompra({ desde: desdeVentana });
+
+  const datosGrafico = useMemo(
+    () => calcularIngresosUltimosDias(reservasCompras, { dias: 7, packs: packsCompras }),
+    [reservasCompras, packsCompras]
+  );
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -164,7 +179,7 @@ const AdminMetricas = () => {
             <h2 className="mb-1 flex items-center gap-2 text-xs font-bold text-gray-900">
               <TrendingUp size={14} className="text-indigo-600" aria-hidden="true" />
               Ingresos últimos 7 días
-              <span className="ml-auto text-[10px] font-bold text-gray-500">{config.monedaPagoStaff || 'USD'}</span>
+              <span className="ml-auto text-[10px] font-bold text-gray-500">{MONEDA_INGRESOS}</span>
             </h2>
             <MiniGraficoBarras datos={datosGrafico} />
           </div>
@@ -194,7 +209,7 @@ const AdminMetricas = () => {
         </div>
 
         <p className="px-1 text-[10px] leading-snug text-gray-400">
-          Calculado con las reservas cargadas en el panel. Top Ventas y Conversión usan la misma lógica del Home.
+          Ingresos por fecha de compra (misma fuente que el Home). Top Ventas y Conversión usan las reservas cargadas en el panel.
         </p>
       </div>
     </AppShell>

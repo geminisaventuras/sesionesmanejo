@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowRight, ChevronDown, ChevronUp, Package, Sparkles } from 'lucide-react';
 import { construirRutaAprendizaje } from '../utils/rutaAprendizaje';
 import { resolverPrecioPackPublico } from '../utils/precioPackPublico';
+import { recargosSedeDePack } from '../../inscripcion/utils/packPublico';
 import EtapaRuta from './EtapaRuta';
 import TarjetaCursoRuta from './TarjetaCursoRuta';
 import TarjetaPackRuta from './TarjetaPackRuta';
@@ -15,6 +16,7 @@ import TarjetaPackRuta from './TarjetaPackRuta';
 export default function RutaAprendizaje({
   cursos = [],
   packs = [],
+  sedes = [],
   mostrarPacks = true,
   anonimo = true,
   cursosTeoricos = [],
@@ -27,7 +29,15 @@ export default function RutaAprendizaje({
   onReintentarPacks,
   className = ''
 }) {
-  const ruta = useMemo(() => construirRutaAprendizaje(cursos, packs), [cursos, packs]);
+  const packsConRecargos = useMemo(
+    () => (Array.isArray(packs) ? packs : []).map((pack) =>
+      Array.isArray(pack?.recargosSede)
+        ? pack
+        : { ...pack, recargosSede: recargosSedeDePack(pack, sedes) }
+    ),
+    [packs, sedes]
+  );
+  const ruta = useMemo(() => construirRutaAprendizaje(cursos, packsConRecargos), [cursos, packsConRecargos]);
   const preciosTeoricos = useMemo(() => {
     const mapa = new Map();
     (cursosTeoricos || []).forEach((curso) => {

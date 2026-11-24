@@ -1,7 +1,7 @@
 import { doc, setDoc, query, collection, where, orderBy, limit, Timestamp, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
-import { construirLockIds } from '../utils/solapamientoHelpers';
-import { clasificarConflictoLock, esMismoSlotLock } from '../utils/locksHelpers';
+import { construirLockIds, construirLocksPorSlot } from '../utils/solapamientoHelpers';
+import { clasificarConflictoLock, clasificarRenovacion, esMismoSlotLock } from '../utils/locksHelpers';
 
 const MAX_LIMPIEZA = 10;
 const LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -17,11 +17,12 @@ async function clasificarOcupacionTemporal(lockIds, userId) {
   const lecturas = await Promise.allSettled(
     (lockIds || []).map(id => getDoc(doc(db, 'ocupacionTemporal', id)))
   );
-  for (const lectura of lecturas) {
+  for (let index = 0; index < lecturas.length; index += 1) {
+    const lectura = lecturas[index];
     if (lectura.status !== 'fulfilled' || !lectura.value.exists()) continue;
     const lock = lectura.value.data();
     const conflicto = clasificarConflictoLock(lock, userId);
-    if (conflicto) return { conflicto, lock };
+    if (conflicto) return { conflicto, lock: { ...lock, id: (lockIds || [])[index] } };
   }
   return null;
 }
@@ -35,18 +36,52 @@ export const LockService = {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del recurso a bloquear' } };
     }
 
+    const docsPorSlot = construirLocksPorSlot({ lockId, ...metadata });
+    const lockIds = docsPorSlot.map(item => item.id);
+    const fecha2 = metadata.fecha2 && String(metadata.fecha2) !== String(metadata.fecha)
+      ? metadata.fecha2
+      : null;
+
+    // Fail-closed: si se declara una sesión de 2 días, el lock debe retener D2.
+    if (fecha2 && !docsPorSlot.some(item => String(item.fecha) === String(fecha2))) {
+      return { success: false, error: { code: 'missing-fields', message: 'El bloqueo no cubre el segundo día de la sesión' } };
+    }
+
     const batch = writeBatch(db);
     const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
-    const datosLock = {
+    const datosBase = {
       esquema: 'recursos-v1',
       expiresAt,
       userId,
-      fecha: metadata.fecha,
-      horaId: metadata.horaId,
       instructorId: metadata.instructorId || null,
       motoAsignadaId: metadata.motoAsignadaId || null
     };
-    const lockIds = construirLockIds({ lockId, ...metadata });
+    const payloadPorSlot = (slot) => {
+      const datos = { ...datosBase, fecha: slot.fecha, horaId: slot.horaId };
+      // Solo el documento principal de D1 declara la segunda jornada. Los
+      // documentos de D2 llevan su propia fecha/hora para que los lectores
+      // que filtran por `fecha` (ocupacionTemporal, espejo, admin) los vean.
+      if (slot.esPrincipal && fecha2 && String(slot.fecha) === String(metadata.fecha)) {
+        datos.fecha2 = fecha2;
+        datos.horaId2 = metadata.horaId2 || metadata.horaId;
+      }
+      return datos;
+    };
+
+    // D13/ERR-048: un doc propio del MISMO set (principal de D2 o ID por
+    // recurso) también es reutilizable. Se compara contra SU fecha/hora para
+    // no confundirlo con otra sesión o con otro día.
+    const esDocDeLaSesion = (lockExistente, idExistente) => {
+      if (esMismoSlotLock(lockExistente, metadata)) return true;
+      const esperado = docsPorSlot.find(item => item.id === idExistente);
+      if (!esperado || esperado.id === lockId) return false;
+      return esMismoSlotLock(lockExistente, {
+        fecha: esperado.fecha,
+        horaId: esperado.horaId,
+        instructorId: metadata.instructorId,
+        motoAsignadaId: metadata.motoAsignadaId
+      });
+    };
 
     // B-LOCK-PERMISSION-DENIED-GENERICO: leer solo los locks que el usuario
     // puede ver (propios/admin). Si el conflicto es suyo, mensaje específico;
@@ -61,7 +96,7 @@ export const LockService = {
       if (conflicto === 'lock-own-active') {
         // D13: mismo usuario + mismo slot = reintento/doble submit o lock
         // vigente aún válido. Se renueva en vez de bloquearlo como ajeno.
-        if (esMismoSlotLock(lockExistente, metadata)) {
+        if (esDocDeLaSesion(lockExistente, lectura.value.id)) {
           propioMismoSlot = true;
           continue;
         }
@@ -71,16 +106,17 @@ export const LockService = {
     }
 
     if (propioMismoSlot) {
-      const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId);
+      const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId, metadata);
       if (reutilizado) return reutilizado;
     }
 
     // Batch atómico: si cualquiera de los IDs por recurso ya existe (mismo
     // instructor o misma moto en el mismo bloque), Firestore rechaza el lote
-    // completo y no queda un lock parcial.
-    for (const id of lockIds) {
-      batch.set(doc(db, 'locks', id), datosLock);
-      batch.set(doc(db, 'ocupacionTemporal', id), datosLock);
+    // completo y no queda un lock parcial. Cada slot (D1/D2) lleva su payload.
+    for (const slot of docsPorSlot) {
+      const datosSlot = payloadPorSlot(slot);
+      batch.set(doc(db, 'locks', slot.id), datosSlot);
+      batch.set(doc(db, 'ocupacionTemporal', slot.id), datosSlot);
     }
 
     try {
@@ -100,8 +136,8 @@ export const LockService = {
         if (clasificacion?.conflicto === 'lock-own-active') {
           // D13: si el lock vigente es del mismo usuario y el mismo slot
           // (p. ej. doble submit en paralelo), se renueva y se reporta éxito.
-          if (esMismoSlotLock(clasificacion.lock, metadata)) {
-            const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId);
+          if (esDocDeLaSesion(clasificacion.lock, clasificacion.lock.id)) {
+            const reutilizado = await this.renovarLocksPropios(lockIds, userId, lockId, metadata);
             if (reutilizado) return reutilizado;
           }
           return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
@@ -118,33 +154,87 @@ export const LockService = {
   /**
    * D13: renueva el lock vigente del propio usuario. Devuelve null si ya no
    * hay locks propios que renovar (el flujo puede intentar la creación normal).
+   *
+   * ERR-048 / D-01/D-02/D-03:
+   *  - Clasifica con `ocupacionTemporal` (legible por autenticados), no con
+   *    `locks` (leer IDs inexistentes allí responde permission-denied).
+   *  - Renueva SOLO `expiresAt` en los documentos existentes.
+   *  - Crea los IDs faltantes con payload completo.
+   *  - No convierte un lock vivo D1-only en D1+D2: las reglas solo permiten
+   *    actualizar `expiresAt`. En ese caso devuelve `lock-own-active`.
    */
-  async renovarLocksPropios(lockIds, userId, lockId) {
+  async renovarLocksPropios(lockIds, userId, lockId, metadata = {}) {
     const expiresAt = Timestamp.fromMillis(Date.now() + LOCK_DURATION_MS - CLOCK_SKEW_MARGIN_MS);
-    const lecturas = await Promise.allSettled(
-      (lockIds || []).map(id => getDoc(doc(db, 'locks', id)))
-    );
-    const propios = [];
-    lecturas.forEach((lectura, index) => {
-      if (lectura.status !== 'fulfilled' || !lectura.value.exists()) return;
-      const lock = lectura.value.data();
-      if (String(lock.userId) === String(userId)) propios.push(lockIds[index]);
-    });
-    if (propios.length === 0) return null;
-    // El lock principal que la reserva leerá debe existir; si el lock vigente
-    // es solo un ID por recurso (dato legacy), no se puede reutilizar sin
-    // inventar un documento incompleto.
-    if (!propios.includes(lockId)) {
-      return { success: false, error: { code: 'lock-own-active', message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.' } };
+    const declarados = metadata?.fecha
+      ? construirLocksPorSlot({ lockId, ...metadata })
+      : null;
+    const declaraSegundoDia = Boolean(metadata.fecha2)
+      && String(metadata.fecha2) !== String(metadata.fecha);
+
+    // Fail-closed: si se declara D2 pero no se puede derivar (p. ej. sin
+    // instructor), no hay set completo que renovar.
+    if (declarados && declaraSegundoDia
+      && !declarados.some(item => String(item.fecha) === String(metadata.fecha2))) {
+      return { success: false, error: { code: 'lock-invalid', message: 'El bloqueo no cubre los dos días de la sesión.' } };
     }
+
+    const objetivos = declarados || [...new Set(lockIds || [])].map(id => ({
+      id,
+      fecha: null,
+      horaId: null,
+      esPrincipal: String(id) === String(lockId)
+    }));
+
+    const lecturas = await Promise.allSettled(
+      objetivos.map(item => getDoc(doc(db, 'ocupacionTemporal', item.id)))
+    );
+    const resultados = lecturas.map((lectura, index) => {
+      const id = objetivos[index].id;
+      if (lectura.status !== 'fulfilled') {
+        return { id, status: 'rejected', error: lectura.reason };
+      }
+      const existe = lectura.value.exists();
+      return {
+        id,
+        status: 'fulfilled',
+        exists: existe,
+        data: existe ? lectura.value.data() : null
+      };
+    });
+
+    const clasificacion = clasificarRenovacion(resultados, userId, lockId, { declaraSegundoDia });
+    // Sin locks propios: el flujo puede intentar la creación normal.
+    if (clasificacion.estado === 'sin-propios') return null;
+    if (clasificacion.code) {
+      return { success: false, error: { code: clasificacion.code, message: clasificacion.message } };
+    }
+
     try {
       const batch = writeBatch(db);
-      for (const id of propios) {
-        batch.set(doc(db, 'locks', id), { expiresAt }, { merge: true });
-        batch.set(doc(db, 'ocupacionTemporal', id), { expiresAt }, { merge: true });
+      for (const item of objetivos) {
+        const existente = clasificacion.propios.find(propio => String(propio.id) === String(item.id));
+        if (existente) {
+          // D-03: las reglas solo permiten actualizar `expiresAt`.
+          batch.set(doc(db, 'locks', item.id), { expiresAt }, { merge: true });
+          batch.set(doc(db, 'ocupacionTemporal', item.id), { expiresAt }, { merge: true });
+          continue;
+        }
+        // Sin metadata no se puede reconstruir el payload de un faltante.
+        if (!declarados) continue;
+        const payload = {
+          esquema: 'recursos-v1',
+          expiresAt,
+          userId,
+          instructorId: metadata.instructorId || null,
+          motoAsignadaId: metadata.motoAsignadaId || null,
+          fecha: item.fecha,
+          horaId: item.horaId
+        };
+        batch.set(doc(db, 'locks', item.id), payload);
+        batch.set(doc(db, 'ocupacionTemporal', item.id), payload);
       }
       await batch.commit();
-      return { success: true, data: { lockId, lockIds: propios, renovado: true } };
+      return { success: true, data: { lockId, lockIds: objetivos.map(item => item.id), renovado: true } };
     } catch (error) {
       return { success: false, error: { code: error.code, message: error.message } };
     }

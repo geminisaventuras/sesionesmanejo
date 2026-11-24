@@ -11,14 +11,18 @@ import {
   Package, Settings, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { useAdminReservas } from '../hooks/useAdminReservas';
+import { useIngresosPorCompra } from '../hooks/useIngresosPorCompra';
+import { useOcupacionConfirmada } from '../../../hooks/useOcupacionConfirmada';
 import { construirAlertas, msDeFecha } from '../utils/alertasAdmin';
 import { calcularMetricasNegocio } from '../utils/metricasAdmin';
 import {
   calcularIngresosMes,
   contarMotosActivas,
-  contarReservasHoy,
+  contarOcupacionHoy,
+  MONEDA_INGRESOS,
   obtenerActividadReciente,
 } from '../utils/resumenAdmin';
+import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 
 const TarjetaResumen = memo(({ titulo, valor, color, icon: Icon }) => (
   <div className={`${color} relative overflow-hidden rounded-xl p-3 text-white shadow-sm`}>
@@ -46,9 +50,15 @@ const formatearFechaActividad = (valor) => {
 };
 
 const AdminResumen = () => {
-  const { instructores, sedes, motos, cursos, config, seedDatabase, logoutUser, notifications } = useContext(AppContext);
+  const { instructores, sedes, motos, cursos, seedDatabase, logoutUser, notifications } = useContext(AppContext);
   const navigate = useNavigate();
   const { reservas, packs, accesosTeoricos, cargando, error } = useAdminReservas();
+  const {
+    reservas: reservasIngresos,
+    packs: packsIngresos,
+    cargando: cargandoIngresos,
+    error: errorIngresos,
+  } = useIngresosPorCompra();
 
   const res = reservas || [];
   const instrs = instructores || [];
@@ -57,18 +67,23 @@ const AdminResumen = () => {
   const packsList = packs || [];
   const accesosList = accesosTeoricos || [];
 
-  // Ingresos del mes por FECHA DE COMPRA (no por fecha del curso):
-  // reservas aprobadas que no son hijas de pack + maestras de reservasPack aprobadas.
-  // `calcularIngresosMes` documenta la definición y evita el doble conteo de `pack_sub`.
+  // Ingresos del mes: consulta propia por fecha de compra VET (createdAt/fechaCompra),
+  // no el listener de reservas ordenado por fecha de curso. Ver `useIngresosPorCompra`.
   const ingresosMes = useMemo(
-    () => calcularIngresosMes({ reservas: res, packs: packsList }),
-    [res, packsList]
+    () => calcularIngresosMes({ reservas: reservasIngresos, packs: packsIngresos }),
+    [reservasIngresos, packsIngresos]
   );
-
-  const hoyStr = new Date().toISOString().split('T')[0];
-  // La capacidad real por tutores/motos/sedes todavía no existe: se muestra solo el
-  // número de reservas/bloques ocupados hoy, sin denominador.
-  const bloquesOcupadosHoy = useMemo(() => contarReservasHoy(res, hoyStr), [res, hoyStr]);
+  const hoyStr = obtenerFechaVenezuela();
+  // Ocupación de hoy desde el espejo `ocupacionConfirmada` (ADR-011), mismo día VET.
+  // Sin denominador: el agregado de capacidad entre sedes sigue abierto en ADR-011.
+  const { ocupacion: ocupacionHoy, cargando: cargandoOcupacion } = useOcupacionConfirmada({
+    fecha: hoyStr,
+    limitDocs: 500,
+  });
+  const bloquesOcupadosHoy = useMemo(
+    () => contarOcupacionHoy(ocupacionHoy, hoyStr),
+    [ocupacionHoy, hoyStr]
+  );
   const instrActivos = instrs.filter(i => i.activo).length;
   const motosActivas = useMemo(() => contarMotosActivas(motosList), [motosList]);
 
@@ -185,8 +200,18 @@ const AdminResumen = () => {
 
         {/* KPIs de color (sin cambios de paleta) */}
         <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
-          <TarjetaResumen titulo="Ingresos Mes" valor={`${config.monedaPagoStaff || 'USD'} ${ingresosMes}`} color="bg-gradient-to-br from-emerald-600 to-emerald-800" icon={DollarSign} />
-          <TarjetaResumen titulo="Ocupación Hoy" valor={bloquesOcupadosHoy} color="bg-gradient-to-br from-indigo-600 to-indigo-800" icon={Calendar} />
+          <TarjetaResumen
+            titulo="Ingresos Mes"
+            valor={cargandoIngresos || errorIngresos ? '—' : `${MONEDA_INGRESOS} ${ingresosMes}`}
+            color="bg-gradient-to-br from-emerald-600 to-emerald-800"
+            icon={DollarSign}
+          />
+          <TarjetaResumen
+            titulo="Ocupación Hoy"
+            valor={cargandoOcupacion ? '—' : bloquesOcupadosHoy}
+            color="bg-gradient-to-br from-indigo-600 to-indigo-800"
+            icon={Calendar}
+          />
           <TarjetaResumen titulo="Instructores" valor={instrActivos} color="bg-gradient-to-br from-purple-600 to-purple-800" icon={Users} />
           <TarjetaResumen titulo="Motos activas" valor={motosActivas} color="bg-gradient-to-br from-slate-700 to-slate-900" icon={Bike} />
         </div>

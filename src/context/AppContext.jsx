@@ -32,7 +32,7 @@ export const AppProvider = ({ children }) => {
     const precioBaseCurso = Number(curso?.precioBase) || 0;
     let total = precioBaseCurso > 0 ? precioBaseCurso : (Number(cfg.config.precioBase) || 0);
     const s = firestore.sedes.find(x => String(x.id) === String(sedeId));
-    if (s?.nombre === 'Guarenas') total += Number(cfg.config.recargoGuarenas) || 0;
+    if (s) total += Number(s.recargo) || 0;
     if (sabeBici === 'No') total += Number(cfg.config.recargoSinBici) || 0;
         if (traeMoto === 'Sí') total -= Number(cfg.config.descuentoMotoPropia) || 0;
     // A2.2-bis: suma el alquiler de moto si la escuela la provee y el alumno no la trae
@@ -60,6 +60,7 @@ export const AppProvider = ({ children }) => {
     saveInstructor: firestore.saveInstructor,
     handleSaveInstructorSeguro: firestore.handleSaveInstructorSeguro,
     proveedores: firestore.proveedores,
+    proveedoresPublicos: firestore.proveedoresPublicos,
     saveProveedorSeguro: firestore.saveProveedorSeguro,    
     motos: firestore.motos,
     saveMoto: firestore.saveMoto,

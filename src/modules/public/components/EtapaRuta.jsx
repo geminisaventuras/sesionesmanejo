@@ -6,14 +6,6 @@
 import TarjetaCursoRuta from './TarjetaCursoRuta';
 import RutaIlustracion from './RutaIlustracion';
 
-function ModulosDeEtapa(etapa) {
-  return (etapa?.cursos || []).flatMap((curso) =>
-    (Array.isArray(curso?.modulos) ? curso.modulos : [])
-      .map((modulo) => (typeof modulo === 'string' ? modulo : modulo?.nombre))
-      .filter(Boolean)
-  );
-}
-
 function VacioEtapa({ children }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-5 text-sm text-slate-500">
@@ -33,7 +25,6 @@ export default function EtapaRuta({
   if (!etapa) return null;
 
   const tituloId = `ruta-etapa-${etapa.clave}-titulo`;
-  const modulos = ModulosDeEtapa(etapa);
 
   const renderCurso = (curso, indice) => (
     <TarjetaCursoRuta
@@ -79,7 +70,7 @@ export default function EtapaRuta({
           </div>
         </div>
 
-        <RutaIlustracion tipo={etapa.clave} modulos={modulos} className="mt-3" />
+        <RutaIlustracion tipo={etapa.clave} className="mt-3" />
       </header>
 
       <div data-ruta-stagger className="mt-4 space-y-4 lg:mt-0">

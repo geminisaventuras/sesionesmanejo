@@ -27,6 +27,7 @@ export const CAMPOS_PACK_PUBLICO = Object.freeze([
   'descuentoValor',
   'vencimientoDias',
   'preciosPublicos',
+  'recargosSede',
   'actualizadoEn',
 ]);
 
@@ -49,6 +50,8 @@ export const CAMPOS_INTERNOS_PACK = Object.freeze([
   'calculadoEn',
   'motoIncluidaPorCurso',
   'permiteTraerMotoPropiaPorCurso',
+  'recargoSedeUnitario',
+  'recargoSedeTotal',
 ]);
 
 const INTERNOS = new Set(CAMPOS_INTERNOS_PACK);
@@ -92,6 +95,25 @@ function mapaPorId(items) {
       .filter((item) => item && typeof item === 'object' && item.id != null)
       .map((item) => [String(item.id), item])
   );
+}
+
+/**
+ * ERR-053 / ADR-017: recargo público por sede permitida del pack.
+ * Solo id, nombre y recargo; nunca comisiones ni datos internos.
+ */
+export function recargosSedeDePack(pack, sedes = []) {
+  const permitidas = Array.isArray(pack?.sedesPermitidas)
+    ? pack.sedesPermitidas.map((id) => String(id))
+    : [];
+  return (Array.isArray(sedes) ? sedes : [])
+    .filter((sede) => sede && sede.activo !== false)
+    .filter((sede) => permitidas.length === 0 || permitidas.includes(String(sede.id)))
+    .map((sede) => ({
+      id: String(sede.id),
+      nombre: typeof sede.nombre === 'string' ? sede.nombre.trim() : '',
+      recargo: Math.max(0, Number(sede.recargo) || 0),
+    }))
+    .filter((sede) => sede.id && sede.nombre);
 }
 
 /** Montos desde el snapshot ya calculado (`pack.precios`). */
@@ -183,6 +205,7 @@ export function construirPackPublico({
   pack,
   cursos = [],
   cursosTeoricos = [],
+  sedes = [],
   actualizadoEn = null,
 } = {}) {
   if (!pack || typeof pack !== 'object') return null;
@@ -228,6 +251,7 @@ export function construirPackPublico({
     descuentoValor,
     vencimientoDias: Math.max(0, Math.round(Number(pack.vencimientoDias) || 0)),
     preciosPublicos,
+    recargosSede: recargosSedeDePack(pack, sedes),
     actualizadoEn: actualizadoEn ?? null,
   };
 }
@@ -271,6 +295,38 @@ export function validarPackPublico(doc) {
     errores.push('teoricosCount debe ser entero >= 0');
   }
   if ('cursosTeoricosIncluidos' in doc) errores.push('cursosTeoricosIncluidos no debe publicarse');
+
+  const recargos = doc.recargosSede;
+  if (!Array.isArray(recargos)) {
+    errores.push('recargosSede debe ser lista');
+  } else {
+    const permitidosRecargo = new Set(['id', 'nombre', 'recargo']);
+    const idsRecargo = new Set();
+    recargos.forEach((item, indice) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        errores.push(`recargosSede[${indice}] inválido`);
+        return;
+      }
+      const extras = Object.keys(item).filter((clave) => !permitidosRecargo.has(clave));
+      if (extras.length > 0) {
+        errores.push(`recargosSede[${indice}] con campos no públicos: ${extras.join(', ')}`);
+      }
+      if (typeof item.id !== 'string' || !item.id.trim()) {
+        errores.push(`recargosSede[${indice}].id inválido`);
+      } else if (idsRecargo.has(item.id)) {
+        errores.push(`recargosSede con id duplicado: ${item.id}`);
+      } else {
+        idsRecargo.add(item.id);
+      }
+      if (typeof item.nombre !== 'string' || !item.nombre.trim()) {
+        errores.push(`recargosSede[${indice}].nombre inválido`);
+      }
+      const recargo = Number(item.recargo);
+      if (!Number.isFinite(recargo) || recargo < 0) {
+        errores.push(`recargosSede[${indice}].recargo inválido`);
+      }
+    });
+  }
 
   const precios = doc.preciosPublicos;
   if (!precios || typeof precios !== 'object') {

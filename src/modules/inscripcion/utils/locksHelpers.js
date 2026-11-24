@@ -52,16 +52,129 @@ function normalizarMoto(valor) {
 }
 
 /**
+ * ERR-048 / D-01: clasifica las lecturas de `ocupacionTemporal` para decidir
+ * si se puede renovar/completar el set de locks sin consultar `locks` (cuya
+ * lectura de IDs inexistentes responde permission-denied).
+ *
+ * Entrada normalizada: [{ id, status:'fulfilled'|'rejected', exists, data }].
+ * Fail-closed: una lectura rechazada se reporta como error, NUNCA como ajeno.
+ */
+export function clasificarRenovacion(resultados = [], userId, lockId, { declaraSegundoDia = false } = {}) {
+  const propios = [];
+  const faltantes = [];
+  const ajenos = [];
+  const errores = [];
+
+  for (const resultado of resultados) {
+    const id = resultado?.id;
+    if (!resultado || resultado.status === 'rejected' || resultado.error) {
+      errores.push(id ?? null);
+      continue;
+    }
+    if (resultado.exists === false) {
+      faltantes.push(id);
+      continue;
+    }
+    if (!resultado.data) {
+      errores.push(id ?? null);
+      continue;
+    }
+    if (String(resultado.data.userId) === String(userId)) propios.push({ id, data: resultado.data });
+    else ajenos.push(id);
+  }
+
+  const base = { propios, faltantes, ajenos, errores };
+
+  if (errores.length > 0) {
+    return {
+      ...base,
+      estado: 'error',
+      code: 'lock-write-denied',
+      message: 'No pudimos renovar el bloqueo. Revisa tu sesión o intenta de nuevo.'
+    };
+  }
+  if (ajenos.length > 0) {
+    return {
+      ...base,
+      estado: 'ajeno',
+      code: 'lock-owner-mismatch',
+      message: 'Este horario acaba de ser separado por otro usuario.'
+    };
+  }
+  if (propios.length === 0) {
+    return { ...base, estado: 'sin-propios', code: null, message: null };
+  }
+
+  const principal = propios.find(item => String(item.id) === String(lockId));
+  if (!principal) {
+    return {
+      ...base,
+      estado: 'sin-principal',
+      code: 'lock-own-active',
+      message: 'Ya tienes este horario separado. Continúa con el pago o espera a que expire.'
+    };
+  }
+
+  // D-01/D-03: las reglas solo permiten actualizar `expiresAt`. No se puede
+  // convertir un lock vivo D1-only en D1+D2; se espera a que expire (≤10 min).
+  if (declaraSegundoDia && !principal.data?.fecha2) {
+    return {
+      ...base,
+      estado: 'legacy-sin-d2',
+      code: 'lock-own-active',
+      message: 'Ya tienes este horario separado; espera a que expire o reselecciona.'
+    };
+  }
+
+  return { ...base, estado: 'ok', code: null, message: null };
+}
+
+/**
  * D13: el mismo usuario puede reutilizar/renovar su lock vigente en vez de
  * recibirlo como conflicto. Solo aplica si el lock existente corresponde
  * exactamente al mismo slot (fecha, bloque, instructor y moto), para no
  * ampliar el alcance del lock ni debilitar la exclusión entre usuarios.
+ *
+ * ERR-048: una sesión de 2 días declara `fecha2`/`horaId2`. Se reconoce como
+ * mismo slot si ambos declaran el mismo D2. Un lock legacy D1-only también
+ * coincide en D1 para que `renovarLocksPropios` responda `lock-own-active`
+ * (no se puede ampliar un doc vivo: las reglas solo permiten `expiresAt`).
+ * Un doc que solo responde a D2 (fecha = fecha2) NO es el mismo slot.
  */
-export function esMismoSlotLock(lock, { fecha, horaId, instructorId, motoAsignadaId } = {}) {
+export function esMismoSlotLock(lock, {
+  fecha,
+  horaId,
+  instructorId,
+  motoAsignadaId,
+  fecha2 = null,
+  horaId2 = null
+} = {}) {
   if (!lock) return false;
   const mismo = (a, b) => String(a ?? '') === String(b ?? '');
-  return mismo(lock.fecha, fecha)
+  const coincideD1 = mismo(lock.fecha, fecha)
     && mismo(lock.horaId, horaId)
     && mismo(lock.instructorId, instructorId)
     && mismo(normalizarMoto(lock.motoAsignadaId), normalizarMoto(motoAsignadaId));
+  if (!coincideD1) return false;
+
+  const declaraD2 = Boolean(fecha2) && !mismo(fecha2, fecha);
+  const lockFecha2 = lock.fecha2 || null;
+
+  if (!declaraD2) {
+    // Sesión de un día: un lock de 2 días no se reutiliza para una de 1 día.
+    return !lockFecha2;
+  }
+
+  if (!lockFecha2) {
+    // Lock legacy de una sola jornada: mismo D1, para que la renovación
+    // responda lock-own-active en vez de intentar ampliar el documento.
+    return true;
+  }
+
+  if (!mismo(lockFecha2, fecha2)) return false;
+
+  // Mismo segundo día: también debe coincidir el bloque efectivo de D2.
+  const lockHora2 = lock.horaId2 || lock.horaId;
+  const metaHora2 = horaId2 || horaId;
+  return mismo(lockHora2, metaHora2);
 }

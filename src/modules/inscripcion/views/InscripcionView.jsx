@@ -19,6 +19,7 @@ import { Paso2Configuracion } from '../components/Paso2Configuracion';
 import { Paso2Pack } from '../components/Paso2Pack';
 import { Paso3Horario } from '../components/Paso3Horario';
 import { Paso4Pago } from '../components/Paso4Pago';
+import { calcularRecargoSedePack } from '../utils/packPricing';
 import { Stepper } from '../components/Stepper';
 import { CalendarioFlotante } from '../components/CalendarioFlotante';
 import { FormularioSalud } from '../components/FormularioSalud';
@@ -40,7 +41,8 @@ import { ordenarHorarios } from '../../shared/utils/horarios';
 import { filtrarLocksDeOtros, eliminarLockLocal } from '../utils/locksHelpers';
 import { calcularPrecioIndividual } from '../utils/precioIndividual';
 import { enriquecerDiasConRoles } from '../utils/disponibilidadRoles';
-import { getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
+import { filtrarMotosProveedorActivo } from '../utils/recursosHelpers';
+import { bloqueYaInicio, getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { useOcupacionConfirmadaRango } from '../../../hooks/useOcupacionConfirmadaRango';
 const LOCK_DURATION = 10 * 60 * 1000;
@@ -98,10 +100,15 @@ const capturarContextoLock = (form, esPack, packId) => ({
 
 // ─── Función pura de disponibilidad ─────────────────────
 const evaluarDisponibilidad = ({
-  form, horarios, instructores, motos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
+  form, horarios, instructores, motos, proveedoresPublicos, reservasConfirmadas, activeLocks, selectingBlockId, currentUserId, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
 }) => {
     // SSOT-MOTO-HELPERS: derivar necesidad de moto desde helper único.
   const { cursoIncluyeMoto, necesitaMoto } = calcularNecesitaMoto(cursoSeleccionado, form.traeMoto);
+
+  // PROVEEDOR-INACTIVO: las motos de un proveedor con `activo === false` no
+  // se ofrecen. El filtro es puro y se aplica una sola vez por evaluación.
+  // Fuente: espejo público `proveedoresPublicos` (`{ id, activo }`).
+  const motosPermitidas = filtrarMotosProveedorActivo(motos, proveedoresPublicos);
 
   // FIX-INSTRUCTORES-PERMITIDOS: SSOT para filtrar instructores permitidos por curso.
   // Si el curso no define instructoresPermitidos (o está vacío), todos los activos son válidos.
@@ -205,7 +212,7 @@ const evaluarDisponibilidad = ({
 
         let motosDisponibles = [];
     if (necesitaMoto) {
-      motosDisponibles = (motos || [])
+      motosDisponibles = (motosPermitidas || [])
         .filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId))
         .filter(m => !isMotoOcupada(m.id, bloque.id, fecha1, fecha2));
     }
@@ -250,7 +257,11 @@ if (!necesitaMoto) {
         afectaInstructor(b, i.id, fecha1, bloque.id, form.sedeId) ||
         (fecha2 && afectaInstructor(b, i.id, fecha2, bloque.id, form.sedeId))
       ));
-           const motosTotal = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+           const motosTotal = (motosPermitidas || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+    // PROVEEDOR-INACTIVO: si había motos elegibles y todas quedaron fuera por
+    // proveedor inactivo, el bloque se reporta con el estado "No disponible".
+    const motosElegiblesBase = (motos || []).filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId));
+    const sinMotoPorProveedorInactivo = necesitaMoto && motosTotal.length === 0 && motosElegiblesBase.length > 0;
         const instructoresLibresSinLocks = instructoresTotal.filter(i => !reservasDeOtros.some(r => {
       if (r.instructorId !== i.id) return false;
       if (fecha1 && getHoraIdOcupacion(r, fecha1) === bloque.id) return true;
@@ -269,7 +280,7 @@ if (!necesitaMoto) {
       : 999;
     // FIX-NO-DISPONIBLE: discriminar entre "todos los permitidos bloqueados" (NO_DISPONIBLE)
     // y "instructores ocupados por reserva" (RESERVADO, comportamiento actual).
-    const reasonInactividad = (instructoresPermitidosTotal > 0 && instructoresTotal.length === 0)
+    const reasonInactividad = ((instructoresPermitidosTotal > 0 && instructoresTotal.length === 0) || sinMotoPorProveedorInactivo)
       ? 'NO_DISPONIBLE'
       : 'RESERVADO';
     if (!necesitaMoto) {
@@ -1158,10 +1169,11 @@ const disponibilidad = useMemo(() => {
   if (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length) return null;
  return evaluarDisponibilidad({
     form, horarios: ctx.horarios, instructores: ctx.instructores, motos: ctx.motos,
+    proveedoresPublicos: ctx.proveedoresPublicos || [],
     reservasConfirmadas: ocupacionConfirmada, activeLocks: activeLocks || [], selectingBlockId,
     currentUserId: ctx.fbUser?.uid, todayStr, lockId, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor
   });
-}, [form, ctx.horarios, ctx.instructores, ctx.motos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor]);
+}, [form, ctx.horarios, ctx.instructores, ctx.motos, ctx.proveedoresPublicos, ocupacionConfirmada, activeLocks, selectingBlockId, ctx.fbUser?.uid, todayStr, lockId, clockTick, bloqueosProveedor, cursoUnDia, cursoSeleccionado, sedeSeleccionada, bloqueosAdmin, bloqueosInstructor]);
 
   // Solo presentación: agrega rol D1/D2 sobre la disponibilidad ya calculada.
   // No modifica diasDisponibles ni el auto-jump.
@@ -1278,6 +1290,16 @@ const disponibilidad = useMemo(() => {
     : Math.max(0, packPrecioBase - packDescuentoMonto);
 
   const sedeActual = (ctx.sedes || []).find(s => String(s.id) === String(form.sedeId));
+  // ERR-053 / ADR-017: el pack suma el recargo de la sede elegida por cada
+  // sesión práctica, después del descuento del pack.
+  const packSesiones = esPack && packActivo ? (packActivo.cursoIds || []).length : 0;
+  const recargoPack = calcularRecargoSedePack({
+    sesiones: packSesiones,
+    recargoSede: esPack ? sedeActual?.recargo : 0,
+  });
+  const recargoSedeUnitarioPack = recargoPack.recargoSedeUnitario;
+  const recargoSedeTotalPack = recargoPack.recargoSedeTotal;
+  const packPrecioFinalConRecargo = Number((packPrecioFinal + recargoSedeTotalPack).toFixed(2));
 
   // Precio individual: mismo cálculo puro que usa ReservaService (SSOT + snapshot).
   const precioIndividualSnapshot = useMemo(() => {
@@ -1301,13 +1323,13 @@ const disponibilidad = useMemo(() => {
     ?? ctx.calcularBaseUSD(form.sedeId, form.sabeBicicleta, form.traeMoto, cursoSeleccionado);
 
   // Precio efectivo a cobrar (pack o curso individual)
-  const baseUSDFinal = esPack ? packPrecioFinal : baseUSD;
+  const baseUSDFinal = esPack ? packPrecioFinalConRecargo : baseUSD;
 
   const precioBaseMostrar = esPack
     ? packPrecioFinal
     : (cursoSeleccionado?.precioBase ?? ctx.config.precioBase ?? 0);
   const recargoSede = precioIndividualSnapshot?.recargoSede
-    ?? (sedeActual?.nombre === 'Guarenas' ? (Number(ctx.config.recargoGuarenas) || 0) : 0);
+    ?? (Number(sedeActual?.recargo) || 0);
   const recargoSinBici = precioIndividualSnapshot?.recargoSinBici
     ?? (form.sabeBicicleta === 'No' ? (Number(ctx.config.recargoSinBici) || 0) : 0);
   const descuentoMotoPropia = precioIndividualSnapshot?.descuentoMotoPropia
@@ -1617,7 +1639,9 @@ const disponibilidad = useMemo(() => {
   ));
      let motosLibres = [];
 if (necesitaMoto) {
-  motosLibres = (ctx.motos || [])
+  // PROVEEDOR-INACTIVO: mismo filtro puro que la disponibilidad; evita que el
+  // handler elija una moto que la grilla ya no ofrece.
+  motosLibres = filtrarMotosProveedorActivo(ctx.motos, ctx.proveedoresPublicos)
     .filter(m => m.activo && m.tipo === form.tipoMoto && (m.sedes || []).includes(form.sedeId))
     .filter(m => !locksDeOtros.some(lock => lock.motoAsignadaId === m.id && lock.horaId === bloque.id && (lock.fecha === form.fecha1 || (disponibilidad?.fecha2Calc && lock.fecha === disponibilidad.fecha2Calc))))    .filter(m => !reservasDeOtros.some(r => {
       if (r.estadoPago !== 'Pendiente' && r.estadoPago !== 'Aprobado') return false;
@@ -1689,7 +1713,13 @@ if (necesitaMoto) {
     }
     const nuevoLockId = form.fecha1 + '_' + bloque.id + '_' + instructorId + '_' + (motoAsignadaId || 'sinmoto');
     const result = await LockService.crearLock(nuevoLockId, ctx.fbUser.uid, {
-      fecha: form.fecha1, horaId: bloque.id, instructorId, motoAsignadaId
+      fecha: form.fecha1,
+      horaId: bloque.id,
+      instructorId,
+      motoAsignadaId,
+      // ERR-048: el lock debe retener D1+D2; misma fecha2 que usará la reserva.
+      fecha2: disponibilidad?.fecha2Calc || null,
+      horaId2: bloque.id
     });
     if (result.success) {
       updateLockId(nuevoLockId);
@@ -1722,12 +1752,25 @@ if (necesitaMoto) {
   }, [lockId, form, disponibilidad, ctx, isSelectingHorario, activeLocks, bloqueosAdmin, bloqueosProveedor, bloqueosInstructor, updateLockId, updateForm, updateLockExpiresAt, showToast]);
   const handleRenovarLock = useCallback(async () => {
     if (!lockId || renovacionUsada) return;
+    const bloqueActual = (disponibilidad?.bloques || []).find(b => b.id === form.horaId)
+      || (ctx.horarios || []).find(h => h.id === form.horaId);
+    // ERR-051: no se renueva un bloque que ya inició; se libera y se limpia.
+    if (bloqueYaInicio(form.fecha1, bloqueActual?.label)) {
+      await LockService.liberarLock(lockId).catch(() => {});
+      limpiarLockPropioOptimista(lockId);
+      updateLockId(null); updateLockExpiresAt(null); setTiempoRestante(null);
+      updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+      setRenovacionUsada(false);
+      showToast('Ese horario ya comenzó. Elige otro bloque.', 'info');
+      return;
+    }
     setRenovacionUsada(true);
-    const result = await LockService.renovarLock(lockId);    if (result.success) {
+    const result = await LockService.renovarLock(lockId);
+    if (result.success) {
       updateLockExpiresAt(Date.now() + LOCK_DURATION - 10000);
       showToast('Tiempo renovado. Tienes 10 minutos adicionales.', 'success');
     } else showToast(result.error.message || 'No se pudo renovar el tiempo', 'error');
-  }, [lockId, renovacionUsada, updateLockExpiresAt, showToast]);
+  }, [lockId, renovacionUsada, disponibilidad, form.fecha1, form.horaId, ctx.horarios, limpiarLockPropioOptimista, updateLockId, updateLockExpiresAt, updateForm, showToast]);
 
   const handleLiberarHorario = useCallback(async () => {
     if (!lockId) { setModalLiberar(null); return; }
@@ -1970,6 +2013,18 @@ if (necesitaMoto) {
     }
     if (step === '3') {
       if (!form.horaId || !lockId) { showToast('Selecciona un horario', 'error'); return; }
+      // ERR-051: no renovar ni avanzar con un bloque que ya inició.
+      const bloqueActual = (disponibilidad?.bloques || []).find(b => b.id === form.horaId)
+        || (ctx.horarios || []).find(h => h.id === form.horaId);
+      if (bloqueYaInicio(form.fecha1, bloqueActual?.label)) {
+        await LockService.liberarLock(lockId).catch(() => {});
+        limpiarLockPropioOptimista(lockId);
+        updateLockId(null); updateLockExpiresAt(null); setTiempoRestante(null);
+        updateForm({ horaId: '', instructorId: '', motoAsignadaId: '', proveedorId: null });
+        setRenovacionUsada(false);
+        showToast('Ese horario ya comenzó. Elige otro bloque.', 'info');
+        return;
+      }
       await LockService.renovarLock(lockId).catch(() => {});      updateLockExpiresAt(Date.now() + LOCK_DURATION - 10000);
       setLockExpirado(false); setRenovacionUsada(false);
       if (!esRecompra) {
@@ -2163,7 +2218,13 @@ if (necesitaMoto) {
     if (packDescuentoMonto > 0) {
       items.push({ label: descLabel, value: '-$' + packDescuentoMonto.toFixed(2) });
     }
-    items.push({ label: 'Total USD', value: '$' + packPrecioFinal.toFixed(2), bold: true });
+    if (recargoSedeTotalPack > 0) {
+      items.push({
+        label: `Recargo sede (${packSesiones} × $${recargoSedeUnitarioPack.toFixed(2)})`,
+        value: '+$' + recargoSedeTotalPack.toFixed(2)
+      });
+    }
+    items.push({ label: 'Total USD', value: '$' + packPrecioFinalConRecargo.toFixed(2), bold: true });
     return items;
   }
   const items = [

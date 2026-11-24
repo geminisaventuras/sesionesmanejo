@@ -53,17 +53,30 @@ export function getMotoIdEfectivoHoy(reserva) {
 // Blindaje temporal (America/Caracas) — para filtrar bloques pasados
 // ─────────────────────────────────────────────────────────────
 
+// Convierte un instante a un Date cuyos componentes locales son el reloj de
+// pared de America/Caracas. `ahora` puede ser Date o epoch ms; por defecto es
+// el instante actual (comportamiento histórico de getCaracasTime).
+function toCaracasWallClock(ahora = new Date()) {
+  const base = ahora instanceof Date ? ahora : new Date(ahora);
+  const caracasStr = base.toLocaleString('en-US', { timeZone: 'America/Caracas' });
+  return new Date(caracasStr);
+}
+
 // Retorna la hora actual en zona horaria America/Caracas.
 export function getCaracasTime() {
-  const d = new Date();
-  const caracasStr = d.toLocaleString('en-US', { timeZone: 'America/Caracas' });
-  return new Date(caracasStr);
+  return toCaracasWallClock(new Date());
+}
+
+// Fecha de hoy (YYYY-MM-DD) en Venezuela para el instante dado.
+export function fechaVetHoy(ahora = new Date()) {
+  const base = ahora instanceof Date ? ahora : new Date(ahora);
+  return base.toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 }
 
 // Detecta si un bloque ya pasó (solo si la fecha es HOY).
 // Recibe: fecha (YYYY-MM-DD), label del bloque (ej. "08:00 AM - 10:00 AM"),
-// y todayStr (YYYY-MM-DD en Venezuela).
-export function isPastBlock(fecha, label, todayStr) {
+// todayStr (YYYY-MM-DD en Venezuela) y `ahora` inyectable (default: instante actual).
+export function isPastBlock(fecha, label, todayStr, ahora = new Date()) {
   if (fecha !== todayStr || !label) return false;
   try {
     const startStr = label.split('-')[0].trim();
@@ -74,10 +87,57 @@ export function isPastBlock(fecha, label, todayStr) {
     const modifier = parts[3].toUpperCase();
     if (modifier === 'PM' && hours < 12) hours += 12;
     if (modifier === 'AM' && hours === 12) hours = 0;
-    const blockTime = getCaracasTime();
+    const caracasAhora = toCaracasWallClock(ahora);
+    const blockTime = new Date(caracasAhora);
     blockTime.setHours(hours, mins, 0, 0);
-    return getCaracasTime() > blockTime;
+    return caracasAhora > blockTime;
   } catch (e) { return false; }
+}
+
+// true si el bloque ya inició (fecha pasada, o hoy con la hora de inicio
+// alcanzada). `ahora` es inyectable para pruebas y recalculos por tick.
+export function bloqueYaInicio(fecha, label, ahora = new Date()) {
+  if (!fecha) return false;
+  const hoy = fechaVetHoy(ahora);
+  if (fecha < hoy) return true;
+  if (fecha > hoy) return false;
+  return isPastBlock(fecha, label, hoy, ahora);
+}
+
+// Guard puro fail-closed para servicios de reserva:
+//  - fecha pasada => `slot-past` (sin necesidad de label);
+//  - fecha futura => permitido;
+//  - hoy => exige label verificable (`slot-no-verificable` si falta) y
+//    rechaza con `slot-past` si el bloque ya inició.
+export function evaluarSlotPasado({ fecha, label = null, ahora = new Date() } = {}) {
+  const hoy = fechaVetHoy(ahora);
+  const mensajeVencido = 'Ese horario ya comenzó. Elige otro bloque.';
+  if (!fecha) {
+    return {
+      ok: false,
+      error: {
+        code: 'slot-no-verificable',
+        message: 'No pudimos verificar el horario. Recarga e intenta de nuevo.'
+      }
+    };
+  }
+  if (fecha < hoy) {
+    return { ok: false, error: { code: 'slot-past', message: mensajeVencido } };
+  }
+  if (fecha > hoy) return { ok: true };
+  if (!label) {
+    return {
+      ok: false,
+      error: {
+        code: 'slot-no-verificable',
+        message: 'No pudimos verificar el horario. Recarga e intenta de nuevo.'
+      }
+    };
+  }
+  if (bloqueYaInicio(fecha, label, ahora)) {
+    return { ok: false, error: { code: 'slot-past', message: mensajeVencido } };
+  }
+  return { ok: true };
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { ChevronLeft, Clock, Plus, Equal, Minus } from 'lucide-react';
 import { TIPOS_CURSO } from '../../../constants/tiposCurso';
 import { AppContext } from '../../../context/AppContextValue';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { validarCursoActivoConInstructores } from '../../inscripcion/utils/instructoresPermitidos';
 
 const TABS = [
   { id: 'basico', label: 'Básico' },
@@ -159,9 +160,11 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (hayExcedente) { alert(`Hay un excedente de ${Math.abs(tiempoRestante)} minutos. Ajuste las duraciones.`); return; }
     if (form.modulos.some(m => !m.nombre.trim())) { alert('Todos los módulos deben tener un nombre.'); return; }
+    const validacionAllowlist = validarCursoActivoConInstructores(form);
+    if (!validacionAllowlist.ok) { alert(validacionAllowlist.message); return; }
 
     const queAprenderasArr = String(form.queAprenderas || '')
       .split('\n')
@@ -179,7 +182,12 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
       comisionProveedorPorSede: form.comisionProveedorPorSede || {}
     };
 
-    onSave(payload);
+    try {
+      await onSave(payload);
+    } catch (error) {
+      console.error('[FormCursos] No se pudo guardar el curso:', error);
+      alert(error?.message || 'No se pudo guardar el curso. Intenta de nuevo.');
+    }
   };
 
   return (
@@ -428,7 +436,7 @@ const FormCursos = memo(({ item, onSave, onCancel }) => {
               </div>
             )}
             {form.instructoresPermitidos.length === 0 && (
-              <p className="text-[11px] text-yellow-700 mt-2">⚠️ Sin instructores seleccionados → cualquier instructor de la sede podrá dar el curso.</p>
+              <p className="text-[11px] text-yellow-700 mt-2">⚠️ Sin instructores seleccionados el curso no podrá vender (fail-closed).</p>
             )}
           </div>
 

@@ -228,7 +228,7 @@ const FormPack = memo(({ item, onSave, onCancel }) => {
     // guardado y el backfill puede reparar la proyección.
     let publico = null;
     try {
-      publico = construirPackPublico({ pack: packData, actualizadoEn: Timestamp.now() });
+      publico = construirPackPublico({ pack: packData, sedes, actualizadoEn: Timestamp.now() });
     } catch (error) {
       console.error('[FormPack] Error construyendo la proyección pública:', error);
     }

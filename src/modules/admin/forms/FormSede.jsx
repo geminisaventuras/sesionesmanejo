@@ -16,7 +16,7 @@ const FormSede = memo(({ item, onSave, onCancel }) => {
   const [form, setForm] = useState(
     item.id
       ? { ...item, horariosHabilitados: Array.isArray(item.horariosHabilitados) ? item.horariosHabilitados : [] }
-      : { nombre: '', direccion: '', horariosHabilitados: [] }
+      : { nombre: '', direccion: '', recargo: 0, horariosHabilitados: [] }
   );
 
   const toggleHorario = (horaId) => setForm(prev => ({
@@ -46,6 +46,10 @@ const FormSede = memo(({ item, onSave, onCancel }) => {
 
       <Input label="Ciudad / Nombre de la Sede" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
       <Input label="Punto de Encuentro / Zona (Ej: Chacao, Montalbán)" value={form.direccion} onChange={e => setForm({ ...form, direccion: e.target.value })} />
+      <div>
+        <Input label="Recargo por sesión (USD)" type="number" min="0" step="0.01" value={form.recargo ?? 0} onChange={e => setForm({ ...form, recargo: e.target.value })} />
+        <p className="text-[11px] text-gray-500 mt-1 ml-1">Se suma por cada sesión agendada en esta sede. Usa 0 si no tiene recargo.</p>
+      </div>
 
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div className="flex items-center justify-between mb-3">
@@ -88,7 +92,13 @@ const FormSede = memo(({ item, onSave, onCancel }) => {
         )}
       </div>
 
-      <Button type="button" onClick={() => onSave(form)} variant="dark">Guardar Sede</Button>
+      <Button
+        type="button"
+        onClick={() => onSave({ ...form, recargo: Math.max(0, Number(form.recargo) || 0) })}
+        variant="dark"
+      >
+        Guardar Sede
+      </Button>
     </div>
   );
 });

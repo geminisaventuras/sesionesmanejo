@@ -112,3 +112,61 @@ export function afectaInstructor(bloqueo, instructorId, fecha, horaId, sedeId) {
   if (!horaId) return false;
   return (bloqueo.horarios || []).includes(horaId);
 }
+
+/**
+ * ERR-046: revalida los bloqueos de agenda que la UI ya filtra, para que la
+ * creación de la reserva no dependa solo de la disponibilidad mostrada.
+ *
+ * @param {object} args
+ * @param {Array<{fecha:string,horaId:string,horaLabel?:string}>} args.slots
+ * @param {string|null} args.instructorId
+ * @param {string|null} args.motoId
+ * @param {string|null} args.motoProveedorId
+ * @param {string|null} args.sedeId
+ * @param {object[]} args.bloquesGlobales
+ * @param {object[]} args.bloquesInstructores
+ * @returns {Array<object>} conflictos con tipo, id y slot
+ */
+export function detectarBloqueosAgenda({
+  slots = [],
+  instructorId = null,
+  motoId = null,
+  motoProveedorId = null,
+  sedeId = null,
+  bloquesGlobales = [],
+  bloquesInstructores = []
+} = {}) {
+  const conflictos = [];
+
+  for (const slot of slots) {
+    if (!slot || !slot.fecha || !slot.horaId) continue;
+
+    if (instructorId) {
+      for (const bloqueo of bloquesInstructores || []) {
+        if (afectaInstructor(bloqueo, instructorId, slot.fecha, slot.horaId, sedeId)) {
+          conflictos.push({
+            tipo: 'instructor',
+            bloqueoId: bloqueo.id || null,
+            fecha: slot.fecha,
+            horaId: slot.horaId
+          });
+        }
+      }
+    }
+
+    if (motoId && slot.horaLabel) {
+      for (const bloqueo of bloquesGlobales || []) {
+        if (afectaProveedor(bloqueo, motoId, slot.fecha, slot.horaLabel, motoProveedorId)) {
+          conflictos.push({
+            tipo: 'proveedor',
+            bloqueoId: bloqueo.id || null,
+            fecha: slot.fecha,
+            horaId: slot.horaId
+          });
+        }
+      }
+    }
+  }
+
+  return conflictos;
+}

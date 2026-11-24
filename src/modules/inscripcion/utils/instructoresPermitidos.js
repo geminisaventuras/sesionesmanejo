@@ -2,6 +2,7 @@
 
 export const MOTIVO_CURSO_SIN_INSTRUCTORES = 'curso-sin-instructores-permitidos';
 export const MOTIVO_INSTRUCTOR_NO_PERMITIDO = 'instructor-no-permitido-curso';
+export const MOTIVO_CURSO_ACTIVO_SIN_INSTRUCTORES = 'curso-activo-sin-instructores';
 
 const normalizarId = (valor) => (valor === null || valor === undefined ? '' : String(valor).trim());
 
@@ -40,6 +41,23 @@ export function instructorPermitidoEnCurso(curso, instructorId) {
  */
 export function mensajeCursoSinInstructores() {
   return 'Este curso no tiene tutores habilitados. Contacta a la administración para completar la configuración del curso.';
+}
+
+/**
+ * Validación para el admin: un curso activo debe declarar al menos un tutor.
+ * Evita crear cursos que nazcan fail-closed y no puedan venderse.
+ */
+export function validarCursoActivoConInstructores(curso = {}) {
+  if (curso?.activo === false) return { ok: true };
+  const { configurado } = obtenerPermitidosCurso(curso);
+  if (!configurado) {
+    return {
+      ok: false,
+      code: MOTIVO_CURSO_ACTIVO_SIN_INSTRUCTORES,
+      message: 'Selecciona al menos un instructor permitido: un curso activo sin allowlist no puede vender.'
+    };
+  }
+  return { ok: true };
 }
 
 /**

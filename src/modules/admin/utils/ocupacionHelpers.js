@@ -11,7 +11,7 @@
 // 5. Un lock activo se muestra como `retenido`, nunca como libre.
 // 6. Fechas VET y campo vacío seguro (sin `toISOString` que lance).
 import { afectaFechaAdmin, afectaHorarioAdmin, afectaInstructor, afectaProveedor } from '../../shared/utils/bloqueosHelpers.js';
-import { getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers.js';
+import { bloqueYaInicio, getHoraIdOcupacion, getMotoIdOcupacion } from '../../shared/utils/reservaHelpers.js';
 import { calcularNecesitaMoto } from '../../shared/utils/motoHelpers.js';
 import { lockVigente } from '../../inscripcion/utils/locksHelpers.js';
 
@@ -152,8 +152,15 @@ function calcularParaSede({
   bloqueosAdmin,
   bloqueosInstructores,
   bloqueosProveedor,
-  filtros
+  filtros,
+  ahora
 }) {
+  // ERR-047: un bloque que ya inició no se ofrece aunque quede cupo. Se cierra
+  // por sede y el agregado lo refleja (ver `calcularEstadoBloque`).
+  if (bloqueYaInicio(fecha, bloque?.label, new Date(ahora))) {
+    return { ...resultadoVacio(), estado: 'cerrado', motivo: 'Horario vencido', sedeId };
+  }
+
   const locksSede = locksBloque.filter(lock => {
     const instructor = (instructores || []).find(i => idIgual(i.id, lock.instructorId));
     if (instructor) return perteneceASede(instructor, sedeId);
@@ -350,8 +357,9 @@ function calcularParaSede({
   else estado = 'libre';
 
   if (motosBloqueadasProveedor.length > 0 && total > 0) estado = 'parcial_bloqueado';
-  // Un lock activo manda sobre "parcial/parcial_bloqueado": es una retención viva.
-  if (locksRelevantes.length > 0 && disponibles > 0) estado = 'retenido';
+  // Un lock activo manda sobre "parcial/lleno": es una retención viva.
+  // Salvo que el bloque esté cerrado por falta de recurso (motivo), donde "lleno" es la causa real.
+  if (locksRelevantes.length > 0 && !motivo) estado = 'retenido';
 
   return {
     estado,
@@ -460,7 +468,8 @@ export function calcularEstadoBloque({
     bloqueosAdmin,
     bloqueosInstructores,
     bloqueosProveedor,
-    filtros
+    filtros,
+    ahora
   }));
 
   if (porSede.length === 1) {
@@ -474,12 +483,14 @@ export function calcularEstadoBloque({
   );
   const mejor = ordenadas[0];
 
+  const todosCerrados = porSede.every(r => r.estado === 'cerrado');
   const todosBloqueados = porSede.every(r => r.estado === 'bloqueado');
   const algunBloqueado = porSede.some(r => r.estado === 'bloqueado');
   const todosSinCupo = porSede.every(r => r.estado === 'lleno' || r.estado === 'bloqueado');
 
   let estado = mejor.estado;
-  if (todosBloqueados) estado = 'bloqueado';
+  if (todosCerrados) estado = 'cerrado';
+  else if (todosBloqueados) estado = 'bloqueado';
   else if (algunBloqueado) estado = mejor.disponibles > 0 ? 'parcial_bloqueado' : 'lleno';
   else if (todosSinCupo) estado = 'lleno';
 

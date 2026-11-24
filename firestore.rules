@@ -41,15 +41,27 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/packs/$(packId)).data;
     }
 
+    // ERR-053 / ADR-017: recargo vigente de la sede, autoridad del servidor.
+    function sedePre(sedeId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/sedes/$(sedeId)).data;
+    }
+
     function preciosMasterValidos(p, m) {
       return p is map &&
         p.precios is map &&
         m.preciosCongelados is map &&
+        m.sedeId is string &&
+        m.recargoSedeUnitario is number &&
+        m.recargoSedeUnitario >= 0 &&
+        cercaNumero(m.recargoSedeUnitario, sedePre(m.sedeId).get('recargo', 0)) &&
+        cercaNumero(m.recargoSedeTotal, m.recargoSedeUnitario * p.precios.cursoIds.size()) &&
+        cercaNumero(m.preciosCongelados.get('recargoSedeUnitario', 0), m.recargoSedeUnitario) &&
+        cercaNumero(m.preciosCongelados.get('recargoSedeTotal', 0), m.recargoSedeTotal) &&
         m.precioBaseCongelado == p.precios.precioBaseTotal &&
         m.descuentoCongelado.tipo == p.precios.descuentoTipo &&
         m.descuentoCongelado.valor == p.precios.descuentoValor &&
         m.descuentoCongelado.monto == p.precios.descuentoMonto &&
-        m.precioTotalCongelado == p.precios.precioTotal &&
+        cercaNumero(m.precioTotalCongelado, p.precios.precioTotal + m.recargoSedeTotal) &&
         m.packSnapshot.cursoIds == p.precios.cursoIds &&
         m.preciosCongelados.cursoIds == p.precios.cursoIds &&
         m.preciosCongelados.preciosBase == p.precios.preciosBase &&
@@ -67,14 +79,14 @@ service cloud.firestore {
     }
 
     function preciosChildValidos(pc, d) {
+      let recargo = pc.get('recargoSedeUnitario', 0);
       return pc is map &&
-        d.precio is number &&
         d.precioBaseOriginal is number &&
         d.comisionInstructor is number &&
         d.comisionProveedor is number &&
         d.deficitComision is number &&
         d.cursoId == pc.cursoIds[d.packCursoIndex] &&
-        d.precio == pc.preciosProrrateados[d.packCursoIndex] &&
+        d.precio == pc.preciosProrrateados[d.packCursoIndex] + recargo &&
         d.precioBaseOriginal == pc.preciosBase[d.packCursoIndex] &&
         d.comisionInstructor == pc.comisionesInstructor[d.packCursoIndex] &&
         (
@@ -83,13 +95,15 @@ service cloud.firestore {
             d.comisionProveedor == 0 &&
             d.proveedorId == null &&
             d.motoAsignadaId == null &&
-            d.comisionProveedor == pc.comisionesProveedorMotoPropia[d.packCursoIndex] &&
-            d.deficitComision == pc.deficitsMotoPropia[d.packCursoIndex]
+            d.deficitComision == pc.deficitsMotoPropia[d.packCursoIndex] - recargo
           ) ||
           (
             d.traeMoto == 'No' &&
+            // ERR-049: la variante "moto de la app" exige una moto concreta.
+            // Sin ella la comision de empresa quedaba sin proveedor beneficiario.
+            d.get('motoAsignadaId', null) != null &&
             d.comisionProveedor == pc.comisionesProveedorMotoEmpresa[d.packCursoIndex] &&
-            d.deficitComision == pc.deficitsMotoEmpresa[d.packCursoIndex]
+            d.deficitComision == pc.deficitsMotoEmpresa[d.packCursoIndex] - recargo
           )
         ) &&
         (pc.motoIncluidaPorCurso[d.packCursoIndex] == true || d.traeMoto == 'Sí') &&
@@ -99,15 +113,18 @@ service cloud.firestore {
     // B-RESERVA-PRECIOS-CLIENTE: precio individual contra catálogo (cursos +
     // configuraciones + sedes). Tolerancia 0.02 por redondeo a centavos.
     function cercaNumero(a, b) {
-      return a is number && b is number && (a - b) * (a - b) < 0.0004;
+      // Si algún valor no es numérico la resta falla y la regla deniega.
+      return (a - b) * (a - b) < 0.0004;
     }
 
     function configApp() {
       return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/configuraciones/main).data;
     }
 
-    function cursoApp(cursoId) {
-      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/cursos/$(cursoId)).data;
+    // T-098 / ADR-015 fase 1: proyección determinista de precio y recursos por
+    // curso. Solo admin la escribe; el cliente la lee en `reservas.create`.
+    function preciosCursoApp(cursoId) {
+      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/preciosCurso/$(cursoId)).data;
     }
 
     function cursoTeoricoPre(cursoTeoricoId) {
@@ -125,10 +142,6 @@ service cloud.firestore {
       return a.estado == 'Aprobado' && (venc == null || venc > request.time.toMillis());
     }
 
-    function sedeApp(sedeId) {
-      return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/sedes/$(sedeId)).data;
-    }
-
     function tasaFXVigente(cfg) {
       let tasa = cfg.get('monedaCobroClientes', 'EUR') == 'USD'
         ? cfg.get('tasaUSD', 1)
@@ -136,60 +149,213 @@ service cloud.firestore {
       return tasa > 0 ? tasa : 1;
     }
 
-    function precioIndividualEsperado(curso, cfg, sede, d) {
-      let base = curso.get('precioBase', 0) > 0 ? curso.get('precioBase', 0) : cfg.get('precioBase', 0);
-      let total = base
-        + (sede.get('nombre', '') == 'Guarenas' ? cfg.get('recargoGuarenas', 0) : 0)
-        + (d.sabeBicicleta == 'No' ? cfg.get('recargoSinBici', 0) : 0)
-        - (d.traeMoto == 'Sí' ? cfg.get('descuentoMotoPropia', 0) : 0)
-        + (d.traeMoto != 'Sí' && curso.get('motoIncluida', true) != false ? curso.get('precioAlquilerMoto', 0) : 0)
-        - cfg.get('descuentoPromo', 0);
-      return total > 0 ? total : 0;
-    }
-
-    function comisionProveedorEsperada(curso, d) {
-      return d.traeMoto == 'Sí' ? 0 : (
-        d.sedeId in curso.get('comisionProveedorPorSede', {})
-          ? curso.get('comisionProveedorPorSede', {})[d.sedeId]
-          : curso.get('comisionProveedor', 0)
-      );
-    }
-
-    function traeMotoIndividualPermitido(curso, d) {
-      return (curso.get('motoIncluida', true) != false || d.traeMoto == 'Sí') &&
-             (curso.get('permiteTraerMotoPropia', true) != false || d.traeMoto == 'No');
-    }
-
-    function precioIndividualValido(curso, cfg, sede, d) {
-      let total = precioIndividualEsperado(curso, cfg, sede, d);
-      return d.precio is number &&
-        d.pagoTotalMoneda is number &&
-        d.pagoTotalVES is number &&
-        d.pagoTotalVES > 0 &&
-        d.precio > 0 &&
-        d.precioSnapshot is map &&
-        d.precioSnapshot.version == 1 &&
-        d.precioSnapshot.moneda == 'USD' &&
-        d.precioSnapshot.cursoId == d.cursoId &&
-        d.precioSnapshot.sedeId == d.sedeId &&
-        d.precioSnapshot.traeMoto == d.traeMoto &&
-        d.precioSnapshot.sabeBicicleta == d.sabeBicicleta &&
-        cercaNumero(d.precio, total) &&
-        cercaNumero(d.pagoTotalMoneda, total) &&
-        cercaNumero(d.precioSnapshot.precioTotal, total) &&
-        cercaNumero(d.comisionInstructor, curso.get('comisionInstructor', 0)) &&
-        cercaNumero(d.precioSnapshot.comisionInstructor, d.comisionInstructor) &&
-        cercaNumero(d.comisionProveedor, comisionProveedorEsperada(curso, d)) &&
-        cercaNumero(d.precioSnapshot.comisionProveedor, d.comisionProveedor) &&
-        cercaNumero(d.precioSnapshot.tasaFX, tasaFXVigente(cfg)) &&
-        cercaNumero(d.pagoTotalVES, d.precio * tasaFXVigente(cfg)) &&
-        cercaNumero(d.precioSnapshot.pagoTotalVES, d.pagoTotalVES) &&
-        (d.traeMoto != 'Sí' || (
-          d.comisionProveedor == 0 &&
+    // T-098 / ADR-015 fase 1: valida snapshot, precio, pago total y comisiones
+    // contra la variante `sedeId|traeMoto|sabeBicicleta` de `preciosCurso`.
+    // Si el documento o la variante no existen, el acceso falla y la regla
+    // deniega (fail-closed). Conserva la tolerancia de centavos `cercaNumero`.
+    function precioIndividualValido(precios, d) {
+      let ps = d.precioSnapshot;
+      let precio = d.precio;
+      let pagoMoneda = d.pagoTotalMoneda;
+      let ves = d.pagoTotalVES;
+      let comInstr = d.comisionInstructor;
+      let comProv = d.comisionProveedor;
+      let deficit = d.deficitComision;
+      let traeMoto = d.traeMoto;
+      let clave = d.sedeId + '|' + traeMoto + '|' + d.sabeBicicleta;
+      let v = precios.variantes[clave];
+      return precio is number &&
+        pagoMoneda is number &&
+        ves is number &&
+        ves > 0 &&
+        precio > 0 &&
+        ps is map &&
+        ps.version == 1 &&
+        ps.moneda == 'USD' &&
+        ps.cursoId == d.cursoId &&
+        ps.sedeId == d.sedeId &&
+        ps.traeMoto == traeMoto &&
+        ps.sabeBicicleta == d.sabeBicicleta &&
+        precios.version == 1 &&
+        precios.cursoId == d.cursoId &&
+        v is map &&
+        cercaNumero(precio, v.precioTotal) &&
+        cercaNumero(pagoMoneda, v.precioTotal) &&
+        cercaNumero(ps.precioTotal, v.precioTotal) &&
+        cercaNumero(ps.precioBase, v.precioBase) &&
+        cercaNumero(ps.recargoSede, v.recargoSede) &&
+        cercaNumero(ps.recargoSinBici, v.recargoSinBici) &&
+        cercaNumero(ps.recargoAlquilerMoto, v.recargoAlquilerMoto) &&
+        cercaNumero(ps.descuentoMotoPropia, v.descuentoMotoPropia) &&
+        cercaNumero(ps.descuentoPromo, v.descuentoPromo) &&
+        cercaNumero(comInstr, v.comisionInstructor) &&
+        cercaNumero(ps.comisionInstructor, comInstr) &&
+        cercaNumero(comProv, v.comisionProveedor) &&
+        cercaNumero(ps.comisionProveedor, comProv) &&
+        cercaNumero(deficit, v.deficitComision) &&
+        cercaNumero(ps.deficitComision, deficit) &&
+        cercaNumero(ps.tasaFX, v.tasaFX) &&
+        cercaNumero(ves, v.pagoTotalVES) &&
+        cercaNumero(ps.pagoTotalVES, ves) &&
+        ps.sedeNombre == v.sedeNombre &&
+        ps.guarenas == v.guarenas &&
+        ps.monedaCobro == v.monedaCobro &&
+        precios.motoIncluida == v.motoIncluida &&
+        precios.permiteTraerMotoPropia == v.permiteTraerMotoPropia &&
+        (traeMoto != 'Sí' || (
+          comProv == 0 &&
           d.proveedorId == null &&
           d.motoAsignadaId == null
         )) &&
-        traeMotoIndividualPermitido(curso, d);
+        (v.motoIncluida != false || traeMoto == 'Sí') &&
+        (v.permiteTraerMotoPropia != false || traeMoto == 'No');
+    }
+
+    // B-02/T-054: contrato de campos de la reserva individual (web y PWA).
+    // `pagosInstructorDia` y `pagosProveedorDia` quedan fuera de la allowlist:
+    // son campos contables de admin y se deniegan si aparecen.
+    function reservaIndividualCamposValida(d) {
+      let pagadoInstructor = d.get('pagadoInstructor', null);
+      let pagadoProveedor = d.get('pagadoProveedor', null);
+      return d.keys().hasOnly([
+        // Inscripción (validarInscripcionCompleta aplica .strip()).
+        'nombre', 'apellido', 'cedula', 'diaNac', 'mesNac', 'anoNac', 'sexo',
+        'estado', 'zona', 'correo', 'telefono', 'contactoEmergencia',
+        'sabeBicicleta', 'traeMoto', 'tipoMoto', 'cursoId', 'sedeId',
+        'condicionMedica', 'detalleCondicion',
+        // Reserva.
+        'userId', 'tipoCurso', 'fecha', 'fecha2', 'horaId', 'instructorId',
+        'motoAsignadaId', 'fechaNacimiento', 'pagoTotalMoneda', 'pagoTotalVES',
+        'pagoBanco', 'pagoTelefono', 'pagoCedula', 'pagoRef', 'id',
+        'estadoPago', 'estadoCurso', 'precio', 'proveedorId', 'pin',
+        'comisionInstructor', 'comisionProveedor', 'deficitComision',
+        'precioSnapshot', 'origenReinscripcion', 'createdAt', 'lockId',
+        // Compatibilidad PWA: solo se toleran en su valor inicial.
+        'pagadoInstructor', 'pagadoProveedor', 'pagoProveedorId'
+      ]) &&
+        // Compatibilidad PWA: solo se tolera el estado inicial (ausente, false
+        // o null). `true` y cualquier otro valor siguen denegados.
+        (pagadoInstructor == null || pagadoInstructor == false) &&
+        (pagadoProveedor == null || pagadoProveedor == false) &&
+        d.get('pagoProveedorId', null) == null;
+    }
+
+    // Alineado con recursosHelpers.js: `sedes` ausente o null y lista vacía
+    // significan "todas las sedes"; una lista no vacía debe contener la sede;
+    // un tipo no-lista (corrupto) deniega.
+    function reservaSedeCubierta(recurso, sedeId) {
+      let sedes = recurso.get('sedes', null);
+      return sedes == null || (sedes is list && (sedes.size() == 0 || sedeId in sedes));
+    }
+
+    function reservaInstructorDocValido(inst, sedeId) {
+      return inst.get('activo', true) != false && reservaSedeCubierta(inst, sedeId);
+    }
+
+    function reservaMotoDocValida(moto, sedeId, proveedorId) {
+      return moto.get('activo', true) != false &&
+        reservaSedeCubierta(moto, sedeId) &&
+        proveedorId == moto.get('proveedorId', null);
+    }
+
+    // El tutor público (espejo) manda; si no existe se usa el doc privado legacy.
+    function reservaInstructorValido(sedeId, d) {
+      let pub = exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/instructoresPublicos/$(d.instructorId))
+        ? get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/instructoresPublicos/$(d.instructorId)).data
+        : null;
+      return pub != null ? reservaInstructorDocValido(pub, sedeId) : (
+        exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/instructores/$(d.instructorId)) &&
+        reservaInstructorDocValido(
+          get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/instructores/$(d.instructorId)).data,
+          sedeId
+        )
+      );
+    }
+
+    // T-098 / ADR-015 fase 1: allowlist del curso desde `preciosCurso`; no se
+    // releen curso/config/sede en esta rama. Coherencia moto/proveedor y
+    // existencia de la moto se conservan (fail-closed si el doc no existe).
+    function reservaIndividualDestinoValido(precios, d) {
+      let permitidos = precios.get('instructoresPermitidos', []);
+      let motoId = d.get('motoAsignadaId', null);
+      let proveedorId = d.get('proveedorId', null);
+      let sedeId = d.sedeId;
+      return reservaInstructorValido(sedeId, d) &&
+        permitidos is list &&
+        permitidos.size() > 0 &&
+        d.instructorId in permitidos &&
+        (
+          motoId == null
+            ? proveedorId == null
+            : reservaMotoDocValida(
+                get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/motos/$(motoId)).data,
+                sedeId,
+                proveedorId
+              )
+        ) &&
+        (
+          proveedorId == null ||
+          get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/proveedores/$(proveedorId)).data.get('activo', true) != false
+        );
+    }
+
+    // T-098 / ADR-015 fase 1: el precio individual se valida contra la variante
+    // determinista de `preciosCurso` (sede|traeMoto|sabeBicicleta) en lugar de
+    // releer curso + configuraciones + sedes. Un `get` sustituye las tres
+    // lecturas y libera presupuesto de expresiones.
+    function reservaIndividualValida(cursoId, d) {
+      let precios = preciosCursoApp(cursoId);
+      return reservaIndividualCamposValida(d) &&
+        precioIndividualValido(precios, d) &&
+        reservaIndividualDestinoValido(precios, d);
+    }
+
+    // B-04: la reserva individual solo puede consumir el lock determinista del
+    // slot, vigente y del mismo usuario. El ID del lock y el de la reserva
+    // deben describir el mismo slot; `get()` lee el estado previo, cuando la
+    // transacción todavía no ha borrado el lock.
+    function reservaLockIndividualValido(d) {
+      let lock = get(/databases/$(database)/documents/locks/$(d.lockId)).data;
+      return d.lockId == d.fecha + '_' + d.horaId + '_' + d.instructorId + '_' +
+        (d.get('motoAsignadaId', null) == null ? 'sinmoto' : d.motoAsignadaId) &&
+        lock.userId == request.auth.uid &&
+        lock.expiresAt > request.time;
+    }
+
+    // B-04: la reserva y su espejo de ocupación nacen en la misma transacción.
+    function espejoIndividualCreado(docId) {
+      return getAfter(/databases/$(database)/documents/ocupacionConfirmada/$(docId)).data.userId == request.auth.uid;
+    }
+
+    // T-100 / ERR-052: un bloque ya iniciado no se puede reservar por SDK
+    // directo. `horarios/{horaId}` es la autoridad: `inicioMin` (minutos desde
+    // medianoche VET) y `tzOffsetMin` (offset VET respecto a UTC; hoy -240).
+    // Fail-closed: sin doc o sin los campos, la reserva se deniega. El backfill
+    // de `horarios` es precondición del deploy (ADR-016). D2 usa el mismo
+    // `horaId` (invariante del flujo: un slot cubre ambos días).
+    function instanteInicioVET(fecha, inicioMin, tzOffsetMin) {
+      return timestamp.date(
+        int(fecha.split('-')[0]),
+        int(fecha.split('-')[1]),
+        int(fecha.split('-')[2])
+      ) + duration.value(inicioMin - tzOffsetMin, 'm');
+    }
+
+    function reservaSlotNoIniciado(d) {
+      let h = get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/horarios/$(d.horaId)).data;
+      let inicioMin = h.get('inicioMin', null);
+      let tzOffsetMin = h.get('tzOffsetMin', null);
+      return inicioMin is int &&
+        tzOffsetMin is int &&
+        d.fecha is string &&
+        instanteInicioVET(d.fecha, inicioMin, tzOffsetMin) > request.time &&
+        (
+          d.get('fecha2', null) == null ||
+          (
+            d.fecha2 is string &&
+            instanteInicioVET(d.fecha2, inicioMin, tzOffsetMin) > request.time
+          )
+        );
     }
 
     // B-PACK-SUBRESERVAS-METADATA: el dueño solo puede tocar el índice actual
@@ -207,30 +373,34 @@ service cloud.firestore {
 
     // B-ESPEJO-FANTASMA: el espejo debe coincidir campo a campo con la reserva.
     function espejoCoincideReserva(r) {
-      return r.data.userId == request.auth.uid &&
-        request.resource.data.userId == r.data.userId &&
-        request.resource.data.fecha == r.data.fecha &&
-        request.resource.data.get('fecha2', null) == r.data.get('fecha2', null) &&
-        request.resource.data.horaId == r.data.horaId &&
-        request.resource.data.instructorId == r.data.instructorId &&
-        request.resource.data.get('motoAsignadaId', null) == r.data.get('motoAsignadaId', null) &&
-        request.resource.data.get('horaIdReposicion', null) == r.data.get('horaIdReposicion', null) &&
-        request.resource.data.get('motoReposicionId', null) == r.data.get('motoReposicionId', null) &&
-        request.resource.data.get('proveedorReposicionId', null) == r.data.get('proveedorReposicionId', null) &&
-        request.resource.data.traeMoto == r.data.traeMoto &&
-        request.resource.data.sedeId == r.data.sedeId &&
-        request.resource.data.get('tipoCurso', null) == r.data.get('tipoCurso', null) &&
-        request.resource.data.estadoPago == r.data.estadoPago &&
+      // B-04: el espejo de ocupación solo replica los campos que gobiernan la
+      // disponibilidad y el estado. Los campos financieros se leen de la
+      // reserva autoritativa; compararlos aquí agotaba el presupuesto de 1000
+      // expresiones al escribir reserva+espejo en la misma transacción.
+      let rd = r.data;
+      let d = request.resource.data;
+      return d.userId == rd.userId &&
+        d.fecha == rd.fecha &&
+        d.get('fecha2', null) == rd.get('fecha2', null) &&
+        d.horaId == rd.horaId &&
+        d.instructorId == rd.instructorId &&
+        d.get('motoAsignadaId', null) == rd.get('motoAsignadaId', null) &&
+        d.traeMoto == rd.traeMoto &&
+        d.sedeId == rd.sedeId &&
+        d.estadoPago == rd.estadoPago &&
         (
-          request.resource.data.get('estadoCurso', null) == r.data.get('estadoCurso', null) ||
+          d.get('estadoCurso', null) == rd.get('estadoCurso', null) ||
           // Compatibilidad PWA vieja: el espejo puede omitir estadoCurso solo
           // cuando la reserva recién creada sigue en Pendiente.
-          (!('estadoCurso' in request.resource.data) && r.data.get('estadoCurso', 'Pendiente') == 'Pendiente')
+          (!('estadoCurso' in d) && rd.get('estadoCurso', 'Pendiente') == 'Pendiente')
         ) &&
-        request.resource.data.get('pagadoProveedor', false) == r.data.get('pagadoProveedor', false) &&
-        request.resource.data.get('pagoProveedorId', null) == r.data.get('pagoProveedorId', null) &&
-        request.resource.data.get('proveedorId', null) == r.data.get('proveedorId', null) &&
-        request.resource.data.get('comisionProveedor', 0) == r.data.get('comisionProveedor', 0);
+        d.get('proveedorId', null) == rd.get('proveedorId', null) &&
+        d.get('comisionProveedor', 0) == rd.get('comisionProveedor', 0) &&
+        // T-100 / ERR-052: el espejo es obligatorio en la misma transacción
+        // (B-04), así que el guard de bloque ya iniciado vive aquí para no
+        // agotar el presupuesto de expresiones de `reservas.create`. El admin
+        // queda exento por la rama `isAdmin()` del create del espejo.
+        reservaSlotNoIniciado(rd);
     }
 
     // B-FX-CONCILIACION: la maestra congela la tasa y el VES desde la configuración.
@@ -316,6 +486,75 @@ service cloud.firestore {
     // B-01: la child de pack solo puede nacer con su espejo de ocupación.
     function espejoChildCreado(reservaId, childUserId) {
       return getAfter(/databases/$(database)/documents/ocupacionConfirmada/$(reservaId)).data.userId == childUserId;
+    }
+
+    // D1: la moto de la child manda. Si hay moto asignada debe existir, estar
+    // activa, pertenecer al `proveedorId` declarado y su proveedor debe estar
+    // activo. Si no hay moto asignada (moto propia o curso sin moto) no se leen
+    // `motos` ni `proveedores` y `proveedorId` debe ser null.
+    function motoChildCoherente(moto, proveedorId) {
+      let proveedorMotoId = moto.get('proveedorId', null);
+      return moto.get('activo', true) != false &&
+        proveedorId == proveedorMotoId &&
+        (
+          proveedorMotoId == null ||
+          get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/proveedores/$(proveedorMotoId)).data.get('activo', true) != false
+        );
+    }
+
+    function motoYProveedorChildValidos(d) {
+      let motoId = d.get('motoAsignadaId', null);
+      let proveedorId = d.get('proveedorId', null);
+      return motoId == null
+        ? proveedorId == null
+        : motoChildCoherente(
+            get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/motos/$(motoId)).data,
+            proveedorId
+          );
+    }
+
+    // Presupuesto de expresiones: la rama de agendamiento llamaba a
+    // `maestraPre`/`maestraAfter` 14+ veces. Se enlazan una sola vez para
+    // dejar margen al chequeo de proveedor sin superar las 1000 expresiones.
+    function packChildAgendaValida(packId, childId, d) {
+      let pre = maestraPre(packId);
+      let post = maestraAfter(packId);
+      return exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(packId)) &&
+        // B-01: child Aprobada solo la crea el dueño del pack o un admin, y
+        // siempre con el child en Pendiente.
+        (request.auth.uid == pre.userId || isAdmin()) &&
+        (isAdmin() || d.estadoCurso == 'Pendiente') &&
+        pre.userId == d.userId &&
+        pre.estadoPago == 'Aprobado' &&
+        pre.estado == 'activo' &&
+        (
+          !('vencimiento' in pre) ||
+          pre.get('vencimiento', null) == null ||
+          !(pre.vencimiento is timestamp) ||
+          pre.vencimiento > request.time
+        ) &&
+        d.packCursoIndex == pre.get('cursoActual', 0) &&
+        d.packCursoIndex < pre.subReservas.size() &&
+        d.packCursoIndex < pre.packSnapshot.cursoIds.size() &&
+        pre.subReservas.size() == pre.packSnapshot.cursoIds.size() &&
+        slotLibre(pre.subReservas[d.packCursoIndex]) &&
+        d.cursoId == pre.packSnapshot.cursoIds[d.packCursoIndex] &&
+        espejoChildCreado(childId, d.userId) &&
+        post.cursoReservaId == childId &&
+        post.subReservas[d.packCursoIndex].reservaId == childId &&
+        preciosChildValidos(post.preciosCongelados, d) &&
+        cercaNumero(d.pagoTotalVES, d.precio * post.fxCongelado.tasaFX) &&
+        (
+          !isAdmin() ||
+          (
+            d.origen == 'reparacion_admin' &&
+            d.creadoPorUid == request.auth.uid &&
+            d.motivoReparacion is string &&
+            d.motivoReparacion.size() > 0
+          )
+        ) &&
+        motoYProveedorChildValidos(d) &&
+        sedePermitida(pre, d.sedeId);
     }
 
     function esLockCorrupto(lockData) {
@@ -417,10 +656,21 @@ service cloud.firestore {
 
     match /artifacts/{appId}/public/data {
 
-      match /configuraciones/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
+      // ADR-009 fase 2: `main` operativa para autenticados; `privada` solo admin.
+      match /configuraciones/{docId} {
+        allow read: if isAdmin() || (isAuth() && docId == 'main');
+        allow write: if isAdmin();
+      }
       match /sedes/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
       match /horarios/{docId} { allow read: if isAuth(); allow write: if isAdmin(); }
       match /cursos/{docId} { allow read: if true; allow write: if isAdmin(); }
+      // T-098 / ADR-015 fase 1: proyección de precio por curso (variantes por
+      // sede/moto/bici). Solo lectura autenticada; escritura exclusiva admin
+      // (backfill). El cliente nunca puede alterar la matriz de precios.
+      match /preciosCurso/{docId} {
+        allow read: if isAuth();
+        allow write: if isAdmin();
+      }
       match /instructores/{docId} {
         allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
         allow create, delete: if isAdmin();
@@ -449,13 +699,23 @@ service cloud.firestore {
         allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
         allow create, update, delete: if isAdmin();
       }
+      // Espejo público de proveedores: solo autenticados (catálogo interno);
+      // nunca lectura anónima. Escritura solo admin.
+      match /proveedoresPublicos/{docId} {
+        allow read: if isAuth();
+        allow write: if isAdmin();
+      }
       match /motos/{docId} {
         allow read: if isAuth();
         allow create: if isAuth() && (
           isAdmin() || request.resource.data.proveedorId == request.auth.uid
         );
         allow update: if isAuth() && (
-          isAdmin() || resource.data.proveedorId == request.auth.uid
+          isAdmin() || (
+            resource.data.proveedorId == request.auth.uid &&
+            // B-08: el proveedor no puede transferir la moto a otro UID.
+            request.resource.data.proveedorId == resource.data.proveedorId
+          )
         );
         allow delete: if isAdmin();
       }
@@ -463,7 +723,12 @@ service cloud.firestore {
       match /admins/{docId} { allow read: if isAdmin(); allow write: if isAdmin(); }
 
       match /reservas/{docId} {
+        // ERR-057: permitir leer documentos inexistentes (resource == null) para
+        // chequeos de existencia dentro de transacciones (p.ej. child de pack).
+        // No expone datos: solo confirma que el doc no existe. Los docs existentes
+        // conservan dueño/instructor/admin.
         allow read: if isAuth() && (
+          resource == null ||
           isAdmin() || 
           resource.data.userId == request.auth.uid || 
           resource.data.instructorId == request.auth.uid ||
@@ -473,24 +738,31 @@ service cloud.firestore {
         allow create: if isAuth() && 
                       (request.resource.data.userId == request.auth.uid || isAdmin()) &&
                       request.resource.data.precio > 0 &&
-                      !('sesionTotalInicio' in request.resource.data) &&
-                      !('pausaTotalAcumulada' in request.resource.data) &&
                       (
                         (
                           !('tipoReserva' in request.resource.data) &&
                           request.resource.data.userId == request.auth.uid &&
                           request.resource.data.estadoPago == 'Pendiente' &&
+                          (
+                            !('estadoCurso' in request.resource.data) ||
+                            request.resource.data.estadoCurso == 'Pendiente'
+                          ) &&
                           request.resource.data.cursoId is string &&
                           request.resource.data.sedeId is string &&
-                          precioIndividualValido(
-                            cursoApp(request.resource.data.cursoId),
-                            configApp(),
-                            sedeApp(request.resource.data.sedeId),
+                          request.resource.data.instructorId is string &&
+                          request.resource.data.get('lockId', null) is string &&
+                          reservaLockIndividualValido(request.resource.data) &&
+                          espejoIndividualCreado(docId) &&
+                          request.resource.data.get('id', null) == docId &&
+                          reservaIndividualValida(
+                            request.resource.data.cursoId,
                             request.resource.data
                           )
                         ) ||
                         (
                           request.resource.data.tipoReserva == 'pack_sub' &&
+                          !('sesionTotalInicio' in request.resource.data) &&
+                          !('pausaTotalAcumulada' in request.resource.data) &&
                           request.resource.data.packReservaId is string &&
                           request.resource.data.packCursoIndex is int &&
                           request.resource.data.packCursoIndex >= 0 &&
@@ -516,49 +788,18 @@ service cloud.firestore {
                               maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds.size() > 0 &&
                               request.resource.data.cursoId == maestraAfter(request.resource.data.packReservaId).packSnapshot.cursoIds[0] &&
                               espejoChildCreado(docId, request.resource.data.userId) &&
-                              sedePermitida(maestraAfter(request.resource.data.packReservaId), request.resource.data.sedeId)
+                              sedePermitida(maestraAfter(request.resource.data.packReservaId), request.resource.data.sedeId) &&
+                              // D1: moto/proveedor coherentes y proveedor activo.
+                              motoYProveedorChildValidos(request.resource.data)
                             ) ||
                             // PACK-CHILD-C: agendamiento o reparación admin
                             (
                               request.resource.data.estadoPago == 'Aprobado' &&
-                              exists(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/reservasPack/$(request.resource.data.packReservaId)) &&
-                              // B-01: child Aprobada solo la crea el dueño del pack
-                              // o un admin, y siempre con el child en Pendiente.
-                              (
-                                request.auth.uid == maestraPre(request.resource.data.packReservaId).userId ||
-                                isAdmin()
-                              ) &&
-                              (isAdmin() || request.resource.data.estadoCurso == 'Pendiente') &&
-                              maestraPre(request.resource.data.packReservaId).userId == request.resource.data.userId &&
-                              maestraPre(request.resource.data.packReservaId).estadoPago == 'Aprobado' &&
-                              maestraPre(request.resource.data.packReservaId).estado == 'activo' &&
-                              (
-                                !('vencimiento' in maestraPre(request.resource.data.packReservaId)) ||
-                                maestraPre(request.resource.data.packReservaId).get('vencimiento', null) == null ||
-                                !(maestraPre(request.resource.data.packReservaId).vencimiento is timestamp) ||
-                                maestraPre(request.resource.data.packReservaId).vencimiento > request.time
-                              ) &&
-                              request.resource.data.packCursoIndex == maestraPre(request.resource.data.packReservaId).get('cursoActual', 0) &&
-                              request.resource.data.packCursoIndex < maestraPre(request.resource.data.packReservaId).subReservas.size() &&
-                              request.resource.data.packCursoIndex < maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
-                              maestraPre(request.resource.data.packReservaId).subReservas.size() == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds.size() &&
-                              slotLibre(maestraPre(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex]) &&
-                              request.resource.data.cursoId == maestraPre(request.resource.data.packReservaId).packSnapshot.cursoIds[request.resource.data.packCursoIndex] &&
-                              espejoChildCreado(docId, request.resource.data.userId) &&
-                              maestraAfter(request.resource.data.packReservaId).cursoReservaId == docId &&
-                              maestraAfter(request.resource.data.packReservaId).subReservas[request.resource.data.packCursoIndex].reservaId == docId &&
-                              preciosChildValidos(maestraAfter(request.resource.data.packReservaId).preciosCongelados, request.resource.data) &&
-                              cercaNumero(request.resource.data.pagoTotalVES, request.resource.data.precio * maestraAfter(request.resource.data.packReservaId).fxCongelado.tasaFX) &&
-                              (
-                                !isAdmin() ||
-                                (
-                                  request.resource.data.origen == 'reparacion_admin' &&
-                                  request.resource.data.creadoPorUid == request.auth.uid &&
-                                  request.resource.data.motivoReparacion is string &&
-                                  request.resource.data.motivoReparacion.size() > 0
-                                )
-                              ) &&
-                              sedePermitida(maestraPre(request.resource.data.packReservaId), request.resource.data.sedeId)
+                              packChildAgendaValida(
+                                request.resource.data.packReservaId,
+                                docId,
+                                request.resource.data
+                              )
                             )
                           )
                         )
@@ -1007,7 +1248,12 @@ service cloud.firestore {
         request.resource.data.estado == 'pendiente' &&
         request.resource.data.deudaId is string &&
         request.resource.data.monto is number &&
-        request.resource.data.monto > 0;
+        request.resource.data.monto > 0 &&
+        // B-07: la deuda debe existir, ser del proveedor, estar pendiente y cubrir el monto.
+        exists(/databases/$(database)/documents/deudasProveedor/$(request.resource.data.deudaId)) &&
+        get(/databases/$(database)/documents/deudasProveedor/$(request.resource.data.deudaId)).data.proveedorId == request.auth.uid &&
+        get(/databases/$(database)/documents/deudasProveedor/$(request.resource.data.deudaId)).data.estado == 'pendiente' &&
+        request.resource.data.monto <= get(/databases/$(database)/documents/deudasProveedor/$(request.resource.data.deudaId)).data.saldo;
       allow update: if isAdmin();
       allow delete: if false;
     }

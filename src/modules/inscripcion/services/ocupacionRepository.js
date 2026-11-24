@@ -54,3 +54,32 @@ export async function consultarLocksTemporalesPorFechas(fechas, { limite = LIMIT
   const { resultados, truncado } = await consultarPorCampo('ocupacionTemporal', 'fecha', fechasUnicas, limite);
   return { locks: Array.from(resultados.values()), truncado };
 }
+
+// ERR-046: bloqueos de agenda del proveedor que la UI ya descarta, pero que la
+// creación de la reserva debe volver a validar antes de consumir el lock.
+export async function consultarBloqueosGlobalesPorFechas(fechas, { limite = LIMITE_DOCS } = {}) {
+  const fechasUnicas = normalizarFechas(fechas);
+  if (fechasUnicas.length === 0) return { bloqueos: [], truncado: false };
+
+  const { resultados, truncado } = await consultarPorCampo('bloqueosGlobales', 'fecha', fechasUnicas, limite);
+  return { bloqueos: Array.from(resultados.values()), truncado };
+}
+
+// ERR-046: bloqueos del instructor. Se filtra por instructor (no por fecha)
+// porque el schema guarda rangos `fechaInicio`/`fechaFin`; el helper puro
+// `afectaInstructor` decide si el slot cae dentro y descarta cancelados.
+export async function consultarBloqueosInstructores(instructorId, { limite = LIMITE_DOCS } = {}) {
+  if (!instructorId) return { bloqueos: [], truncado: false };
+
+  const q = query(
+    collection(db, 'bloqueosInstructores'),
+    where('instructorId', '==', String(instructorId)),
+    limit(limite + 1)
+  );
+  const snap = await getDocs(q);
+  const truncado = snap.docs.length > limite;
+  return {
+    bloqueos: snap.docs.slice(0, limite).map(d => ({ id: d.id, ...d.data() })),
+    truncado
+  };
+}
