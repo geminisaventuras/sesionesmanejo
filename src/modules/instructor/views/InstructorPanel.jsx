@@ -7,7 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import ErrorBoundary from '../../shared/components/ErrorBoundary';
 import { useReservasInstructor } from '../hooks/useReservasInstructor';
-import { Activity, Wallet, Settings, AlertCircle, RefreshCw, Calendar } from 'lucide-react';
+import { Activity, Wallet, Settings, AlertCircle, RefreshCw, Calendar, Bike } from 'lucide-react';
 import ResumenTab from '../components/ResumenTab';
 import PendientesTab from '../components/PendientesTab';
 import ModalDetalleReserva from '../components/ModalDetalleReserva';
@@ -20,7 +20,7 @@ import PerfilTab from '../components/PerfilTab';
 import DisponibilidadTab from '../components/DisponibilidadTab';
 
 export default function InstructorPanel() {
-  const { user, saveInstructor, showToast, logoutUser, cursos: cursosGlobal, horarios: horariosGlobal, sedes: sedesGlobal } = useContext(AppContext);
+  const { user, saveInstructor, showToast, logoutUser, cursos: cursosGlobal, horarios: horariosGlobal, sedes: sedesGlobal, notifications } = useContext(AppContext);
   const navigate = useNavigate();
   const cursos = cursosGlobal || [];
   const horarios = horariosGlobal || [];
@@ -64,6 +64,7 @@ export default function InstructorPanel() {
       onBack={vistaInicio === 'pendientes' || vistaInicio === 'historial' ? () => setVistaInicio('resumen') : undefined}
       nombre={vistaInicio === 'resumen' ? user?.data?.nombre : undefined}
       onLogout={handleLogout}
+      notifications={notifications}
     />
   );
 
@@ -73,10 +74,16 @@ export default function InstructorPanel() {
         { id: 'inicio', icon: Activity, label: 'Inicio' },
         { id: 'disponibilidad', icon: Calendar, label: 'Disponibilidad' },
         { id: 'finanzas', icon: Wallet, label: 'Finanzas' },
-        { id: 'config', icon: Settings, label: 'Perfil' }
+        { id: 'config', icon: Settings, label: 'Perfil' },
+        ...(user?.data?.capacidades?.movilidad === true
+          ? [{ id: 'movilidad', icon: Bike, label: 'Movilidad' }]
+          : [])
       ]}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={(id) => {
+        if (id === 'movilidad') navigate('/movilidad');
+        else setTab(id);
+      }}
     />
   );
 

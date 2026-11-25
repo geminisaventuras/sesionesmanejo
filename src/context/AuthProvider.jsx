@@ -7,6 +7,23 @@ import { AuthService } from '../services/AuthService';
 const APP_ID = 'motoescuela-pro-v1';
 const BASE_PATH = ['artifacts', APP_ID, 'public', 'data'];
 
+// FT-058: un instructor/proveedor con ficha activa en el roster de movilidad
+// conserva su rol y recibe la capacidad para entrar al panel sin otra cuenta.
+async function conCapacidadMovilidad(basePath, uid, data) {
+  try {
+    const movSnap = await getDoc(doc(db, basePath, 'prestadoresMovilidad', uid));
+    if (movSnap.exists() && movSnap.data().activo !== false) {
+      return {
+        ...data,
+        capacidades: { ...(data.capacidades || {}), movilidad: true },
+      };
+    }
+  } catch {
+    // Sin roster o sin permiso de lectura: se conserva el perfil tal cual.
+  }
+  return data;
+}
+
 export function useAuthProvider(showToast) {
   const [fbUser, setFbUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -40,7 +57,7 @@ export function useAuthProvider(showToast) {
           showToast('Tu cuenta de instructor está inactiva', 'error');
           return;
         }
-        setUser({ role: 'instructor', data: instData, uid: currentUser.uid });
+        setUser({ role: 'instructor', data: await conCapacidadMovilidad(basePath, currentUser.uid, instData), uid: currentUser.uid });
         return;
       }
 
@@ -52,7 +69,21 @@ export function useAuthProvider(showToast) {
           showToast('Tu cuenta de proveedor está inactiva', 'error');
           return;
         }
-        setUser({ role: 'proveedor', data: provData, uid: currentUser.uid });
+        setUser({ role: 'proveedor', data: await conCapacidadMovilidad(basePath, currentUser.uid, provData), uid: currentUser.uid });
+        return;
+      }
+
+      // FT-058: prestador de movilidad (rol dedicado). Un instructor o proveedor
+      // que además preste el servicio conserva su rol y usa capacidades.movilidad.
+      const movSnap = await getDoc(doc(db, basePath, 'prestadoresMovilidad', currentUser.uid));
+      if (movSnap.exists()) {
+        const movData = { id: movSnap.id, ...movSnap.data() };
+        if (movData.activo === false) {
+          setUser(null);
+          showToast('Tu cuenta de prestador de movilidad está inactiva', 'error');
+          return;
+        }
+        setUser({ role: 'movilidad', data: movData, uid: currentUser.uid });
         return;
       }
 
@@ -127,10 +158,17 @@ export function useAuthProvider(showToast) {
   }, [showToast]);
 
   const logoutUser = useCallback(async () => {
+    // El dispositivo deja de recibir push de esta cuenta al cerrar sesión.
+    try {
+      const { desactivarDispositivoActual } = await import('../modules/shared/services/NotificacionesPush');
+      await desactivarDispositivoActual(fbUser?.uid);
+    } catch {
+      // Nunca bloquear el logout por push.
+    }
     const res = await AuthService.logout();
     if (res.success) { setUser(null); }
     else showToast(res.error.message, 'error');
-  }, [showToast]);
+  }, [showToast, fbUser?.uid]);
 
   return {
     fbUser, authReady, user, setUser, autoLoginData, setAutoLoginData,

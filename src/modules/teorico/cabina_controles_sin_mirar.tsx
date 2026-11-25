@@ -20,6 +20,8 @@ import {
   Award,
   ZoomIn,
   Maximize2,
+  ChevronUp,
+  ChevronDown,
   ArrowRight,
   Info,
   Eye,
@@ -538,6 +540,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r1',
       targetId: 'paro_motor',
+      marchaInicial: 3,
       critico: true,
       icono: 'alert',
       etiqueta: 'EMERGENCIA MECÁNICA',
@@ -549,6 +552,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r2',
       targetId: 'direccionales',
+      marchaInicial: 4,
       critico: true,
       icono: 'turn',
       etiqueta: 'MANIOBRA EN VÍA · ART. 32',
@@ -560,6 +564,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r3',
       targetId: 'luces',
+      marchaInicial: 4,
       critico: false,
       icono: 'light',
       etiqueta: 'VISIBILIDAD NOCTURNA',
@@ -571,6 +576,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r4',
       targetId: 'combustible',
+      marchaInicial: 4,
       critico: false,
       icono: 'fuel',
       etiqueta: 'GESTIÓN DE COMBUSTIBLE',
@@ -582,6 +588,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r5',
       targetId: 'claxon',
+      marchaInicial: 2,
       critico: false,
       icono: 'horn',
       etiqueta: 'ALERTA PREVENTIVA',
@@ -593,6 +600,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r6',
       targetId: 'espejos',
+      marchaInicial: 3,
       critico: false,
       icono: 'eye',
       etiqueta: 'ESTRATEGIA SEE',
@@ -604,6 +612,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r7',
       targetId: 'freno_delantero',
+      marchaInicial: 4,
       critico: true,
       icono: 'brake',
       etiqueta: 'PARADA DE EMERGENCIA',
@@ -615,6 +624,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r8',
       targetId: 'ahogador',
+      marchaInicial: 0,
       critico: false,
       icono: 'choke',
       etiqueta: 'ENCENDIDO EN FRÍO',
@@ -626,6 +636,7 @@ function construirEscenariosReto(transmision) {
     {
       id: 'r9',
       targetId: 'arranque',
+      marchaInicial: 0,
       critico: false,
       icono: 'start',
       etiqueta: 'REANUDAR MARCHA',
@@ -638,6 +649,8 @@ function construirEscenariosReto(transmision) {
       ? {
           id: 'r10',
           targetId: 'cambios',
+          marchaInicial: 3,
+          direccion: 'bajar',
           critico: false,
           icono: 'gear',
           etiqueta: 'CONTROL DE CURVA · SINCRÓNICA',
@@ -715,6 +728,8 @@ function CabinaInteractivaSVG({
   estadoCabina,
   onAccionarControl,
   ocultarTextoAyuda = false,
+  llenar = false,
+  soloEscena = false,
 }) {
   const esManual = transmision === 'manual';
 
@@ -805,8 +820,9 @@ function CabinaInteractivaSVG({
   }, [zoom, esManual]);
 
   return (
-    <div className="space-y-3">
+    <div className={llenar ? 'flex h-full min-h-0 flex-col gap-2' : 'space-y-3'}>
       {/* Barra superior de Zoom + Estado del Motor */}
+      {!soloEscena && (
       <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <div className="inline-flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
           {[
@@ -868,10 +884,13 @@ function CabinaInteractivaSVG({
           )}
         </div>
       </div>
+      )}
 
       {/* Contenedor Oscuro Técnico de la Cabina SVG */}
       <div
         className={`relative rounded-2xl border overflow-hidden shadow-lg transition-colors ${
+          llenar ? 'flex flex-1 min-h-0 flex-col' : ''
+        } ${
           modoNocturno
             ? 'bg-slate-950 border-slate-800'
             : 'bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 border-slate-800'
@@ -879,7 +898,7 @@ function CabinaInteractivaSVG({
       >
         <svg
           viewBox={viewBoxActual}
-          className="w-full h-auto block select-none transition-all duration-300"
+          className={`w-full ${llenar ? 'flex-1 min-h-0' : 'h-auto'} block select-none transition-all duration-300`}
           role="img"
           aria-label="Cabina interactiva de motocicleta en primera persona"
         >
@@ -1794,6 +1813,17 @@ function CabinaInteractivaSVG({
           })()}
         </svg>
 
+        {/* Aviso contextual de la cabina (p. ej. cambio de marcha sin embrague) */}
+        {estadoCabina.aviso && (
+          <div
+            role="alert"
+            className="border-t border-amber-500/40 bg-amber-500/15 px-3 py-2 flex items-center gap-1.5 text-[11px] sm:text-xs font-extrabold text-amber-200"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-300" />
+            <span>{estadoCabina.aviso}</span>
+          </div>
+        )}
+
         {/* Tira Inferior de Controles de Pies (Solo visible en Moto Sincrónica) */}
         {esManual && (
           <div className="border-t border-slate-800 bg-slate-900/95 px-3 py-2.5 grid grid-cols-2 gap-2.5">
@@ -1802,17 +1832,15 @@ function CabinaInteractivaSVG({
               const stFrenoPie = getEstiloControl('freno_trasero_pie');
               return (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => onAccionarControl('cambios')}
-                    className={`py-2.5 px-3 rounded-xl border-2 text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                  <div
+                    className={`py-2 px-2.5 rounded-xl border-2 flex items-center justify-between gap-2 transition-all ${
                       controlCorrectoId === 'cambios'
                         ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100'
                         : controlErrorId === 'cambios'
                         ? 'bg-red-500/20 border-red-400 text-red-100'
                         : stCambios.resaltado
                         ? 'bg-[#2563eb]/25 border-[#3b82f6] text-white'
-                        : 'bg-slate-950/90 border-slate-700 hover:border-slate-500 text-slate-200'
+                        : 'bg-slate-950/90 border-slate-700 text-slate-200'
                     }`}
                   >
                     <div className="min-w-0">
@@ -1820,13 +1848,35 @@ function CabinaInteractivaSVG({
                         Pie Izquierdo
                       </div>
                       <div className="text-xs sm:text-sm font-extrabold truncate">
-                        {mostrarEtiquetas ? 'Palanca de Cambios (1-N-2-3-4-5)' : 'Pedal Izquierdo'}
+                        {mostrarEtiquetas ? 'Cambios (1-N-2-3-4-5)' : 'Pedal Izq.'}
+                      </div>
+                      <div className="text-[11px] font-black text-amber-300 tabular-nums">
+                        Marcha {estadoCabina.marcha === 0 ? 'N' : `${estadoCabina.marcha}ª`}
                       </div>
                     </div>
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 text-xs font-black shrink-0">
-                      {estadoCabina.marcha === 0 ? 'N' : `${estadoCabina.marcha}ª`}
-                    </span>
-                  </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onAccionarControl('cambios', 'subir')}
+                        aria-label="Subir marcha"
+                        title="Subir marcha"
+                        style={{ minHeight: '44px', minWidth: '44px' }}
+                        className="h-11 w-11 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-[#2563eb] border border-slate-600 text-slate-100 transition-colors cursor-pointer"
+                      >
+                        <ChevronUp className="w-5 h-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAccionarControl('cambios', 'bajar')}
+                        aria-label="Bajar marcha"
+                        title="Bajar marcha"
+                        style={{ minHeight: '44px', minWidth: '44px' }}
+                        className="h-11 w-11 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-[#2563eb] border border-slate-600 text-slate-100 transition-colors cursor-pointer"
+                      >
+                        <ChevronDown className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
 
                   <button
                     type="button"
@@ -1863,7 +1913,7 @@ function CabinaInteractivaSVG({
       </div>
 
       {/* Panel Táctil Ampliado de Precisión al usar Zoom en Piña Izquierda o Derecha */}
-      {botonesAccesoRapido.length > 0 && !ocultarTextoAyuda && (
+      {botonesAccesoRapido.length > 0 && !ocultarTextoAyuda && !llenar && (
         <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs space-y-2 animate-fadeIn">
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center justify-between">
             <span>
@@ -1921,9 +1971,13 @@ function useCabinaEstado(playSound, transmision) {
     rpm: 1400,
     combustible: 'ON', // 'ON' | 'RES' | 'OFF'
     marcha: 0, // 0=N, 1..5
+    aviso: null, // mensaje contextual breve (p. ej. cambio sin embrague)
   });
 
   const timeoutsRef = useRef([]);
+  // Lectura sincrónica del estado actual dentro de dispararControl (embrague/marcha).
+  const estadoRef = useRef(estadoCabina);
+  estadoRef.current = estadoCabina;
 
   const registrarTimeout = useCallback((fn, ms) => {
     const id = setTimeout(fn, ms);
@@ -1946,7 +2000,7 @@ function useCabinaEstado(playSound, transmision) {
   }, [transmision]);
 
   const dispararControl = useCallback(
-    (id) => {
+    (id, direccion) => {
       if (id === 'luces') {
         playSound('clic');
         setEstadoCabina((p) => ({ ...p, luzAlta: !p.luzAlta }));
@@ -1975,7 +2029,9 @@ function useCabinaEstado(playSound, transmision) {
               palancaIzqActiva: false,
               frenando: false,
             })),
-          450
+          // En sincrónica el embrague se mantiene el tiempo suficiente para
+          // ejecutar el cambio; en automática la palanca es un toque de freno.
+          transmision === 'manual' ? 1200 : 450
         );
       } else if (id === 'paro_motor') {
         playSound('paro_motor');
@@ -2049,11 +2105,33 @@ function useCabinaEstado(playSound, transmision) {
           combustible: p.combustible === 'ON' ? 'RES' : p.combustible === 'RES' ? 'OFF' : 'ON',
         }));
       } else if (id === 'cambios') {
+        if (transmision !== 'manual') return { aplicado: false };
+        // En una moto sincrónica el cambio exige embrague en ese momento.
+        if (!estadoRef.current.palancaIzqActiva) {
+          playSound('error');
+          setEstadoCabina((p) => ({ ...p, aviso: 'Aprieta el embrague antes de cambiar' }));
+          registrarTimeout(() => setEstadoCabina((p) => ({ ...p, aviso: null })), 2600);
+          return { aplicado: false, requiereEmbrague: true };
+        }
         playSound('clic');
+        // Patrón secuencial real 1-N-2-3-4-5: desde 1 subir lleva a N; desde N
+        // subir va a 2 y bajar va a 1; desde 2 bajar vuelve a N. 5 y 1 son topes.
+        const siguienteMarcha = (actual, haciaArriba) => {
+          if (haciaArriba) {
+            if (actual === 1) return 0;
+            if (actual === 0) return 2;
+            return Math.min(5, actual + 1);
+          }
+          if (actual === 2) return 0;
+          if (actual === 0) return 1;
+          return Math.max(1, actual - 1);
+        };
         setEstadoCabina((p) => ({
           ...p,
-          marcha: (p.marcha + 1) % 6,
+          aviso: null,
+          marcha: siguienteMarcha(p.marcha, direccion !== 'bajar'),
         }));
+        return { aplicado: true };
       } else if (id === 'freno_trasero_pie') {
         playSound('clic');
         setEstadoCabina((p) => ({
@@ -2073,7 +2151,13 @@ function useCabinaEstado(playSound, transmision) {
     [playSound, registrarTimeout, transmision]
   );
 
-  return { estadoCabina, dispararControl };
+  // Fija la marcha del escenario (0=N, 1..5) al entrar o reiniciar el Reto.
+  const fijarMarcha = useCallback((marcha) => {
+    const valor = Math.max(0, Math.min(5, Number(marcha) || 0));
+    setEstadoCabina((p) => ({ ...p, marcha: valor }));
+  }, []);
+
+  return { estadoCabina, dispararControl, fijarMarcha };
 }
 
 /* ============================================================================
@@ -2105,14 +2189,14 @@ function PestanaExplorarCabina({ transmision, playSound }) {
   const progresoPct = Math.round((exploradosValidos / controles.length) * 100);
 
   const manejarToque = useCallback(
-    (id) => {
+    (id, direccion) => {
       setActivoId(id);
       setExplorados((prev) => {
         const next = new Set(prev);
         next.add(id);
         return next;
       });
-      dispararControl(id);
+      dispararControl(id, direccion);
     },
     [dispararControl]
   );
@@ -2277,7 +2361,7 @@ function PestanaExplorarCabina({ transmision, playSound }) {
 /* ============================================================================
  * 8. PESTAÑA 2 — RETO "SIN MIRAR" (SIMULADOR CONTRARRELOJ 3 NIVELES)
  * ============================================================================ */
-function PestanaRetoSinMirar({ transmision, playSound }) {
+function PestanaRetoSinMirar({ transmision, playSound, onInmersivo, movilJuego = false }) {
   const [fase, setFase] = useState('config'); // 'config' | 'jugando' | 'resultados'
   const [nivelId, setNivelId] = useState(1);
   const [escenarios, setEscenarios] = useState([]);
@@ -2295,11 +2379,17 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
   const feedbackRef = useRef(null);
   const nivelObj = NIVELES_RETO.find((n) => n.id === nivelId) || NIVELES_RETO[0];
   const controlesCatalogo = useMemo(() => obtenerControlesPorTransmision(transmision), [transmision]);
-  const { estadoCabina, dispararControl } = useCabinaEstado(playSound, transmision);
+  const { estadoCabina, dispararControl, fijarMarcha } = useCabinaEstado(playSound, transmision);
 
   useEffect(() => {
     feedbackRef.current = feedback;
   }, [feedback]);
+
+  // En móvil el reto se juega a pantalla completa: oculta la cabecera y evita el scroll.
+  useEffect(() => {
+    onInmersivo?.(fase === 'jugando');
+    return () => onInmersivo?.(false);
+  }, [fase, onInmersivo]);
 
   // Si cambia la transmisión durante el juego, volver limpiamente a configuración
   useEffect(() => {
@@ -2376,17 +2466,37 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
     setRegistros([]);
     setFeedback(null);
     setTiempoRestanteMs(nivelObj.tiempoMs);
+    // Cada escenario arranca con la marcha coherente a su enunciado (N/1ª si está parado).
+    fijarMarcha(transmision === 'manual' ? base[0]?.marchaInicial ?? 0 : 0);
     setFase('jugando');
   };
 
-  const manejarToqueEnReto = (controlId) => {
+  const manejarToqueEnReto = (controlId, direccion) => {
     if (fase !== 'jugando' || feedback || !escenarioActual) return;
+
+    // En sincrónica el embrague es prerrequisito del cambio: apretarlo no se evalúa como respuesta.
+    if (
+      transmision === 'manual' &&
+      escenarioActual.targetId === 'cambios' &&
+      controlId === 'palanca_izq'
+    ) {
+      dispararControl('palanca_izq');
+      return;
+    }
+
+    const resultado = dispararControl(controlId, direccion);
+
+    // Sin embrague no hay cambio: se muestra el aviso y el reloj sigue corriendo.
+    if (resultado?.requiereEmbrague) return;
+
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
     const reaccionMs = Math.max(120, Math.round(performance.now() - inicioEscenarioRef.current));
-    dispararControl(controlId);
 
-    const acierto = controlId === escenarioActual.targetId;
+    const direccionEsperada = escenarioActual.direccion || null;
+    const acierto =
+      controlId === escenarioActual.targetId &&
+      (!direccionEsperada || (direccion || 'subir') === direccionEsperada);
     if (acierto) {
       playSound('acierto');
       setRacha((r) => {
@@ -2421,6 +2531,8 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
 
   const avanzar = () => {
     if (indice < escenarios.length - 1) {
+      const siguiente = escenarios[indice + 1];
+      fijarMarcha(transmision === 'manual' ? siguiente?.marchaInicial ?? 0 : 0);
       setIndice((i) => i + 1);
       setFeedback(null);
       setZoom('full');
@@ -2808,26 +2920,26 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
     feedback && controlesCatalogo.find((c) => c.id === feedback.correctoId);
 
   return (
-    <div className="space-y-4 animate-fadeIn">
-      {/* Parabrisas / Escenario Vial Urgente + Barra de Tiempo */}
-      <section className="bg-slate-950 text-white rounded-2xl border border-slate-800 shadow-md p-4 sm:p-5 space-y-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 rounded-full bg-[#2563eb] text-white text-[11px] font-black">
-              Escenario {indice + 1} / {escenarios.length}
+    <div className="relative h-full min-h-0 flex flex-col gap-2 animate-fadeIn sm:gap-4">
+      {/* HUD de juego: escenario, tiempo, racha y salida siempre visibles */}
+      <section className="shrink-0 bg-slate-950 text-white rounded-2xl border border-slate-800 shadow-md px-3 py-2 sm:p-5 space-y-2 sm:space-y-3.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="px-2 py-0.5 rounded-full bg-[#2563eb] text-white text-[10px] sm:text-[11px] font-black whitespace-nowrap">
+              Esc. {indice + 1}/{escenarios.length}
             </span>
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+            <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wide text-amber-400 truncate">
               {escenarioActual?.etiqueta}
             </span>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-extrabold">
-              <Flame className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-extrabold">
+              <Flame className="w-3 h-3 fill-amber-400 text-amber-400" />
               <span>{racha}</span>
             </span>
             <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-black tabular-nums ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-black tabular-nums ${
                 pctTiempo < 30
                   ? 'bg-red-500/20 border-red-500/50 text-red-300'
                   : 'bg-slate-900 border-slate-700 text-sky-300'
@@ -2836,25 +2948,37 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
               <Clock className="w-3.5 h-3.5" />
               <span>{(tiempoRestanteMs / 1000).toFixed(2)} s</span>
             </span>
+            <button
+              type="button"
+              onClick={() => setFase('config')}
+              aria-label="Salir del reto"
+              className="h-11 w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Enunciado de la situación */}
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
+        {/* Enunciado: siempre visible; en móvil se limita a 3 líneas */}
+        <div className="flex items-start gap-2">
+          <span
+            className={`shrink-0 mt-0.5 ${
+              escenarioActual?.critico ? 'text-amber-400' : 'text-blue-300'
+            }`}
+          >
             {escenarioActual?.critico ? (
-              <AlertTriangle className="w-5 h-5 text-amber-400" />
+              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
             ) : (
-              <Target className="w-5 h-5" />
+              <Target className="w-4 h-4 sm:w-5 sm:h-5" />
             )}
-          </div>
-          <p className="text-sm sm:text-base font-extrabold text-white leading-snug">
+          </span>
+          <p className="text-[13px] sm:text-base font-extrabold text-white leading-snug line-clamp-3 sm:line-clamp-none">
             {escenarioActual?.situacion}
           </p>
         </div>
 
         {/* Barra de tiempo fluida */}
-        <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 sm:h-2.5 bg-slate-800 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-none ${
               pctTiempo < 30 ? 'bg-red-500' : pctTiempo < 60 ? 'bg-amber-400' : 'bg-emerald-400'
@@ -2867,7 +2991,7 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
       {/* Feedback Instantáneo tras tocar control o vencer tiempo */}
       {feedback && (
         <section
-          className={`rounded-2xl border-2 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn ${
+          className={`relative shrink-0 max-h-[32%] overflow-y-auto overscroll-contain rounded-2xl border-2 p-2 sm:p-4 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-fadeIn ${
             feedback.ok
               ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
               : 'bg-red-50 border-red-400 text-red-950'
@@ -2899,7 +3023,7 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
           <button
             type="button"
             onClick={avanzar}
-            className="shrink-0 py-2.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+            className="shrink-0 min-h-[44px] py-2.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>
               {indice < escenarios.length - 1 ? 'Siguiente situación' : 'Ver Dashboard Final'}
@@ -2909,20 +3033,59 @@ function PestanaRetoSinMirar({ transmision, playSound }) {
         </section>
       )}
 
-      {/* Cabina Interactiva del Reto */}
-      <CabinaInteractivaSVG
-        transmision={transmision}
-        zoom={zoom}
-        setZoom={setZoom}
-        controlActivoId={null}
-        controlCorrectoId={feedback ? feedback.correctoId : null}
-        controlErrorId={feedback ? feedback.errorId : null}
-        mostrarEtiquetas={nivelObj.mostrarEtiquetas}
-        modoNocturno={nivelObj.modoNocturno}
-        estadoCabina={estadoCabina}
-        onAccionarControl={manejarToqueEnReto}
-        ocultarTextoAyuda={!nivelObj.mostrarEtiquetas}
-      />
+      {/* Área interactiva: ocupa el alto disponible, sin scroll de página */}
+      <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
+        <div className="w-full h-full">
+          <CabinaInteractivaSVG
+            transmision={transmision}
+            zoom={zoom}
+            setZoom={setZoom}
+            controlActivoId={null}
+            controlCorrectoId={feedback ? feedback.correctoId : null}
+            controlErrorId={feedback ? feedback.errorId : null}
+            mostrarEtiquetas={nivelObj.mostrarEtiquetas}
+            modoNocturno={nivelObj.modoNocturno}
+            estadoCabina={estadoCabina}
+            onAccionarControl={manejarToqueEnReto}
+            ocultarTextoAyuda={!nivelObj.mostrarEtiquetas}
+            llenar={movilJuego}
+            soloEscena={movilJuego}
+          />
+        </div>
+      </div>
+
+      {/* Selector de zona al alcance del pulgar: agranda controles sin tapar el tablero */}
+      <p className="shrink-0 text-center text-[10px] font-semibold text-slate-500 sm:hidden">
+        Toca Izquierda o Derecha para agrandar los mandos
+      </p>
+      <div
+        role="group"
+        aria-label="Zona de la cabina"
+        className="shrink-0 grid grid-cols-3 gap-1.5"
+      >
+        {[
+          { id: 'izq', label: 'Izquierda' },
+          { id: 'full', label: 'Completa' },
+          { id: 'der', label: 'Derecha' },
+        ].map((zona) => {
+          const activa = zoom === zona.id;
+          return (
+            <button
+              key={zona.id}
+              type="button"
+              aria-pressed={activa}
+              onClick={() => setZoom(zona.id)}
+              className={`h-11 rounded-xl border text-xs font-extrabold transition-colors cursor-pointer ${
+                activa
+                  ? 'bg-[#2563eb] border-blue-500 text-white shadow-sm'
+                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {zona.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3304,6 +3467,21 @@ function CabinaControlesSinMirar() {
   const [tab, setTab] = useState('explorar'); // 'explorar' | 'reto' | 'postura'
   const [transmision, setTransmision] = useState('manual'); // 'manual' | 'automatica'
   const [audioHabilitado, setAudioHabilitado] = useState(true);
+  const [inmersivo, setInmersivo] = useState(false);
+  const [esMovil, setEsMovil] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const alCambiar = (e) => setEsMovil(e.matches);
+    mq.addEventListener?.('change', alCambiar);
+    return () => mq.removeEventListener?.('change', alCambiar);
+  }, []);
+
+  // Solo en teléfono/tablet: durante el reto se oculta la cabecera y se juega sin scroll.
+  const modoJuego = esMovil && inmersivo;
 
   const playSound = useSoundEngine(audioHabilitado);
 
@@ -3314,7 +3492,11 @@ function CabinaControlesSinMirar() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden">
+    <div
+      className={`${
+        modoJuego ? 'h-full min-h-0 overflow-hidden' : 'min-h-screen'
+      } bg-slate-50 text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden`}
+    >
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(6px); }
@@ -3326,7 +3508,11 @@ function CabinaControlesSinMirar() {
       `}</style>
 
       {/* Cabecera Técnica Oscura Moto App */}
-      <header className="sticky top-0 z-30 bg-slate-950 text-white border-b border-slate-800 shadow-sm">
+      <header
+        className={`${
+          modoJuego ? 'hidden' : 'sticky top-0'
+        } z-30 bg-slate-950 text-white border-b border-slate-800 shadow-sm`}
+      >
         <div className="max-w-5xl mx-auto px-4 pt-3.5 pb-3 space-y-3">
           {/* Fila 1: Marca + Título + Toggle Audio */}
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3438,18 +3624,33 @@ function CabinaControlesSinMirar() {
       </header>
 
       {/* Contenido Principal Responsive */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-5">
+      <main
+        className={
+          modoJuego
+            ? 'flex-1 min-h-0 w-full max-w-5xl mx-auto px-0 pt-0 pb-0 flex flex-col overflow-hidden'
+            : 'flex-1 w-full max-w-5xl mx-auto px-4 py-5'
+        }
+      >
         {tab === 'explorar' && (
           <PestanaExplorarCabina transmision={transmision} playSound={playSound} />
         )}
         {tab === 'reto' && (
-          <PestanaRetoSinMirar transmision={transmision} playSound={playSound} />
+          <PestanaRetoSinMirar
+            transmision={transmision}
+            playSound={playSound}
+            onInmersivo={setInmersivo}
+            movilJuego={esMovil}
+          />
         )}
         {tab === 'postura' && <PestanaPosturaYLeyVE />}
       </main>
 
       {/* Pie informativo */}
-      <footer className="max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-1.5">
+      <footer
+        className={`${
+          modoJuego ? 'hidden' : 'flex'
+        } max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex-wrap items-center justify-center gap-1.5`}
+      >
         <Info className="w-3.5 h-3.5" />
         <span>
           Moto App · Entrenamiento interactivo basado en el Manual del Operador de

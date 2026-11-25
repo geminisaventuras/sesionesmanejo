@@ -14,8 +14,9 @@ import {
   updateDoc,
   Timestamp
 } from 'firebase/firestore';
-import { db } from '../../shared/firebase/firebase';
+import { auth, db } from '../../shared/firebase/firebase';
 import { obtenerFechaVenezuela } from '../utils/zonahoraria';
+import { emitirEvento } from './NotificacionesEventos';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -164,6 +165,17 @@ export const DeudasProveedorService = {
         });
       });
 
+      if (pagadoPor) {
+        void emitirEvento({
+          tipo: 'deuda_proveedor',
+          entidadTipo: 'deudaProveedor',
+          entidadId: deudaId,
+          actorUid: pagadoPor,
+          token: `${saldoFinal}|${estadoFinal}`,
+          datos: { deudaId, monto: montoPago, moneda },
+        });
+      }
+
       return {
         success: true,
         data: {
@@ -295,6 +307,18 @@ export const DeudasProveedorService = {
         createdAt: Timestamp.now(),
         createdBy: proveedorId
       });
+
+      const actorUid = auth.currentUser?.uid || proveedorId;
+      if (actorUid) {
+        void emitirEvento({
+          tipo: 'deuda_proveedor',
+          entidadTipo: 'deudaProveedor',
+          entidadId: deudaId,
+          actorUid,
+          token: `solicitud|${ref.id}`,
+          datos: { deudaId, monto: montoPago, moneda },
+        });
+      }
 
       return { success: true, data: { id: ref.id } };
     } catch (error) {

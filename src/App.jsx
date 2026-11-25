@@ -6,8 +6,11 @@ import { ToastProvider, useToast } from './modules/shared/components/ToastProvid
 import { Spinner } from './components/UI';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import InstructorPanel from './modules/instructor/views/InstructorPanel';
+import { puedeOperarMovilidad } from './modules/inscripcion/utils/movilidadHelpers';
 // Lazy loading de todas las vistas
 const HomeView = React.lazy(() => import('./modules/home/views/HomeView'));
+const AsistenteFlotante = React.lazy(() => import('./modules/public/components/asistente/AsistenteFlotante'));
+const ChatAsistenteView = React.lazy(() => import('./modules/public/components/asistente/ChatAsistenteView'));
 const InscripcionView = React.lazy(() => import('./modules/inscripcion/views/InscripcionView').then(m => ({ default: m.InscripcionView })));
 const PortalEstudiante = React.lazy(() => import('./modules/auth/views/PortalEstudiante').then(m => ({ default: m.PortalEstudiante })));
 const LoginView = React.lazy(() => import('./modules/auth/views/LoginView').then(m => ({ default: m.LoginView })));
@@ -50,6 +53,8 @@ const StaffFinanzasView = React.lazy(() => import('./modules/admin/components/St
 const AdminConfigHub = React.lazy(() => import('./modules/admin/components/AdminConfigHub'));
 const AdminGeografia = React.lazy(() => import('./modules/admin/components/AdminGeografia'));
 const AdminAjustes = React.lazy(() => import('./modules/admin/components/AdminAjustes'));
+const AdminMovilidad = React.lazy(() => import('./modules/admin/components/AdminMovilidad'));
+const AdminCRM = React.lazy(() => import('./modules/admin/components/AdminCRM'));
 const ProveedorPanel = React.lazy(() => import('./modules/proveedor/views/ProveedorPanel'));
 const CursosPublicosView = React.lazy(() => import('./modules/public/views/CursosPublicosView'));
 const PacksPublicosView = React.lazy(() => import('./modules/public/views/PacksPublicosView'));
@@ -58,7 +63,11 @@ const TeoricoCursoView = React.lazy(() => import('./modules/public/views/Teorico
 const TeoricoModuloView = React.lazy(() => import('./modules/public/views/TeoricoModuloView'));
 const InscripcionTeoricoView = React.lazy(() => import('./modules/inscripcion/views/InscripcionTeoricoView').then(m => ({ default: m.InscripcionTeoricoView })));
 const EvaluacionVialView = React.lazy(() => import('./modules/teorico/EvaluacionVialView'));
+const EmuladosView = React.lazy(() => import('./modules/teorico/EmuladosView'));
 const CorregirPagoView = React.lazy(() => import('./modules/shared/views/CorregirPagoView'));
+const NotificacionesView = React.lazy(() => import('./modules/shared/views/NotificacionesView'));
+const AlertasAjustesView = React.lazy(() => import('./modules/shared/views/AlertasAjustesView'));
+const MovilidadPanel = React.lazy(() => import('./modules/movilidad/views/MovilidadPanel'));
 // Fallback de carga
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -84,6 +93,21 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   return children;
 };
 
+// FT-058: acceso por roster (rol `movilidad`), capacidad o admin, no por string fijo.
+const MovilidadRoute = ({ children }) => {
+  const { user } = useContext(AppContext);
+  const { showToast } = useToast();
+
+  React.useEffect(() => {
+    if (!user) showToast('Debes iniciar sesión para acceder a esta página.', 'error');
+    else if (!puedeOperarMovilidad(user)) showToast('No tienes permisos para acceder al panel de movilidad.', 'error');
+  }, [user, showToast]);
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (!puedeOperarMovilidad(user)) return <Navigate to="/" replace />;
+  return children;
+};
+
 function App() {
   const { authReady } = useContext(AppContext);
 
@@ -98,6 +122,7 @@ function App() {
         <Routes>
           {/* Rutas públicas */}
           <Route path="/" element={<HomeView />} />
+          <Route path="/chat" element={<ChatAsistenteView />} />
                     <Route path="/sesiones" element={<CursosPublicosView />} />
           <Route path="/cursos" element={<Navigate to="/sesiones" replace />} />          
           <Route path="/packs" element={<PacksPublicosView />} />
@@ -107,6 +132,8 @@ function App() {
           <Route path="/teorico/:cursoId/comprar" element={<InscripcionTeoricoView />} />
           <Route path="/evaluacion" element={<EvaluacionVialView />} />
           <Route path="/reto-vial" element={<Navigate to="/evaluacion" replace />} />
+          <Route path="/emulados" element={<EmuladosView />} />
+          <Route path="/emulados/:categoriaId" element={<EmuladosView />} />
 
           <Route path="/inscripcion" element={<InscripcionView />} />
           <Route path="/portal" element={<PortalEstudiante />} />
@@ -137,12 +164,20 @@ function App() {
             </ProtectedRoute>
           } />
 
-          {/* Panel del instructor */}
-          <Route path="/instructor" element={
-            <ProtectedRoute allowedRoles={['instructor']}>
-              <InstructorPanel />
-            </ProtectedRoute>
-          } />
+        {/* Panel del instructor */}
+        <Route path="/instructor" element={
+          <ProtectedRoute allowedRoles={['instructor']}>
+            <InstructorPanel />
+          </ProtectedRoute>
+        } />
+
+        {/* FT-058: panel del prestador de movilidad (rol, capacidad o admin) */}
+        <Route path="/movilidad" element={
+          <MovilidadRoute>
+            <MovilidadPanel />
+          </MovilidadRoute>
+        } />
+
 
           {/* Aula virtual (instructor y estudiante) */}
           <Route path="/aula/:reservaId" element={
@@ -167,6 +202,18 @@ function App() {
           <Route path="/admin/metricas" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminMetricas />
+            </ProtectedRoute>
+          } />
+
+          {/* Centro de notificaciones por rol (inbox) y ajustes de alertas */}
+          <Route path="/notificaciones" element={
+            <ProtectedRoute allowedRoles={['admin', 'instructor', 'proveedor', 'estudiante', 'movilidad']}>
+              <NotificacionesView />
+            </ProtectedRoute>
+          } />
+          <Route path="/notificaciones/ajustes" element={
+            <ProtectedRoute allowedRoles={['admin', 'instructor', 'proveedor', 'estudiante', 'movilidad']}>
+              <AlertasAjustesView />
             </ProtectedRoute>
           } />
 
@@ -275,6 +322,16 @@ function App() {
               <AdminAjustes />
             </ProtectedRoute>
           } />
+          <Route path="/admin/config/movilidad" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminMovilidad />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/crm" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminCRM />
+            </ProtectedRoute>
+          } />
           <Route path="/admin/geografia" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminGeografia />
@@ -291,6 +348,10 @@ function App() {
           {/* Redirección por defecto */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <AsistenteFlotante />
       </Suspense>
     </ToastProvider>
   );

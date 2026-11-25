@@ -8,6 +8,10 @@ const DEFAULT_FORM = {
   nombre: '', apellido: '', cedula: '', diaNac: '', mesNac: '', anoNac: '',
   sexo: '', estado: '', estadoId: '', municipio: '', municipioId: '', ciudad: '', ciudadId: '', zona: '', correo: '', telefono: '', contactoEmergencia: '',
   sabeBicicleta: '', traeMoto: 'No',
+  // FT-058: movilidad opcional cuando el estudiante trae su propia moto.
+  movilidadSolicitada: false, movilidadPin: null, movilidadDireccion: '',
+  movilidadDistanciaKm: null, movilidadMontoUSD: null, movilidadMontoVES: null,
+  movilidadSnapshot: null, movilidadAutorizacion: false,
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: '',
   condicionMedica: '', detalleCondicion: ''
 };

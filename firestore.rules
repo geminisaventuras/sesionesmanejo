@@ -127,6 +127,28 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/preciosCurso/$(cursoId)).data;
     }
 
+    // FT-058 fase 1: la movilidad se paga directo al prestador y la app NO
+    // recibe ese dinero. Por eso las reglas validan estructura, módulo activo y
+    // pago directo; el monto lo calcula el cliente desde la config y se audita
+    // en el panel. La validación server-side del monto se hará cuando exista
+    // `modoPago: 'app'` (ADR-021).
+    function movilidadActiva() {
+      let main = configApp();
+      let cfg = main.get('movilidad', null);
+      return cfg is map &&
+        cfg.get('activo', false) == true &&
+        cfg.get('modoPago', 'directo') == 'directo';
+    }
+
+    function movilidadTransicionValida(actual, siguiente) {
+      return (actual == 'solicitada' && siguiente in ['asignada', 'cancelada']) ||
+        (actual == 'asignada' && siguiente in ['en_camino', 'cancelada']) ||
+        (actual == 'en_camino' && siguiente in ['recogido', 'cancelada', 'no_presentado']) ||
+        (actual == 'recogido' && siguiente == 'en_sesion') ||
+        (actual == 'en_sesion' && siguiente == 'retorno') ||
+        (actual == 'retorno' && siguiente == 'completada');
+    }
+
     function cursoTeoricoPre(cursoTeoricoId) {
       return get(/databases/$(database)/documents/artifacts/motoescuela-pro-v1/public/data/cursosTeoricos/$(cursoTeoricoId)).data;
     }
@@ -285,6 +307,10 @@ service cloud.firestore {
         permitidos is list &&
         permitidos.size() > 0 &&
         d.instructorId in permitidos &&
+        // ERR-054: la variante "moto de la app" exige una moto concreta.
+        // Sin ella la sesion queda sin moto y la comision de empresa sin
+        // proveedor beneficiario (mismo candado que ERR-049 en packs).
+        (d.traeMoto != 'No' || motoId != null) &&
         (
           motoId == null
             ? proveedorId == null
@@ -712,6 +738,111 @@ service cloud.firestore {
         allow read: if isAuth();
         allow write: if isAdmin();
       }
+      // FT-058: roster de prestadores de movilidad. La licencia y el teléfono
+      // solo los ve el propio prestador y el admin.
+      match /prestadoresMovilidad/{uid} {
+        allow read: if isAuth() && (isAdmin() || request.auth.uid == uid);
+        allow create, update, delete: if isAdmin();
+      }
+      // FT-058: solicitudes de movilidad. El estudiante crea una sola vez con
+      // autorización y precio validado; el prestador asignado mueve el estado y
+      // confirma el cobro directo; el admin asigna y corrige. Sin dinero de la app.
+      match /solicitudesMovilidad/{docId} {
+        allow read: if isAuth() && (
+          isAdmin() ||
+          resource.data.userId == request.auth.uid ||
+          resource.data.prestadorId == request.auth.uid
+        );
+
+        allow create: if isAuth() &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.estado == 'solicitada' &&
+          request.resource.data.prestadorId == null &&
+          request.resource.data.keys().hasOnly([
+            'userId', 'reservaId', 'childId', 'fechaSesion', 'sedeId', 'pin',
+            'direccion', 'distanciaKm', 'tarifaSnapshot', 'montoUSD', 'montoVES',
+            'tasaFX', 'estado', 'prestadorId', 'autorizacion', 'nombreEstudiante',
+            'telefonoEstudiante', 'notas', 'codigoRecogida', 'pagoDirecto',
+            'cambios', 'creadoEn', 'actualizadoEn'
+          ]) &&
+          request.resource.data.reservaId is string &&
+          request.resource.data.reservaId.size() <= 120 &&
+          (request.resource.data.childId == null || request.resource.data.childId is string) &&
+          request.resource.data.fechaSesion is string &&
+          request.resource.data.fechaSesion.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+          request.resource.data.sedeId is string &&
+          request.resource.data.pin is map &&
+          request.resource.data.pin.keys().hasOnly(['lat', 'lng']) &&
+          request.resource.data.pin.lat is number &&
+          request.resource.data.pin.lat >= -90 &&
+          request.resource.data.pin.lat <= 90 &&
+          request.resource.data.pin.lng is number &&
+          request.resource.data.pin.lng >= -180 &&
+          request.resource.data.pin.lng <= 180 &&
+          request.resource.data.distanciaKm is number &&
+          request.resource.data.distanciaKm > 0 &&
+          request.resource.data.montoUSD is number &&
+          request.resource.data.montoUSD > 0 &&
+          request.resource.data.montoVES is number &&
+          request.resource.data.montoVES > 0 &&
+          request.resource.data.tasaFX is number &&
+          request.resource.data.tasaFX > 0 &&
+          request.resource.data.tarifaSnapshot is map &&
+          request.resource.data.tarifaSnapshot.version == 1 &&
+          request.resource.data.autorizacion is map &&
+          request.resource.data.autorizacion.aceptada == true &&
+          request.resource.data.autorizacion.version is string &&
+          request.resource.data.direccion is string &&
+          request.resource.data.direccion.size() <= 200 &&
+          request.resource.data.nombreEstudiante is string &&
+          request.resource.data.nombreEstudiante.size() <= 120 &&
+          request.resource.data.telefonoEstudiante is string &&
+          request.resource.data.telefonoEstudiante.size() <= 30 &&
+          request.resource.data.notas is string &&
+          request.resource.data.notas.size() <= 300 &&
+          request.resource.data.codigoRecogida is string &&
+          request.resource.data.codigoRecogida.size() == 4 &&
+          request.resource.data.pagoDirecto is map &&
+          request.resource.data.pagoDirecto.confirmado == false &&
+          request.resource.data.cambios is list &&
+          request.resource.data.cambios.size() == 0 &&
+          request.resource.data.creadoEn == request.time &&
+          request.resource.data.actualizadoEn == request.time &&
+          movilidadActiva();
+
+        allow update: if isAdmin() || (
+          isAuth() &&
+          resource.data.prestadorId == request.auth.uid &&
+          request.resource.data.prestadorId == resource.data.prestadorId &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.montoUSD == resource.data.montoUSD &&
+          request.resource.data.montoVES == resource.data.montoVES &&
+          request.resource.data.actualizadoEn == request.time &&
+          (
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'actualizadoEn']) &&
+              movilidadTransicionValida(resource.data.estado, request.resource.data.estado)
+            ) ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pagoDirecto', 'actualizadoEn']) &&
+              request.resource.data.pagoDirecto.confirmado == true &&
+              request.resource.data.estado == resource.data.estado
+            )
+          )
+        ) || (
+          isAuth() &&
+          resource.data.userId == request.auth.uid &&
+          resource.data.estado in ['solicitada', 'asignada'] &&
+          request.resource.data.estado == 'cancelada' &&
+          request.resource.data.canceladaPor == 'estudiante' &&
+          request.resource.data.actualizadoEn == request.time &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'estado', 'motivoCancelacion', 'canceladaPor', 'actualizadoEn'
+          ])
+        );
+
+        allow delete: if isAdmin();
+      }
       match /motos/{docId} {
         allow read: if isAuth();
         allow create: if isAuth() && (
@@ -881,13 +1012,200 @@ service cloud.firestore {
       }
 
       match /notificaciones/{docId} {
-        allow read: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
-        allow create: if isAuth() && (isAdmin() || request.auth.uid == request.resource.data.userId);
-        allow update: if isAuth() && (isAdmin() || resource.data.userId == request.auth.uid);
-        allow delete: if isAdmin();
+        // Solo el dueño (o admin para soporte) lee. El create es exclusivo
+        // del dispatcher con Admin SDK: el cliente no puede fabricar avisos.
+        allow read: if isAuth() && (
+          resource.data.destinoUid == request.auth.uid ||
+          resource.data.userId == request.auth.uid ||
+          (isAdmin() && resource.data.userId == 'admin')
+        );
+        allow create: if false;
+        allow update: if isAuth() && (
+          resource.data.destinoUid == request.auth.uid ||
+          resource.data.userId == request.auth.uid ||
+          (isAdmin() && resource.data.userId == 'admin')
+        ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida', 'leidaEn', 'estado']);
+        allow delete: if isAuth() && (
+          resource.data.destinoUid == request.auth.uid ||
+          (isAdmin() && resource.data.userId == 'admin')
+        );
       }
 
-            match /progresoInscripcion/{docId} {
+      match /eventosNotificacion/{docId} {
+        // Outbox: el cliente solo declara el hecho y su autoría. No lee,
+        // no actualiza y no borra; el dispatcher valida y resuelve.
+        allow create: if isAuth() &&
+          request.resource.data.clave == docId &&
+          request.resource.data.clave is string &&
+          request.resource.data.clave.size() <= 200 &&
+          request.resource.data.tipo in [
+            'reserva_creada', 'pago_aprobado', 'pago_rechazado',
+            'sesion_iniciada', 'sesion_pausada', 'sesion_finalizada',
+            'reserva_reprogramada', 'reserva_cancelada', 'instructor_asignado',
+            'emergencia_aula', 'pago_staff', 'deuda_proveedor',
+            'movilidad_solicitud', 'movilidad_asignada', 'sistema_prueba'
+          ] &&
+          request.resource.data.entidadTipo in ['reserva', 'pagoStaff', 'deudaProveedor', 'movilidad', 'usuario'] &&
+          request.resource.data.entidadId is string &&
+          request.resource.data.entidadId.size() > 0 &&
+          request.resource.data.entidadId.size() <= 120 &&
+          request.resource.data.actorUid == request.auth.uid &&
+          request.resource.data.token is string &&
+          request.resource.data.token.size() <= 200 &&
+          request.resource.data.estado == 'pendiente' &&
+          request.resource.data.intentos == 0 &&
+          request.resource.data.ocurridoEn is timestamp &&
+          request.resource.data.datos.keys().hasOnly([
+            'reservaId', 'packReservaId', 'instructorId', 'proveedorId',
+            'proveedorReposicionId', 'movilidadId', 'pagoId', 'deudaId',
+            'staffId', 'rolOrigen', 'motivo', 'monto', 'moneda'
+          ]);
+        allow read, update, delete: if false;
+      }
+
+      match /notificacionesRoles/{docId} {
+        // UIDs por rol sincronizados desde Auth con Admin SDK.
+        allow read: if isAuth() && isAdmin();
+        allow write: if false;
+      }
+
+      match /pushSuscripciones/{docId} {
+        allow read: if isAuth() && (isAdmin() || resource.data.uid == request.auth.uid);
+        allow create: if isAuth() &&
+          request.resource.data.id == docId &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.endpoint is string &&
+          request.resource.data.endpoint.size() > 20 &&
+          request.resource.data.endpoint.size() <= 1000 &&
+          request.resource.data.keys.keys().hasOnly(['p256dh', 'auth']) &&
+          request.resource.data.keys.p256dh is string &&
+          request.resource.data.keys.auth is string &&
+          request.resource.data.activo == true;
+        allow update: if isAuth() &&
+          resource.data.uid == request.auth.uid &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.activo is bool;
+        allow delete: if isAuth() && (isAdmin() || resource.data.uid == request.auth.uid);
+      }
+
+      match /preferenciasNotificacion/{docId} {
+        allow read: if isAuth() && (isAdmin() || docId == request.auth.uid);
+        allow create, update: if isAuth() &&
+          docId == request.auth.uid &&
+          request.resource.data.keys().hasOnly([
+            'push', 'sonido', 'vibracion', 'categorias', 'silencio', 'zonaHoraria', 'updatedAt'
+          ]) &&
+          request.resource.data.push is bool &&
+          request.resource.data.sonido is bool &&
+          request.resource.data.vibracion is bool &&
+          request.resource.data.categorias.keys().hasOnly([
+            'reservas', 'pagos', 'aula', 'finanzas', 'movilidad', 'sistema'
+          ]) &&
+          request.resource.data.silencio.keys().hasOnly(['activo', 'inicio', 'fin']);
+        allow delete: if false;
+      }
+
+            match /interesadosCRM/{docId} {
+        // FT-078: captura publica con consentimiento explicito y campos minimos.
+        // Coleccion separada del expediente del estudiante; solo admin lee y gestiona.
+        allow create: if
+          request.resource.data.keys().hasOnly([
+            'nombre', 'telefono', 'correo', 'interes', 'canal', 'origen',
+            'estado', 'consentimiento', 'consentimientoVersion',
+            'fecha', 'consentimientoEn', 'expiraEn'
+          ]) &&
+          request.resource.data.nombre is string &&
+          request.resource.data.nombre.size() >= 2 &&
+          request.resource.data.nombre.size() <= 80 &&
+          request.resource.data.telefono is string &&
+          request.resource.data.telefono.size() >= 7 &&
+          request.resource.data.telefono.size() <= 20 &&
+          (request.resource.data.correo == null || (
+            request.resource.data.correo is string &&
+            request.resource.data.correo.size() <= 120
+          )) &&
+          request.resource.data.interes is string &&
+          request.resource.data.interes.size() <= 120 &&
+          request.resource.data.canal in ['chat', 'home', 'whatsapp', 'otro'] &&
+          request.resource.data.origen is string &&
+          request.resource.data.origen.size() > 0 &&
+          request.resource.data.origen.size() <= 120 &&
+          request.resource.data.estado == 'nuevo' &&
+          request.resource.data.consentimiento == true &&
+          request.resource.data.consentimientoVersion in ['2026-11-v1', '2026-11-v2'] &&
+          request.resource.data.fecha is timestamp &&
+          request.resource.data.consentimientoEn is timestamp &&
+          request.resource.data.expiraEn is timestamp;
+        allow read, delete: if isAdmin();
+        allow update: if isAdmin() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'notas', 'actualizadoEn']) &&
+          request.resource.data.estado in ['nuevo', 'contactado', 'convertido', 'descartado'] &&
+          (!('notas' in request.resource.data) || request.resource.data.notas is string);
+      }
+
+      match /conversacionesIA/{docId} {
+        // T-148: metadata de la conversacion IA, sin transcripcion ni PII.
+        // Create publico estricto; lectura/borrado solo admin. El update publico
+        // solo puede avanzar el contador de turnos y la actividad.
+        allow create: if
+          request.resource.data.keys().hasOnly([
+            'interesadoId', 'canal', 'origen', 'pagina', 'turnos', 'derivacionWhatsapp',
+            'ultimoMensajeRol', 'inicioEn', 'ultimoMensajeEn', 'actualizadoEn', 'expiraEn'
+          ]) &&
+          request.resource.data.interesadoId is string &&
+          request.resource.data.interesadoId.size() >= 1 &&
+          request.resource.data.interesadoId.size() <= 120 &&
+          request.resource.data.canal == 'chat' &&
+          request.resource.data.origen is string &&
+          request.resource.data.origen.size() >= 1 &&
+          request.resource.data.origen.size() <= 120 &&
+          request.resource.data.pagina is string &&
+          request.resource.data.pagina.size() >= 1 &&
+          request.resource.data.pagina.size() <= 120 &&
+          request.resource.data.turnos == 0 &&
+          request.resource.data.derivacionWhatsapp == false &&
+          request.resource.data.ultimoMensajeRol == 'asistente' &&
+          request.resource.data.inicioEn is timestamp &&
+          request.resource.data.ultimoMensajeEn is timestamp &&
+          request.resource.data.actualizadoEn is timestamp &&
+          request.resource.data.expiraEn is timestamp;
+        allow read, delete: if isAdmin();
+        allow update: if
+          resource.data.turnos < 500 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'turnos', 'ultimoMensajeRol', 'ultimoMensajeEn', 'actualizadoEn', 'pagina', 'derivacionWhatsapp'
+          ]) &&
+          request.resource.data.interesadoId == resource.data.interesadoId &&
+          request.resource.data.canal == resource.data.canal &&
+          request.resource.data.turnos == resource.data.turnos + 1 &&
+          request.resource.data.ultimoMensajeRol in ['usuario', 'asistente'] &&
+          request.resource.data.ultimoMensajeEn is timestamp &&
+          request.resource.data.actualizadoEn is timestamp &&
+          request.resource.data.pagina is string &&
+          request.resource.data.pagina.size() <= 120 &&
+          request.resource.data.derivacionWhatsapp is bool;
+
+        match /mensajes/{mensajeId} {
+          // T-149: transcripcion para auditar la IA. Create publico estricto
+          // (mismo patron que el chat), lectura/borrado solo admin, sin update.
+          allow create: if
+            request.resource.data.keys().hasOnly(['rol', 'texto', 'fuente', 'kbVersion', 'creadoEn']) &&
+            request.resource.data.rol in ['usuario', 'asistente'] &&
+            request.resource.data.texto is string &&
+            request.resource.data.texto.size() >= 1 &&
+            request.resource.data.texto.size() <= 2000 &&
+            (request.resource.data.fuente == null || request.resource.data.fuente in ['ia', 'kb']) &&
+            (request.resource.data.kbVersion == null || (
+              request.resource.data.kbVersion is string &&
+              request.resource.data.kbVersion.size() <= 64
+            )) &&
+            request.resource.data.creadoEn is timestamp;
+          allow read, delete: if isAdmin();
+          allow update: if false;
+        }
+      }
+
+      match /progresoInscripcion/{docId} {
         allow get: if true;
         allow list: if false;
         allow create: if isAuth() && request.resource.data.userId == request.auth.uid;

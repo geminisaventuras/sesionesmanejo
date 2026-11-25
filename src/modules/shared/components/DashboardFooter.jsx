@@ -1,12 +1,12 @@
 export default function DashboardFooter({ tabs = [], activeTab, onTabChange }) {
   return (
-    <div className="bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center shadow-md">
+    <div className="bg-white border-t border-gray-100 px-2 sm:px-6 py-3 flex justify-between items-center shadow-md">
       {tabs.map(t => (
         <button
           key={t.id}
           type="button"
           onClick={() => onTabChange(t.id)}
-          className={`flex flex-col items-center w-20 transition-all ${activeTab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}
+          className={`flex flex-col items-center flex-1 min-w-0 px-0.5 transition-all ${activeTab === t.id ? 'text-gray-900 transform -translate-y-1' : 'text-gray-400'}`}
         >
           <div className={`relative p-1.5 rounded-xl ${activeTab === t.id ? 'bg-gray-100' : ''}`}>
             <t.icon size={22} className={activeTab === t.id ? 'stroke-[2.5px]' : ''} />
@@ -16,7 +16,7 @@ export default function DashboardFooter({ tabs = [], activeTab, onTabChange }) {
               </span>
             )}
           </div>
-          <span className="text-[10px] font-bold">{t.label}</span>
+          <span className="text-[9px] sm:text-[10px] font-bold truncate max-w-full">{t.label}</span>
         </button>
       ))}
     </div>

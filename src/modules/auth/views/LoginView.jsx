@@ -11,11 +11,12 @@ import {
 } from 'lucide-react';
 import { loginEmailSchema, loginEstudianteSchema } from '../../shared/schemas/validations';
 
-const STAFF_ROLES = ['admin', 'instructor', 'proveedor'];
+const STAFF_ROLES = ['admin', 'instructor', 'proveedor', 'movilidad'];
 const ROLE_HOME = {
   admin: '/dashboard',
   instructor: '/instructor',
   proveedor: '/proveedor',
+  movilidad: '/movilidad',
   estudiante: '/portal-reservas',
 };
 

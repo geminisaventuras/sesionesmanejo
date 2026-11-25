@@ -5,6 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { auth } from '../../../firebase';
 import { ReservaService } from '../../../services/ReservaService';
+import { MovilidadService } from '../services/MovilidadService';
+import { MOVILIDAD_AUTORIZACION_VERSION } from '../utils/movilidadHelpers';
 import { LockService } from '../../../services/LockService';
 import { AuthService } from '../../../services/AuthService';
 import UsuarioService from '../../shared/services/UsuarioService';
@@ -279,11 +281,16 @@ if (!necesitaMoto) {
           return false;
         })).length
       : 999;
+    // ERR-072: sin motos del tipo elegido en la sede no es "Reservado": no hay
+    // flota de ese tipo. El paso 3 lo comunica como SIN_MOTO.
+    const sinMotoDelTipo = necesitaMoto && motosTotal.length === 0 && motosElegiblesBase.length === 0;
     // FIX-NO-DISPONIBLE: discriminar entre "todos los permitidos bloqueados" (NO_DISPONIBLE)
     // y "instructores ocupados por reserva" (RESERVADO, comportamiento actual).
-    const reasonInactividad = ((instructoresPermitidosTotal > 0 && instructoresTotal.length === 0) || sinMotoPorProveedorInactivo)
-      ? 'NO_DISPONIBLE'
-      : 'RESERVADO';
+    const reasonInactividad = sinMotoDelTipo
+      ? 'SIN_MOTO'
+      : ((instructoresPermitidosTotal > 0 && instructoresTotal.length === 0) || sinMotoPorProveedorInactivo)
+        ? 'NO_DISPONIBLE'
+        : 'RESERVADO';
     if (!necesitaMoto) {
       
       if (instructoresLibresSinLocks === 0) return { ...bloque, disponible: false, reason: reasonInactividad, instructorId: null, motoAsignadaId: null };
@@ -456,6 +463,7 @@ const {
           resetForm();
           updateForm({
             cursoId: state.cursoId,
+            sedeId: state.sedeId ? String(state.sedeId) : '',
             cursoSugeridoActivo: true,
             cursoSeleccionadoManual: false,
             origenPublico: true
@@ -1491,6 +1499,38 @@ const disponibilidad = useMemo(() => {
     submitEnCursoRef.current = false;
 
     if (result.success) {
+      // FT-058: la movilidad se registra aparte y se paga directo al prestador.
+      // Si falla, la reserva queda creada y se avisa para coordinarlo.
+      if (!esPack && !esRecompra && form.movilidadSolicitada === true && result.data?.id && form.movilidadSnapshot) {
+        try {
+          const movRes = await MovilidadService.crearSolicitud({
+            userId: uid,
+            reservaId: result.data.id,
+            fechaSesion: form.fecha1,
+            sedeId: form.sedeId,
+            pin: form.movilidadPin,
+            direccion: form.movilidadDireccion || '',
+            distanciaKm: form.movilidadDistanciaKm,
+            snapshot: form.movilidadSnapshot,
+            autorizacion: {
+              aceptada: true,
+              version: MOVILIDAD_AUTORIZACION_VERSION,
+              aceptadaEn: new Date().toISOString(),
+            },
+            nombreEstudiante: `${form.nombre || ''} ${form.apellido || ''}`.trim(),
+            telefonoEstudiante: form.telefono || '',
+          });
+          showToast(
+            movRes.success
+              ? 'Solicitud de movilidad registrada. El prestador te contactará.'
+              : 'La reserva quedó creada, pero la movilidad no se registró. Escríbenos por WhatsApp.',
+            movRes.success ? 'success' : 'error'
+          );
+        } catch {
+          showToast('La reserva quedó creada, pero la movilidad no se registró. Escríbenos por WhatsApp.', 'error');
+        }
+      }
+
       if (esRecompra) {
         showToast('Reserva creada correctamente', 'success');
         limpiarSesion();
@@ -1989,6 +2029,22 @@ if (necesitaMoto) {
         return;
       }
 
+      // FT-058: si pidió movilidad, exige pin, cotización y autorización.
+      if (form.traeMoto === 'Sí' && form.movilidadSolicitada === true) {
+        if (!form.movilidadPin || !Number.isFinite(Number(form.movilidadPin.lat)) || !Number.isFinite(Number(form.movilidadPin.lng))) {
+          showToast('Marca tu ubicación de recogida en el mapa', 'error');
+          return;
+        }
+        if (!(Number(form.movilidadMontoUSD) > 0) || !form.movilidadSnapshot) {
+          showToast('No pudimos cotizar la movilidad. Revisa la sede o tu ubicación', 'error');
+          return;
+        }
+        if (form.movilidadAutorizacion !== true) {
+          showToast('Debes aceptar la autorización para que un prestador conduzca tu moto', 'error');
+          return;
+        }
+      }
+
       // FIX-PACK-VALIDATE-MOTO: freno táctico del pack.
       // Aunque la UI prellene 'No' por defecto, revalidamos por si el estado
       // fue manipulado o el mapa quedó incompleto.
@@ -2266,6 +2322,9 @@ if (necesitaMoto) {
    if (recargoAlquilerMoto > 0) items.push({ label: 'Alquiler Moto', value: '+$' + recargoAlquilerMoto });
   if (descuentoMotoPropia > 0) items.push({ label: 'Descuento Moto', value: '-$' + descuentoMotoPropia });
   if (descuentoPromo > 0) items.push({ label: 'Descuento Promo', value: '-$' + descuentoPromo });
+  if (form.movilidadSolicitada === true && Number(form.movilidadMontoUSD) > 0) {
+    items.push({ label: 'Movilidad (pago directo)', value: '$' + Number(form.movilidadMontoUSD).toFixed(2) });
+  }
   items.push({ label: 'Total USD', value: '$' + baseUSD, bold: true });
   return items;
 }}

@@ -2,10 +2,15 @@
 import React, { useRef, useEffect, useMemo, useState, useContext } from 'react';
 import { MapPin, Bike, Zap, BookOpen, Info } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
+import { resolverTipoMotoCurso } from '../utils/tipoMotoCurso';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
 import { etiquetaCortaSede } from '../../shared/utils/sedesHelpers';
 import { filtrarSedesPorUbicacion } from '../../shared/utils/geografiaHelpers';
+import SelectorUbicacionMapa from '../../shared/components/SelectorUbicacionMapa';
+import { calcularTarifaMovilidad, calcularMontoVESMovilidad, construirSnapshotMovilidad } from '../utils/movilidadPricing';
+import { distanciaMovilidadKm, MOVILIDAD_AUTORIZACION_TEXTO } from '../utils/movilidadHelpers';
+import { resolverTasaFXVigente } from '../utils/precioIndividual';
 import { AppContext } from '../../../context/AppContextValue';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
@@ -63,18 +68,18 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   const getConfiguracionDesdeCurso = (curso) => {
     if (!curso) return {};
     const tipoCurso = curso.tipoCurso;
-    const tiposMoto = curso.tiposMotoEscuela || [];
     const motoIncluida = curso.motoIncluida !== false;
 
     let sabeBicicleta = 'Sí';
     if (tipoCurso === 'equilibrio') sabeBicicleta = 'No';
 
-    let tipoMoto = '';
-    if (sabeBicicleta === 'No') {
-      tipoMoto = 'Automática';
-    } else if (tiposMoto.length >= 1) {
-      tipoMoto = tiposMoto[0];
-    }
+    // ERR-072: el tipo sale de la configuracion del curso; el fallback
+    // historico de Automática solo aplica a cursos legacy sin configurar.
+    const tipoMoto = resolverTipoMotoCurso(
+      curso,
+      '',
+      sabeBicicleta === 'No' ? 'Automática' : ''
+    );
 
     const traeMoto = motoIncluida ? 'No' : 'Sí';
 
@@ -163,10 +168,13 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   }, [cursoSeleccionado, form.traeMoto, updateForm]);
 
     const bloqueaTipoMoto = (tipo) => {
-    if (form.sabeBicicleta === 'No' && tipo !== 'Automática') return true;
-    // A2.2-ter: en básicos, permitir cambio de tipo moto (cambia el curso automáticamente)
+    // A2.2-ter: en básicos, el tipo cambia de curso; solo se bloquea si el
+    // curso destino no existe o está inactivo.
     const esBasicoActual = cursoSeleccionado?.tipoCurso === 'basico_auto' || cursoSeleccionado?.tipoCurso === 'basico_sincro';
-    if (esBasicoActual) return false;
+    if (esBasicoActual) {
+      const nuevoTipoCurso = tipo === 'Automática' ? 'basico_auto' : 'basico_sincro';
+      return !(cursos || []).some(c => c.tipoCurso === nuevoTipoCurso && c.activo !== false);
+    }
     if (motoIncluida && tiposMotoEscuela.length > 0 && !tiposMotoEscuela.includes(tipo)) return true;
     return false;
   };
@@ -177,11 +185,13 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
     const esBasicoActual = cursoSeleccionado?.tipoCurso === 'basico_auto' || cursoSeleccionado?.tipoCurso === 'basico_sincro';
     if (form.sabeBicicleta === 'Sí' && (esBasicoActual || !cursoSeleccionado)) {
       const nuevoTipoCurso = tipo === 'Automática' ? 'basico_auto' : 'basico_sincro';
-      const nuevoCurso = (cursos || []).find(c => c.tipoCurso === nuevoTipoCurso);
+      const nuevoCurso = (cursos || []).find(c => c.tipoCurso === nuevoTipoCurso && c.activo !== false);
       if (nuevoCurso) {
         updateForm({ tipoMoto: tipo, cursoId: nuevoCurso.id, cursoSeleccionadoManual: false });
-        return;
       }
+      // Sin curso destino no se cambia el tipo: evita dejar un par curso/tipo
+      // incompatible (ej. basico_auto con Sincrónica).
+      return;
     }
     updateForm({ tipoMoto: tipo });
   };
@@ -196,7 +206,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
 
   // FT-048 fase 2: filtro por la ubicación del paso 1 y sedes cercanas.
   // El control es estado local para no añadir campos al formulario ni a la reserva.
-  const { estados, municipios, ciudades } = useContext(AppContext) || {};
+  const { estados, municipios, ciudades, config: appConfig } = useContext(AppContext) || {};
   const [mostrarCercanas, setMostrarCercanas] = useState(false);
   const catalogosGeo = useMemo(
     () => ({ estados: estados || [], municipios: municipios || [], ciudades: ciudades || [] }),
@@ -214,6 +224,77 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   );
   const sedesVisibles = ubicacionSedes.sedes;
   const etiquetaSede = (s) => etiquetaCortaSede(s, catalogosGeo);
+
+  // FT-058: movilidad opcional para quien trae moto propia.
+  const movilidadCfg = useMemo(() => appConfig?.movilidad || {}, [appConfig]);
+  const sedeSeleccionada = useMemo(
+    () => (sedes || []).find(s => String(s.id) === String(form.sedeId)) || null,
+    [sedes, form.sedeId]
+  );
+  const distanciaMovilidad = useMemo(
+    () => distanciaMovilidadKm(form.movilidadPin, sedeSeleccionada),
+    [form.movilidadPin, sedeSeleccionada]
+  );
+  const tarifaMovilidad = useMemo(
+    () => (distanciaMovilidad
+      ? calcularTarifaMovilidad({ config: movilidadCfg, distanciaKm: distanciaMovilidad })
+      : null),
+    [distanciaMovilidad, movilidadCfg]
+  );
+  const tasaFXMovilidad = useMemo(() => resolverTasaFXVigente(appConfig || {}), [appConfig]);
+
+  useEffect(() => {
+    if (form.traeMoto === 'Sí') return;
+    if (!form.movilidadSolicitada && !form.movilidadPin && !form.movilidadAutorizacion) return;
+    updateForm({
+      movilidadSolicitada: false,
+      movilidadPin: null,
+      movilidadDireccion: '',
+      movilidadDistanciaKm: null,
+      movilidadMontoUSD: null,
+      movilidadMontoVES: null,
+      movilidadSnapshot: null,
+      movilidadAutorizacion: false,
+    });
+  }, [form.traeMoto, form.movilidadSolicitada, form.movilidadPin, form.movilidadAutorizacion, updateForm]);
+
+  useEffect(() => {
+    if (form.movilidadSolicitada !== true) return;
+    const snapshot = tarifaMovilidad?.disponible
+      ? construirSnapshotMovilidad({
+          config: movilidadCfg,
+          distanciaKm: distanciaMovilidad,
+          tasaFX: tasaFXMovilidad,
+          calculadoPor: 'cliente',
+        })
+      : null;
+    const monto = snapshot?.montoUSD ?? null;
+    const montoVES = snapshot?.montoVES ?? null;
+    const distancia = distanciaMovilidad ?? null;
+    if (
+      form.movilidadDistanciaKm === distancia &&
+      form.movilidadMontoUSD === monto &&
+      form.movilidadMontoVES === montoVES &&
+      form.movilidadSnapshot
+    ) return;
+    updateForm({
+      movilidadDistanciaKm: distancia,
+      movilidadMontoUSD: monto,
+      movilidadMontoVES: montoVES,
+      movilidadSnapshot: snapshot,
+    });
+  }, [
+    form.movilidadSolicitada,
+    form.movilidadDistanciaKm,
+    form.movilidadMontoUSD,
+    form.movilidadMontoVES,
+    distanciaMovilidad,
+    tarifaMovilidad,
+    tasaFXMovilidad,
+    movilidadCfg,
+    form.movilidadSnapshot,
+    updateForm,
+  ]);
 
   return (
     <div className="space-y-4">
@@ -259,10 +340,11 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
                            <button
                 type="button"
                 onClick={() => {
-                  const cursoEquilibrio = (cursos || []).find(c => c.tipoCurso === 'equilibrio');
+                  const cursoEquilibrio = (cursos || []).find(c => c.tipoCurso === 'equilibrio' && c.activo !== false);
+                  const tipoInicial = resolverTipoMotoCurso(cursoEquilibrio, form.tipoMoto, 'Automática');
                   updateForm({
                     sabeBicicleta: 'No',
-                    tipoMoto: 'Automática',
+                    tipoMoto: tipoInicial,
                     ...(cursoEquilibrio ? { cursoId: cursoEquilibrio.id, cursoSeleccionadoManual: false } : {})
                   });
                 }}
@@ -281,11 +363,11 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
             )}
           </div>
 
-          {form.sabeBicicleta === 'Sí' ? (
+          {form.sabeBicicleta && (
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1">Tipo de Moto</label>
               <div className="grid grid-cols-2 gap-3">
-                               <button
+                <button
                   type="button"
                   onClick={() => handleTipoMotoChange('Automática')}
                   disabled={bloqueaTipoMoto('Automática')}
@@ -296,7 +378,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
                   <Zap size={24} className="mx-auto mb-1 text-blue-600" />
                   <p className="font-bold text-sm">Automática</p>
                 </button>
-                                <button
+                <button
                   type="button"
                   onClick={() => handleTipoMotoChange('Sincrónica')}
                   disabled={bloqueaTipoMoto('Sincrónica')}
@@ -308,19 +390,12 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
                   <p className="font-bold text-sm">Sincrónica</p>
                 </button>
               </div>
+              {cursoSeleccionado && motoIncluida && tiposMotoEscuela.length === 0 && (
+                <p className="text-[11px] text-gray-500 mt-1 ml-1">
+                  Este curso no tiene tipos de moto configurados; se permiten ambos.
+                </p>
+              )}
             </div>
-          ) : (
-            form.sabeBicicleta === 'No' && (
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1 flex items-center gap-1">
-                  Tipo de Moto <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Automático</span>
-                </label>
-                <div className="w-full bg-gray-100 border border-gray-200 rounded-xl py-3 px-4 text-gray-600 flex items-center gap-2">
-                  <Zap size={18} className="text-gray-400" />
-                  <span>Automática</span>
-                </div>
-              </div>
-            )
           )}
         </>
       )}
@@ -362,7 +437,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
       ) : esOrigenPublico ? null : esAutomatico && cursoAsignado ? (
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1.5 ml-1 flex items-center gap-1">
-            Sesión Asignada <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Automático</span>
+            Sesión Asignada <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Asignada</span>
           </label>
           <div className="w-full bg-gray-100 border border-gray-200 rounded-xl py-3 px-4 text-gray-700 flex items-center gap-2">
             <BookOpen size={18} className="text-gray-400" />
@@ -371,7 +446,7 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
           <p className="text-xs text-gray-500 mt-1 ml-1 flex items-center gap-1">
             <Info size={12} />
             {form.sabeBicicleta === 'No'
-              ? 'Asignado porque indicaste que no sabes andar en bicicleta'
+              ? 'Sesión de equilibrio asignada según tus respuestas'
               : `Asignado para moto ${form.tipoMoto?.toLowerCase()}`}
           </p>
         </div>
@@ -453,6 +528,119 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
           </p>
         )}
       </div>
+
+      {form.traeMoto === 'Sí' && movilidadCfg.activo === true && (
+        <div className="rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-3">
+          <label className="flex items-start gap-2 text-sm font-bold text-gray-800">
+            <input
+              type="checkbox"
+              checked={form.movilidadSolicitada === true}
+              onChange={e => updateForm(e.target.checked
+                ? { movilidadSolicitada: true }
+                : {
+                    movilidadSolicitada: false,
+                    movilidadPin: null,
+                    movilidadAutorizacion: false,
+                    movilidadDistanciaKm: null,
+                    movilidadMontoUSD: null,
+                    movilidadMontoVES: null,
+                  })}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>
+              ¿Quieres que te busquemos en tu ubicación?
+              <span className="block text-[11px] font-normal text-gray-600 mt-0.5">
+                Un prestador conduce tu moto hasta la sede y te devuelve al terminar. El costo se paga directo al prestador.
+              </span>
+            </span>
+          </label>
+
+          {form.movilidadSolicitada === true && (
+            <div className="mt-3 space-y-3">
+              {!sedeSeleccionada && (
+                <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  Selecciona primero la sede para calcular la distancia.
+                </p>
+              )}
+
+              <SelectorUbicacionMapa
+                latitud={form.movilidadPin?.lat}
+                longitud={form.movilidadPin?.lng}
+                centro={sedeSeleccionada?.coordenadas}
+                onChange={(pin) => updateForm({ movilidadPin: pin })}
+                onDireccion={({ direccion, lat, lng }) => updateForm({
+                  movilidadPin: { lat, lng },
+                  movilidadDireccion: direccion || form.movilidadDireccion || '',
+                })}
+                etiqueta="Tu ubicación de recogida"
+                ayuda="Escribe tu dirección, usa tu ubicación o toca el mapa. Solo lo verá el prestador asignado."
+                ariaLabel="Mapa para marcar tu ubicación de recogida"
+                altura={220}
+                permitirBuscarDireccion
+                permitirGeolocalizacion
+              />
+
+              <input
+                type="text"
+                value={form.movilidadDireccion || ''}
+                onChange={e => updateForm({ movilidadDireccion: e.target.value })}
+                placeholder="Punto de referencia (opcional): edificio, color, portón…"
+                className="w-full bg-white border-2 border-gray-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm outline-none"
+                maxLength={180}
+              />
+
+              {!form.movilidadPin && (
+                <p className="text-xs font-semibold text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1">
+                  Marca tu ubicación exacta en el mapa para cotizar.
+                </p>
+              )}
+
+              {form.movilidadPin && !sedeSeleccionada?.coordenadas && (
+                <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                  La sede no tiene ubicación configurada; no podemos calcular la distancia.
+                </p>
+              )}
+
+              {tarifaMovilidad?.disponible && (
+                <div className="rounded-xl bg-white border border-blue-200 p-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-xs font-bold text-gray-600">
+                      {tarifaMovilidad.modalidad === 'plana' ? 'Tarifa plana' : 'Tarifa por km'} · {distanciaMovilidad.toFixed(1)} km
+                    </span>
+                    <span className="text-lg font-black text-gray-900">
+                      ${tarifaMovilidad.montoUSD.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-blue-800 mt-0.5">
+                    Bs {calcularMontoVESMovilidad(tarifaMovilidad.montoUSD, tasaFXMovilidad).toFixed(2)}
+                  </p>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Un solo monto por viaje ida y vuelta. Pago directo al prestador, no se suma al pago del curso.
+                  </p>
+                </div>
+              )}
+
+              {tarifaMovilidad && !tarifaMovilidad.disponible && (
+                <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                  {tarifaMovilidad.motivo === 'fuera-cobertura'
+                    ? `Tu ubicación está fuera de la cobertura (${tarifaMovilidad.kmTope} km).`
+                    : 'No pudimos cotizar la movilidad para esta ubicación.'}
+                </p>
+              )}
+
+              <label className="flex items-start gap-2 text-[11px] leading-snug text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.movilidadAutorizacion === true}
+                  onChange={e => updateForm({ movilidadAutorizacion: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{MOVILIDAD_AUTORIZACION_TEXTO}</span>
+              </label>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

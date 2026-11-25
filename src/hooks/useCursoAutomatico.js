@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { TIPOS_CURSO } from '../constants/tiposCurso';
+import { resolverTipoMotoCurso } from '../modules/inscripcion/utils/tipoMotoCurso';
 
 export function useCursoAutomatico(form, updateForm, cursos, options = {}) {
   const { bloquearCurso = false } = options;
@@ -18,14 +19,17 @@ export function useCursoAutomatico(form, updateForm, cursos, options = {}) {
   useEffect(() => {
     if (bloquearCurso) return;
 
-    // CASO 1: No sabe bicicleta → Equilibrio + Automática
+    // CASO 1: No sabe bicicleta → curso Equilibrio. El tipo de moto lo define
+    // la configuracion del curso (tiposMotoEscuela), no un hardcode.
     if (form.sabeBicicleta === 'No') {
       const cursoEquilibrio = findCursoByTipo(TIPOS_CURSO.EQUILIBRIO);
       if (!cursoEquilibrio) return;
 
-      if (form.tipoMoto !== 'Automática' || form.cursoId !== cursoEquilibrio.id) {
+      const tipoPermitido = resolverTipoMotoCurso(cursoEquilibrio, form.tipoMoto, 'Automática');
+
+      if (form.tipoMoto !== tipoPermitido || form.cursoId !== cursoEquilibrio.id) {
         updateForm({
-          tipoMoto: 'Automática',
+          tipoMoto: tipoPermitido,
           cursoId: cursoEquilibrio.id
         });
       }

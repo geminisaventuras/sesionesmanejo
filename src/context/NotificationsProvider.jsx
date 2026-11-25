@@ -1,115 +1,49 @@
-// @build: 2026-06-21.FASE3 | id: NOTIFICATIONS-PROVIDER | desc: Lógica de notificaciones con protección try/catch
+// Fallback de eventos para el administrador.
+// No escribe notificaciones ni PII: solo encola eventos idempotentes en el
+// outbox para que el dispatcher resuelva destinatarios y entregue push/inbox.
+//
+// Solo detecta RESERVAS NUEVAS RECIENTES. Las transiciones (pago, aula,
+// reprogramación) las emiten los servicios que ejecutan la acción; así se
+// evita que una recarga del panel admin re-emita eventos históricos.
 import { useEffect, useRef } from 'react';
+import { emitirEventosReserva } from '../modules/shared/services/NotificacionesEventos';
+import { msDeFecha } from '../modules/shared/utils/notificacionesHelpers';
 
-export function useNotificationsProvider(reservas, isAdmin, fbUser, instructores, saveNotificacion, prevReservasRef) {
+const VENTANA_NUEVA_MS = 15 * 60 * 1000;
+const GRACIA_HIDRATACION_MS = 8000;
+
+export function useNotificationsProvider(reservas, isAdmin, fbUser, prevReservasRef) {
   const bootstrapDoneRef = useRef(false);
+  const graciaHastaRef = useRef(Date.now() + GRACIA_HIDRATACION_MS);
 
   useEffect(() => {
-    if (!reservas || !isAdmin || !fbUser) return;
+    if (!reservas || !isAdmin || !fbUser?.uid) return;
 
-    // Bootstrap silencioso: la primera carga con reservas reales NO genera notificaciones.
-    // Solo guarda el snapshot base para comparar cambios futuros dentro de esta sesión.
-    if (!bootstrapDoneRef.current && reservas.length > 0) {
+    // La primera carga no genera eventos: solo fija la base de comparación.
+    if (!bootstrapDoneRef.current) {
+      if (reservas.length === 0) return;
       prevReservasRef.current = reservas;
       bootstrapDoneRef.current = true;
+      graciaHastaRef.current = Date.now() + GRACIA_HIDRATACION_MS;
       return;
     }
 
-    const guardar = async (notif) => {
-      try {
-        await saveNotificacion(notif);
-      } catch (e) {
-        // Silencioso – permisos o red
-      }
-    };
-
-    const prevReservas = prevReservasRef.current;
-    const nuevasReservas = reservas.filter(r => !prevReservas.some(pr => pr.id === r.id));
-
-    for (const r of nuevasReservas) {
-      guardar({
-        id: 'nueva_' + r.id,
-        userId: 'admin',
-        tipo: 'nueva_reserva',
-        mensaje: `Nueva reserva: ${r.nombre} ${r.apellido} (CI: ${r.cedula})`,
-        reservaId: r.id,
-        emisorId: 'sistema',
-        leida: false,
-        createdAt: new Date()
-      });
+    if (Date.now() < graciaHastaRef.current) {
+      prevReservasRef.current = reservas;
+      return;
     }
 
-    for (const r of reservas) {
-      const prev = prevReservas.find(pr => pr.id === r.id);
-      if (!prev) continue;
+    const previas = prevReservasRef.current || [];
+    const idsPrevios = new Set(previas.map((r) => String(r.id)));
+    const nuevas = reservas.filter((r) => !idsPrevios.has(String(r.id)));
 
-      if (prev.estadoPago !== 'Aprobado' && r.estadoPago === 'Aprobado') {
-        guardar({
-          id: 'aprobado_' + r.id,
-          userId: r.userId,
-          tipo: 'pago_aprobado',
-          mensaje: 'Tu pago ha sido aprobado. ¡Ya puedes entrar al Aula Virtual!',
-          reservaId: r.id,
-          emisorId: 'sistema',
-          leida: false,
-          createdAt: new Date()
-        });
-      }
-
-      if (prev.estadoPago !== 'Rechazado' && r.estadoPago === 'Rechazado') {
-        guardar({
-          id: 'rechazado_' + r.id,
-          userId: r.userId,
-          tipo: 'pago_rechazado',
-          mensaje: 'Tu pago fue rechazado. Corrige la referencia para continuar.',
-          reservaId: r.id,
-          emisorId: 'sistema',
-          leida: false,
-          createdAt: new Date()
-        });
-      }
-
-      if (!prev.moduloEnProgreso && r.moduloEnProgreso) {
-        const inst = instructores.find(i => String(i.id) === String(r.instructorId));
-        guardar({
-          userId: 'admin',
-          tipo: 'sesion_iniciada',
-          mensaje: `El instructor ${inst?.nombre || 'N/A'} inició sesión con ${r.nombre} ${r.apellido}`,
-          reservaId: r.id,
-          emisorId: 'sistema',
-          leida: false,
-          createdAt: new Date()
-        });
-      }
-
-      if (!prev.pausaActiva && r.pausaActiva) {
-        const inst = instructores.find(i => String(i.id) === String(r.instructorId));
-        guardar({
-          userId: 'admin',
-          tipo: 'sesion_pausada',
-          mensaje: `El instructor ${inst?.nombre || 'N/A'} pausó la sesión con ${r.nombre} ${r.apellido}. Motivo: ${r.pausaActiva.motivo || 'N/A'}`,
-          reservaId: r.id,
-          emisorId: 'sistema',
-          leida: false,
-          createdAt: new Date()
-        });
-      }
-
-      if (prev.estadoCurso !== 'Aprobado' && r.estadoCurso === 'Aprobado') {
-        const inst = instructores.find(i => String(i.id) === String(r.instructorId));
-        guardar({
-          id: 'finalizada_' + r.id,
-          userId: 'admin',
-          tipo: 'sesion_finalizada',
-          mensaje: `El instructor ${inst?.nombre || 'N/A'} finalizó el curso de ${r.nombre} ${r.apellido}`,
-          reservaId: r.id,
-          emisorId: 'sistema',
-          leida: false,
-          createdAt: new Date()
-        });
-      }
+    for (const r of nuevas) {
+      const creadaMs = msDeFecha(r.createdAt || r.creadoEn || r.fechaCreacion);
+      const reciente = creadaMs > 0 && Date.now() - creadaMs < VENTANA_NUEVA_MS;
+      if (!reciente) continue;
+      void emitirEventosReserva(null, r, fbUser.uid);
     }
 
     prevReservasRef.current = reservas;
-  }, [reservas, isAdmin, fbUser, instructores, saveNotificacion, prevReservasRef]);
+  }, [reservas, isAdmin, fbUser?.uid, prevReservasRef]);
 }

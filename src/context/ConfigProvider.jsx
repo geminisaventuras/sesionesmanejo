@@ -70,6 +70,7 @@ export function useConfigProvider(authReady, fbUser, isAdmin = false) {
         }
       } catch (err) {
         console.warn('[ConfigProvider] Error al guardar configuración:', err.code);
+        throw err;
       }
     } else {
       setConfig(payload);

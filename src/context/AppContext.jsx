@@ -4,6 +4,7 @@ import { useAuthProvider } from './AuthProvider';
 import { useConfigProvider } from './ConfigProvider';
 import { useFirestoreProvider } from './FirestoreProvider';
 import { useNotificationsProvider } from './NotificationsProvider';
+import { useAlertasProvider } from './AlertasProvider';
 
 export const AppProvider = ({ children }) => {
   const [toast, setToast] = useState(null);
@@ -23,10 +24,15 @@ export const AppProvider = ({ children }) => {
     firestore.reservas,
     isAdmin,
     auth.fbUser,
-    firestore.instructores,
-    firestore.saveNotificacion,
     firestore.prevReservasRef
   );
+
+  const alertas = useAlertasProvider({
+    notifications: firestore.notifications,
+    user: auth.user,
+    fbUser: auth.fbUser,
+    showToast,
+  });
 
    const calcularBaseUSD = useCallback((sedeId, sabeBici, traeMoto, curso) => {
     const precioBaseCurso = Number(curso?.precioBase) || 0;
@@ -80,7 +86,18 @@ export const AppProvider = ({ children }) => {
     saveAdmin: firestore.saveAdmin,
     notifications: firestore.notifications,
     markNotificationRead: firestore.markNotificationRead,
+    markAllNotificationsRead: firestore.markAllNotificationsRead,
     refreshNotificaciones: firestore.refreshNotificaciones,
+    prefsAlertas: alertas.prefs,
+    guardarPreferenciasAlertas: alertas.guardarPreferencias,
+    activarPush: alertas.activarPush,
+    desactivarPush: alertas.desactivarPush,
+    probarSonido: alertas.probarSonido,
+    probarPush: alertas.probarPush,
+    pushEstado: alertas.pushEstado,
+    pushDiag: alertas.pushDiag,
+    refrescarPush: alertas.refrescarDiagnostico,
+    noLeidas: alertas.noLeidas,
     user: auth.user,
     setUser: auth.setUser,
     toast,
@@ -105,7 +122,7 @@ export const AppProvider = ({ children }) => {
     seedDatabase: firestore.seedDatabase,
         cleanExpiredLocks: firestore.cleanExpiredLocks,
     refreshCatalogos: firestore.refreshCatalogos
-  }), [cfg, firestore, auth, toast, showToast, calcularBaseUSD]);
+  }), [cfg, firestore, auth, alertas, toast, showToast, calcularBaseUSD]);
 
   return (
     <AppContext.Provider value={contextValue}>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Bike,
   RotateCcw,
@@ -554,11 +554,12 @@ function MotocicletaSVG360({
   modoReto = false,
   puntoEncontradoId = null,
   puntoIncorrectoId = null,
+  llenar = false,
 }) {
   return (
     <svg
       viewBox="0 0 600 330"
-      className="w-full h-auto select-none block"
+      className={`${llenar ? 'w-full h-full' : 'w-full h-auto'} select-none block`}
       role="img"
       aria-label={`Ilustración técnica de motocicleta — Vista ${vista}`}
     >
@@ -1097,6 +1098,8 @@ function MotocicletaSVG360({
             className="cursor-pointer focus:outline-none"
             style={{ opacity: atenuado ? 0.25 : 1, transition: 'opacity 0.2s ease' }}
           >
+            {/* Área táctil ampliada para el dedo (invisible) */}
+            <circle r={30} fill="transparent" style={{ pointerEvents: 'all' }} />
             {/* Halo pulsante para puntos pendientes o seleccionados */}
             {(esPendiente || seleccionado || (modoReto && puntoEncontradoId !== punto.id)) && (
               <circle
@@ -1990,7 +1993,7 @@ function PestanaInspector360() {
 /* ============================================================================
  * 8. PESTAÑA 2: RETO "DETECTA LA FALLA" (AUDITORÍA VISUAL GAMIFICADA)
  * ============================================================================ */
-function PestanaRetoFalla() {
+function PestanaRetoFalla({ onInmersivo, compacto = false, movil = false, onSalir }) {
   const [listaCasos, setListaCasos] = useState(CASOS_RETO);
   const [indice, setIndice] = useState(0);
   const [vistaIdx, setVistaIdx] = useState(
@@ -2015,6 +2018,12 @@ function PestanaRetoFalla() {
     () => PUNTOS_INSPECCION.filter((p) => p.vista === vistaActual.id),
     [vistaActual.id]
   );
+
+  // El reto es el modo juego: bloquea el scroll de página; el resultado libera el layout.
+  useEffect(() => {
+    onInmersivo?.(!terminado);
+    return () => onInmersivo?.(false);
+  }, [terminado, onInmersivo]);
 
   const rotarIzq = () => setVistaIdx((p) => (p + 3) % 4);
   const rotarDer = () => setVistaIdx((p) => (p + 1) % 4);
@@ -2195,60 +2204,77 @@ function PestanaRetoFalla() {
   }
 
   return (
-    <div className="space-y-4 animate-fadeIn">
+    <div className={`${movil ? 'flex h-full min-h-0 flex-col gap-1.5' : compacto ? 'flex h-full min-h-0 flex-col gap-2' : 'space-y-4'} animate-fadeIn`}>
       {/* Barra superior del Reto */}
-      <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1 rounded-full bg-blue-50 text-[#2563EB] text-xs font-black border border-blue-200">
+      <section className={`bg-white rounded-2xl border border-slate-200 shadow-xs ${movil ? 'shrink-0 p-1.5' : compacto ? 'shrink-0 p-2' : 'p-4'} flex flex-wrap items-center justify-between gap-2`}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`${compacto ? 'px-2 py-0.5 text-[10px]' : 'px-3 py-1 text-xs'} rounded-full bg-blue-50 text-[#2563EB] font-black border border-blue-200 whitespace-nowrap`}>
             Caso {indice + 1} / {listaCasos.length}
           </span>
-          <span className="text-xs sm:text-sm font-extrabold text-slate-900">{caso.titulo}</span>
+          <span className={`${compacto ? 'text-[11px]' : 'text-xs sm:text-sm'} font-extrabold text-slate-900 truncate`}>{caso.titulo}</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-xs font-extrabold">
-            <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className={`inline-flex items-center gap-1 ${compacto ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'} rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-extrabold`}>
+            <Flame className="w-3 h-3 text-amber-500 fill-amber-500" />
             <span>Racha {racha}</span>
           </span>
-          <span className="px-2.5 py-1 rounded-full bg-slate-900 text-white text-xs font-extrabold tabular-nums">
+          <span className={`${compacto ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'} rounded-full bg-slate-900 text-white font-extrabold tabular-nums`}>
             {puntaje} pts
           </span>
+          {compacto && (
+            <button
+              type="button"
+              onClick={onSalir}
+              aria-label="Salir del reto"
+              className="h-11 w-11 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </section>
 
       {/* Contexto del escenario */}
-      <div className="bg-gradient-to-r from-[#0F172A] to-slate-900 text-white rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 shadow-xs">
-        <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-300 flex items-center justify-center shrink-0">
+      <div className={`bg-gradient-to-r from-[#0F172A] to-slate-900 text-white rounded-2xl ${movil ? 'shrink-0 p-2' : compacto ? 'shrink-0 p-2' : 'p-4 sm:p-5'} flex items-start gap-2 sm:gap-3.5 shadow-xs`}>
+        <div className={`${compacto ? 'hidden sm:flex w-9 h-9' : 'w-10 h-10'} rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-300 items-center justify-center shrink-0`}>
           <Search className="w-5 h-5" />
         </div>
-        <div className="space-y-1">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300">
+        <div className="space-y-0.5 min-w-0">
+          <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-blue-300 truncate">
             {fallaEncontrada
               ? 'Paso 2 de 2 · Emite tu veredicto técnico-legal'
               : 'Paso 1 de 2 · Rota la moto 360° y toca el hotspot donde ves la anomalía'}
           </div>
-          <p className="text-xs sm:text-sm text-slate-100 leading-relaxed">{caso.contexto}</p>
+          <p className={`text-xs sm:text-sm text-slate-100 leading-snug ${compacto ? 'line-clamp-2' : 'leading-relaxed'}`}>{caso.contexto}</p>
         </div>
       </div>
 
+      {movil && !fallaEncontrada && (
+        <p className="shrink-0 px-1 text-center text-[10px] font-semibold text-slate-500">
+          Toca el punto azul exacto donde detectes el daño · arrastra o usa Rotar
+        </p>
+      )}
+
       {/* Grid: Visor SVG con Anomalía + Panel de Veredicto */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        <section className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/70">
-            <div className="flex items-center gap-2">
+      <div className={`${movil ? 'flex flex-1 min-h-0 flex-col gap-1.5' : compacto ? 'relative flex-1 min-h-0' : 'relative grid grid-cols-1 lg:grid-cols-12 lg:items-start gap-2 sm:gap-5'}`}>
+        <section className={`lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden ${movil ? 'flex flex-col min-h-0 flex-1' : compacto ? 'flex flex-col min-h-0' : ''}`}>
+          <div className={`${compacto ? 'px-2 py-1.5' : 'px-4 py-3'} border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/70`}>
+            <div className="flex items-center gap-2 min-w-0">
               <span className="px-2.5 py-1 rounded-lg bg-[#0F172A] text-white text-xs font-black">
                 {vistaActual.angulo}
               </span>
-              <span className="text-xs sm:text-sm font-extrabold text-slate-800">
+              <span className={`${compacto ? 'text-[11px]' : 'text-xs sm:text-sm'} font-extrabold text-slate-800 truncate`}>
                 {vistaActual.titulo}
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={rotarIzq}
-                className="py-1.5 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                aria-label="Rotar vista a la izquierda"
+                className="min-h-[44px] py-1.5 px-2.5 sm:px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>Rotar</span>
@@ -2256,7 +2282,8 @@ function PestanaRetoFalla() {
               <button
                 type="button"
                 onClick={rotarDer}
-                className="py-1.5 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                aria-label="Rotar vista a la derecha"
+                className="min-h-[44px] py-1.5 px-2.5 sm:px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
               >
                 <span>Rotar</span>
                 <ChevronRight className="w-4 h-4" />
@@ -2277,7 +2304,7 @@ function PestanaRetoFalla() {
               }
               dragStartX.current = null;
             }}
-            className="p-3 sm:p-4 bg-gradient-to-b from-slate-50 to-slate-100/70 cursor-grab active:cursor-grabbing"
+            className={`${compacto ? 'flex-1 min-h-0 flex items-center justify-center' : ''} p-2 sm:p-4 bg-gradient-to-b from-slate-50 to-slate-100/70 cursor-grab active:cursor-grabbing`}
           >
             <MotocicletaSVG360
               vista={vistaActual.id}
@@ -2290,16 +2317,17 @@ function PestanaRetoFalla() {
               modoReto={true}
               puntoEncontradoId={fallaEncontrada ? caso.puntoFallaId : null}
               puntoIncorrectoId={puntoIncorrectoId}
+              llenar={compacto}
             />
           </div>
 
-          <div className="p-3 border-t border-slate-100 grid grid-cols-4 gap-1.5 bg-white">
+          <div className={`${compacto ? 'p-1.5' : 'p-3'} border-t border-slate-100 grid grid-cols-4 gap-1.5 bg-white`}>
             {VISTAS_360.map((v) => (
               <button
                 key={v.id}
                 type="button"
                 onClick={() => setVistaIdx(v.index)}
-                className={`py-2 px-1.5 rounded-xl border text-[11px] font-extrabold transition-colors cursor-pointer ${
+                className={`min-h-[44px] ${compacto ? 'py-1' : 'py-2'} px-1.5 rounded-xl border text-[11px] font-extrabold transition-colors cursor-pointer ${
                   v.index === vistaIdx
                     ? 'bg-[#2563EB] border-[#2563EB] text-white'
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
@@ -2312,7 +2340,14 @@ function PestanaRetoFalla() {
         </section>
 
         {/* Panel derecho de interacción del reto */}
-        <section className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+        {(!movil || fallaEncontrada) && (
+        <section
+          className={
+            movil
+              ? 'shrink-0 max-h-[38%] overflow-y-auto overscroll-contain rounded-2xl border-2 border-blue-300 bg-white shadow-2xl p-3 space-y-2.5 animate-fadeIn'
+              : `${compacto ? 'flex flex-col min-h-0 overflow-y-auto p-3' : 'p-5'} lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-4`
+          }
+        >
           {!fallaEncontrada ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2.5 text-slate-900">
@@ -2426,6 +2461,7 @@ function PestanaRetoFalla() {
             </div>
           )}
         </section>
+        )}
       </div>
     </div>
   );
@@ -2695,6 +2731,22 @@ function PestanaGuiaTCLOCS({ onIrAInspector }) {
  * ============================================================================ */
 function InspectorTCLOCSApp() {
   const [tab, setTab] = useState('inspector'); // 'inspector' | 'reto' | 'guia'
+  // Modo juego (Reto): en móvil se oculta la cabecera/pie y el documento no scrollea.
+  const [inmersivo, setInmersivo] = useState(false);
+  const [esMovil, setEsMovil] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const alCambiar = (e) => setEsMovil(e.matches);
+    mq.addEventListener?.('change', alCambiar);
+    return () => mq.removeEventListener?.('change', alCambiar);
+  }, []);
+
+  const modoJuego = esMovil && inmersivo;
+  const chromeOculto = esMovil && inmersivo;
 
   const tabs = [
     { id: 'inspector', label: 'Inspector 360°', short: 'Inspector 360°', icon: Compass },
@@ -2703,7 +2755,11 @@ function InspectorTCLOCSApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden">
+    <div
+      className={`${
+        modoJuego ? 'h-full min-h-0 overflow-hidden' : 'min-h-screen'
+      } bg-[#F8FAFC] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden`}
+    >
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(6px); }
@@ -2721,6 +2777,9 @@ function InspectorTCLOCSApp() {
         .animate-fadeIn {
           animation: fadeIn 0.25s ease-out both;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-fadeIn { animation: none; }
+        }
         .hotspot-pulse {
           animation: hotspotPulse 1.8s ease-in-out infinite;
           transform-origin: center;
@@ -2735,7 +2794,9 @@ function InspectorTCLOCSApp() {
       `}</style>
 
       {/* Header Oscuro Elegante (#0F172A) */}
-      <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm">
+      <header
+        className={`${chromeOculto ? 'hidden' : 'sticky top-0'} z-30 shrink-0 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm`}
+      >
         <div className="max-w-5xl mx-auto px-4 pt-3.5 pb-3 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -2786,14 +2847,31 @@ function InspectorTCLOCSApp() {
       </header>
 
       {/* Contenido Principal */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-5">
+      <main
+        className={
+          modoJuego
+            ? 'flex-1 min-h-0 w-full max-w-5xl mx-auto px-0 pt-0 pb-0 flex flex-col overflow-hidden'
+            : 'flex-1 w-full max-w-5xl mx-auto px-4 py-5'
+        }
+      >
         {tab === 'inspector' && <PestanaInspector360 />}
-        {tab === 'reto' && <PestanaRetoFalla />}
+        {tab === 'reto' && (
+          <PestanaRetoFalla
+            onInmersivo={setInmersivo}
+            compacto={modoJuego}
+            movil={chromeOculto}
+            onSalir={() => setTab('inspector')}
+          />
+        )}
         {tab === 'guia' && <PestanaGuiaTCLOCS onIrAInspector={() => setTab('inspector')} />}
       </main>
 
       {/* Pie informativo */}
-      <footer className="max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-1.5">
+      <footer
+        className={`${
+          chromeOculto ? 'hidden' : 'flex'
+        } shrink-0 max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex-wrap items-center justify-center gap-1.5`}
+      >
         <Info className="w-3.5 h-3.5" />
         <span>
           Moto App · Inspección Pre-Rodada T-CLOCS (MSF Ed. 17) y Reglamento Parcial

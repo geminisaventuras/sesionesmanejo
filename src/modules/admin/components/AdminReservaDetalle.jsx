@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { writeBatch, doc, serverTimestamp, collection, query, where, getDocs, getDoc, arrayUnion, increment, Timestamp, updateDoc } from 'firebase/firestore';
 import { getHoraIdOcupacion, getMotoIdOcupacion, derivarProveedorReposicion } from '../../shared/utils/reservaHelpers';
+import { emitirEvento } from '../../shared/services/NotificacionesEventos';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import {
   construirAsignacionesProveedor,
@@ -242,8 +243,21 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     
     try {
       await batch.commit();
-            showToast('Pago aprobado. Ahora puedes enviar la confirmación por WhatsApp.', 'success');
-            
+      if (user?.uid) {
+        void emitirEvento({
+          tipo: 'pago_aprobado',
+          entidadTipo: 'reserva',
+          entidadId: res.id,
+          actorUid: user.uid,
+          token: 'aprobado',
+          datos: {
+            reservaId: res.id,
+            instructorId: res.instructorId || null,
+            proveedorId: res.proveedorId || null,
+          },
+        });
+      }
+      showToast('Pago aprobado. Ahora puedes enviar la confirmación por WhatsApp.', 'success');
     } catch (error) {
       showToast('Error al aprobar: ' + error.message, 'error');
     }
@@ -345,6 +359,20 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     
     try {
       await batch.commit();
+      if (user?.uid) {
+        void emitirEvento({
+          tipo: tipo === 'cancelar' ? 'reserva_cancelada' : 'pago_rechazado',
+          entidadTipo: 'reserva',
+          entidadId: res.id,
+          actorUid: user.uid,
+          token: tipo === 'cancelar' ? 'cancelado' : 'rechazado',
+          datos: {
+            reservaId: res.id,
+            instructorId: res.instructorId || null,
+            proveedorId: res.proveedorId || null,
+          },
+        });
+      }
       showToast(
         tipo === 'cancelar' 
           ? 'Reserva cancelada definitivamente. Horario liberado.' 

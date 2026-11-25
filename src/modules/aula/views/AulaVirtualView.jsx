@@ -24,6 +24,7 @@ import ReservaPanel from '../components/ReservaPanel';
 import ReservaActivaPanel from '../components/ReservaActivaPanel';
 import { isAlertaSonoraHabilitada, setAlertaSonora as guardarPreferenciaSonora } from '../../shared/utils/audio';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { emitirEvento } from '../../shared/services/NotificacionesEventos';
 const MATERIAL_APOYO = {
   senales: [{ nombre: 'Pare', descripcion: 'Detenerse completamente antes de la intersección.' }, { nombre: 'Ceda el Paso', descripcion: 'Reducir velocidad y ceder el paso.' }, { nombre: 'Velocidad Máxima', descripcion: 'Límite de velocidad permitido.' }],
   leyes: [{ titulo: 'Artículo 154', texto: 'Los conductores deben mantener la distancia de seguridad.' }, { titulo: 'Artículo 169', texto: 'Está prohibido el uso de dispositivos móviles al conducir.' }],
@@ -154,7 +155,27 @@ const tiempoAgotado = sgta.totalCompletado;
     });  const modulosPendientes = curso.modulos.filter(mod => !(reserva?.modulosEstado || {})[typeof mod === 'string' ? mod : mod.nombre]?.fecha);
 
   const handleVolver = () => navigate(esInstructor ? '/instructor' : '/portal-reservas');
-  const handleEmergencia = () => { showToast('Emergencia reportada.', 'error'); if (reserva && saveReserva) saveReserva({ ...reserva, emergencia: { timestamp: Date.now(), reportadoPor: rol } }); };
+  const handleEmergencia = () => {
+    showToast('Emergencia reportada.', 'error');
+    if (reserva && saveReserva) {
+      const timestamp = Date.now();
+      saveReserva({ ...reserva, emergencia: { timestamp, reportadoPor: rol } });
+      if (user?.uid) {
+        void emitirEvento({
+          tipo: 'emergencia_aula',
+          entidadTipo: 'reserva',
+          entidadId: reserva.id,
+          actorUid: user.uid,
+          token: timestamp,
+          datos: {
+            reservaId: reserva.id,
+            instructorId: reserva.instructorId || null,
+            proveedorId: reserva.proveedorId || null,
+          },
+        });
+      }
+    }
+  };
   const handleCompletarManualmente = async () => {
     setMostrarModalCompletar(false);
     showToast('Registrando sesión completada...', 'info');

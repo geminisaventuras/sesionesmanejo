@@ -447,7 +447,7 @@ function generarRecomendacionMotoApp(metricas, alertas) {
 /* ============================================================================
  * 5. PESTAÑA 1: SIMULADOR EN VIVO (CANVAS HTML5 60FPS — CARRILES 1-2-3)
  * ============================================================================ */
-function SimuladorEnVivoCarril() {
+function SimuladorEnVivoCarril({ onInmersivo, compacto = false }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const rafRef = useRef(null);
@@ -476,6 +476,15 @@ function SimuladorEnVivoCarril() {
   useEffect(() => {
     radarSEERef.current = radarSEE;
   }, [radarSEE]);
+
+  // Mientras corre la simulación se juega a pantalla completa: el shell oculta
+  // cabecera/pie en móvil y bloquea el scroll de la página; los resultados salen.
+  useEffect(() => {
+    const activo =
+      estadoSim === 'corriendo' || estadoSim === 'pausado' || estadoSim === 'infraccion';
+    onInmersivo?.(activo);
+    return () => onInmersivo?.(false);
+  }, [estadoSim, onInmersivo]);
 
   // Estado mutable del motor 60fps
   const simRef = useRef({
@@ -732,18 +741,31 @@ function SimuladorEnVivoCarril() {
     if (!canvas || !container) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const width = container.clientWidth;
-    const height = Math.max(360, Math.min(440, Math.round(width * 0.68)));
+    // En modo juego el canvas ocupa el alto disponible del panel (sin scroll de página).
+    const disponible = compacto ? container.clientHeight : 0;
+    const height =
+      disponible > 120 ? disponible : Math.max(360, Math.min(440, Math.round(width * 0.68)));
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-  }, []);
+  }, [compacto]);
 
   useEffect(() => {
     ajustarCanvas();
     window.addEventListener('resize', ajustarCanvas);
     return () => window.removeEventListener('resize', ajustarCanvas);
   }, [ajustarCanvas]);
+
+  // El contenedor cambia de alto al entrar/salir del modo juego sin resize de ventana.
+  useEffect(() => {
+    if (!compacto) return undefined;
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => ajustarCanvas());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [compacto, ajustarCanvas]);
 
   // Geometría compartida de carriles para dibujo y colisiones
   const obtenerGeometria = (width, height) => {
@@ -1766,21 +1788,22 @@ function SimuladorEnVivoCarril() {
   }
 
   return (
-    <div className="space-y-4 animate-fadeIn">
+    <div className={`${compacto ? 'flex h-full min-h-0 flex-col gap-1.5' : 'space-y-4'} animate-fadeIn`}>
       {/* Barra superior: Toggle Modo Radar SEE + Controles de Sesión */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div className={`rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 sm:gap-3 ${compacto ? 'shrink-0 bg-white/95 p-1.5' : 'bg-white p-3.5'}`}>
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
             onClick={() => setRadarSEE((v) => !v)}
-            className={`py-2 px-3.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all cursor-pointer ${
+            aria-label={`Modo Radar SEE: ${radarSEE ? 'ON' : 'OFF'}`}
+            className={`min-h-[44px] py-2 px-3 sm:px-3.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all cursor-pointer ${
               radarSEE
                 ? 'bg-blue-50 text-[#2563EB] border-blue-200'
                 : 'bg-slate-900 text-slate-200 border-slate-800'
             }`}
           >
             {radarSEE ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-            <span>Modo Radar SEE: {radarSEE ? 'ON' : 'OFF'}</span>
+            <span>{compacto ? `Radar ${radarSEE ? 'ON' : 'OFF'}` : `Modo Radar SEE: ${radarSEE ? 'ON' : 'OFF'}`}</span>
           </button>
           <span className="text-[11px] text-slate-500 hidden sm:inline">
             Teclas: <kbd className="font-bold">1 · 2 · 3</kbd> o <kbd className="font-bold">← →</kbd>{' '}
@@ -1795,7 +1818,8 @@ function SimuladorEnVivoCarril() {
               <button
                 type="button"
                 onClick={togglePausa}
-                className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                aria-label={estadoSim === 'pausado' ? 'Reanudar simulación' : 'Pausar simulación'}
+                className="min-h-[44px] py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
                 {estadoSim === 'pausado' ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
                 <span>{estadoSim === 'pausado' ? 'Reanudar' : 'Pausar'}</span>
@@ -1803,7 +1827,8 @@ function SimuladorEnVivoCarril() {
               <button
                 type="button"
                 onClick={finalizarCorrida}
-                className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                aria-label="Finalizar simulación"
+                className="min-h-[44px] py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
                 <span>Finalizar</span>
@@ -1813,7 +1838,7 @@ function SimuladorEnVivoCarril() {
             <button
               type="button"
               onClick={iniciarCorrida}
-              className="py-2 px-4 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              className="min-h-[44px] py-2 px-4 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Iniciar Corrida (60s)</span>
@@ -1823,30 +1848,30 @@ function SimuladorEnVivoCarril() {
       </div>
 
       {/* HUD Superior Compacto */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-          <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+      <div className={`${compacto ? 'shrink-0 grid grid-cols-5 gap-1' : 'grid grid-cols-2 lg:grid-cols-5 gap-2.5'}`}>
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs`}>
+          <div className={`${compacto ? 'text-[9px]' : 'text-[11px]'} font-bold text-slate-500 flex items-center gap-1`}>
             <Clock className="w-3.5 h-3.5 text-[#2563EB]" />
             <span>Cronómetro</span>
           </div>
-          <div className="text-xl font-black text-slate-900 tabular-nums mt-0.5">
+          <div className={`${compacto ? 'text-base' : 'text-xl'} font-black text-slate-900 tabular-nums mt-0.5`}>
             {hud.tiempoRestante}s
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-          <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs`}>
+          <div className={`${compacto ? 'text-[9px]' : 'text-[11px]'} font-bold text-slate-500 flex items-center gap-1`}>
             <Gauge className="w-3.5 h-3.5 text-sky-600" />
             <span>Velocidad</span>
           </div>
-          <div className="text-xl font-black text-slate-900 tabular-nums mt-0.5">
+          <div className={`${compacto ? 'text-base' : 'text-xl'} font-black text-slate-900 tabular-nums mt-0.5`}>
             {hud.velocidad} <span className="text-xs font-bold text-slate-400">km/h</span>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-          <div className="text-[11px] font-bold text-slate-500">Posición Carril</div>
-          <div className="text-xl font-black text-[#2563EB] mt-0.5">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs`}>
+          <div className={`${compacto ? 'text-[9px]' : 'text-[11px]'} font-bold text-slate-500`}>Posición Carril</div>
+          <div className={`${compacto ? 'text-base' : 'text-xl'} font-black text-[#2563EB] mt-0.5`}>
             Pos. {hud.posicion}{' '}
             <span className="text-xs font-bold text-slate-400">
               ({hud.posicion === 1 ? 'Izq' : hud.posicion === 2 ? 'Centro' : 'Der'})
@@ -1854,15 +1879,17 @@ function SimuladorEnVivoCarril() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-          <div className="text-[11px] font-bold text-slate-500">Supervivencia</div>
-          <div className="text-xl font-black text-slate-900 tabular-nums mt-0.5">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs`}>
+          <div className={`${compacto ? 'text-[9px]' : 'text-[11px]'} font-bold text-slate-500`}>Supervivencia</div>
+          <div className={`${compacto ? 'text-base' : 'text-xl'} font-black text-slate-900 tabular-nums mt-0.5`}>
             {hud.puntaje} <span className="text-xs font-bold text-slate-400">pts</span>
           </div>
         </div>
 
         <div
-          className={`col-span-2 lg:col-span-1 rounded-2xl border p-3 shadow-xs flex flex-col justify-center transition-colors ${
+          className={`${
+            compacto ? 'col-span-1 rounded-lg px-1.5 py-1 border flex-col justify-center' : 'col-span-2 lg:col-span-1 rounded-2xl p-3 flex-col justify-center'
+          } rounded-2xl border shadow-xs flex transition-colors ${
             hud.estadoBarra === 'punto_ciego'
               ? 'bg-red-600 border-red-500 text-white animate-pulse'
               : hud.estadoBarra === 'peligro'
@@ -1870,14 +1897,18 @@ function SimuladorEnVivoCarril() {
               : 'bg-emerald-50 border-emerald-200 text-emerald-800'
           }`}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider opacity-80">Estado SEE</div>
-          <div className="text-xs sm:text-sm font-black mt-0.5 truncate">{hud.textoEstado}</div>
+          <div className={`${compacto ? 'text-[9px]' : 'text-[10px]'} font-bold uppercase tracking-wider opacity-80`}>Estado SEE</div>
+          <div className={`${compacto ? 'text-[10px]' : 'text-xs sm:text-sm'} font-black mt-0.5 truncate`}>{hud.textoEstado}</div>
         </div>
       </div>
 
       {/* Área Táctica Canvas 60fps */}
-      <div className="relative bg-[#0F172A] rounded-2xl overflow-hidden border border-slate-800 shadow-md">
-        <div ref={containerRef} className="w-full relative">
+      <div
+        className={`bg-[#0F172A] rounded-2xl overflow-hidden border border-slate-800 shadow-md ${
+          compacto ? 'relative flex-1 min-h-0' : 'relative'
+        }`}
+      >
+        <div ref={containerRef} className={`${compacto ? 'h-full' : ''} w-full relative`}>
           <canvas ref={canvasRef} className="block w-full touch-none select-none" />
 
           {/* Alerta instantánea en la parte superior del canvas */}
@@ -1989,13 +2020,17 @@ function SimuladorEnVivoCarril() {
       </div>
 
       {/* Controles Ergonométricos Inferiores (Mobile-First + Escritorio) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3">
+      <div
+        className={`rounded-2xl border border-slate-200 shadow-xs ${
+          compacto ? 'shrink-0 bg-white/95 p-1.5 space-y-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]' : 'p-4 space-y-3'
+        }`}
+      >
         {/* 3 Botones grandes de Posición de Carril 1 · 2 · 3 */}
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className={`grid grid-cols-3 ${compacto ? 'gap-1.5' : 'gap-2.5'}`}>
           {[
-            { num: 1, label: '1 · Izq', sub: 'Visión / Puertas' },
-            { num: 2, label: '2 · Centro', sub: 'Ojo con aceite' },
-            { num: 3, label: '3 · Der', sub: 'Colchón camión' },
+            { num: 1, label: compacto ? '1 · Izq' : '1 · Izq', sub: 'Visión / Puertas' },
+            { num: 2, label: compacto ? '2 · Cto' : '2 · Centro', sub: 'Ojo con aceite' },
+            { num: 3, label: compacto ? '3 · Der' : '3 · Der', sub: 'Colchón camión' },
           ].map((btn) => {
             const activo = hud.posicion === btn.num;
             return (
@@ -2007,14 +2042,14 @@ function SimuladorEnVivoCarril() {
                   cambiarPosicion(btn.num);
                 }}
                 onContextMenu={(e) => e.preventDefault()}
-                className={`py-3.5 px-2 rounded-xl border-2 text-center touch-none select-none transition-all cursor-pointer ${
+                className={`min-h-[44px] ${compacto ? 'py-2 px-1' : 'py-3.5 px-2'} rounded-xl border-2 text-center touch-none select-none transition-all cursor-pointer ${
                   activo
                     ? 'bg-[#2563EB] border-[#1D4ED8] text-white shadow-sm scale-[1.01]'
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
                 }`}
               >
                 <div className="text-sm font-black">{btn.label}</div>
-                <div className={`text-[10px] font-semibold ${activo ? 'text-blue-100' : 'text-slate-400'}`}>
+                <div className={`text-[10px] font-semibold ${compacto ? 'hidden' : ''} ${activo ? 'text-blue-100' : 'text-slate-400'}`}>
                   {btn.sub}
                 </div>
               </button>
@@ -2023,7 +2058,7 @@ function SimuladorEnVivoCarril() {
         </div>
 
         {/* Fila de Acciones Defensivas y Prueba Legal */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className={`grid ${compacto ? 'grid-cols-3 gap-1.5' : 'grid-cols-1 sm:grid-cols-3 gap-2.5'}`}>
           <button
             type="button"
             onPointerDown={(e) => {
@@ -2040,14 +2075,14 @@ function SimuladorEnVivoCarril() {
               simRef.current.braking = false;
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className={`py-3.5 px-4 rounded-xl border-2 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer ${
+            className={`min-h-[44px] ${compacto ? 'py-2 px-1 text-[11px]' : 'py-3.5 px-4 text-xs sm:text-sm'} rounded-xl border-2 font-extrabold flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer ${
               hud.cubriendoFrenos
                 ? 'bg-red-600 border-red-700 text-white'
                 : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
             }`}
           >
-            <Hand className="w-4 h-4" />
-            <span>Cubrir Frenos / Reducir</span>
+            <Hand className="w-4 h-4 shrink-0" />
+            <span className="truncate">{compacto ? 'Frenos' : 'Cubrir Frenos / Reducir'}</span>
           </button>
 
           <button
@@ -2057,25 +2092,27 @@ function SimuladorEnVivoCarril() {
               ejecutarChequeoHombro();
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className="py-3.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-[#10B981] active:text-white border-2 border-emerald-300 text-emerald-900 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer"
+            className={`min-h-[44px] ${compacto ? 'py-2 px-1 text-[11px]' : 'py-3.5 px-4 text-xs sm:text-sm'} rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-[#10B981] active:text-white border-2 border-emerald-300 text-emerald-900 font-extrabold flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer`}
           >
-            <Eye className="w-4 h-4" />
-            <span>Chequeo de Hombro ({hud.chequeosHombro})</span>
+            <Eye className="w-4 h-4 shrink-0" />
+            <span className="truncate">{compacto ? `Hombro (${hud.chequeosHombro})` : `Chequeo de Hombro (${hud.chequeosHombro})`}</span>
           </button>
 
           <button
             type="button"
             disabled={!hud.puedeFiltrar || estadoSim !== 'corriendo'}
             onClick={intentarFiltrar}
-            className={`py-3.5 px-4 rounded-xl border-2 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+            className={`min-h-[44px] ${compacto ? 'py-2 px-1 text-[11px]' : 'py-3.5 px-4 text-xs sm:text-sm'} rounded-xl border-2 font-extrabold flex items-center justify-center gap-2 transition-all ${
               hud.puedeFiltrar && estadoSim === 'corriendo'
                 ? 'bg-red-50 hover:bg-red-600 hover:text-white border-red-400 text-red-700 cursor-pointer animate-pulse'
                 : 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
             }`}
           >
-            <Ban className="w-4 h-4" />
-            <span>
-              {hud.puedeFiltrar ? 'Intentar filtrar (Trampa)' : 'Sin cola para filtrar'}
+            <Ban className="w-4 h-4 shrink-0" />
+            <span className="truncate">
+              {hud.puedeFiltrar
+                ? compacto ? 'Filtrar' : 'Intentar filtrar (Trampa)'
+                : compacto ? 'Sin cola' : 'Sin cola para filtrar'}
             </span>
           </button>
         </div>
@@ -2791,6 +2828,22 @@ function DesafioTactico({ onIrASimulador }) {
  * ============================================================================ */
 function EntrenadorTacticoApp() {
   const [tab, setTab] = useState('simulador'); // 'simulador' | 'laboratorio' | 'desafio'
+  // Modo juego: en móvil se oculta la cabecera/pie y el documento no scrollea.
+  const [inmersivo, setInmersivo] = useState(false);
+  const [esMovil, setEsMovil] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const alCambiar = (e) => setEsMovil(e.matches);
+    mq.addEventListener?.('change', alCambiar);
+    return () => mq.removeEventListener?.('change', alCambiar);
+  }, []);
+
+  const modoJuego = esMovil && inmersivo;
+  const chromeOculto = esMovil && inmersivo;
 
   const tabs = [
     { id: 'simulador', label: 'Simulador en Vivo', short: 'Simulador', icon: Radar },
@@ -2799,7 +2852,11 @@ function EntrenadorTacticoApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden">
+    <div
+      className={`${
+        modoJuego ? 'h-full min-h-0 overflow-hidden' : 'min-h-screen'
+      } bg-[#F1F5F9] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden`}
+    >
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(6px); }
@@ -2808,10 +2865,15 @@ function EntrenadorTacticoApp() {
         .animate-fadeIn {
           animation: fadeIn 0.25s ease-out both;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-fadeIn { animation: none; }
+        }
       `}</style>
 
       {/* Header compacto Moto App */}
-      <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm">
+      <header
+        className={`${chromeOculto ? 'hidden' : 'sticky top-0'} z-30 shrink-0 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm`}
+      >
         <div className="max-w-5xl mx-auto px-4 pt-3.5 pb-3 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -2862,14 +2924,26 @@ function EntrenadorTacticoApp() {
       </header>
 
       {/* Contenido principal */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-5">
-        {tab === 'simulador' && <SimuladorEnVivoCarril />}
+      <main
+        className={
+          modoJuego
+            ? 'flex-1 min-h-0 w-full max-w-5xl mx-auto px-0 pt-0 pb-0 flex flex-col overflow-hidden'
+            : 'flex-1 w-full max-w-5xl mx-auto px-4 py-5'
+        }
+      >
+        {tab === 'simulador' && (
+          <SimuladorEnVivoCarril onInmersivo={setInmersivo} compacto={modoJuego} />
+        )}
         {tab === 'laboratorio' && <LaboratorioCarril123 />}
         {tab === 'desafio' && <DesafioTactico onIrASimulador={() => setTab('simulador')} />}
       </main>
 
       {/* Pie informativo */}
-      <footer className="max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-1.5">
+      <footer
+        className={`${
+          chromeOculto ? 'hidden' : 'flex'
+        } shrink-0 max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex-wrap items-center justify-center gap-1.5`}
+      >
         <Info className="w-3.5 h-3.5" />
         <span>
           Módulo interactivo Moto App · Manual del Operador de la Motocicleta (MSF Ed. 17) y

@@ -12,6 +12,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../../shared/firebase/firebase';
+import { emitirEvento } from './NotificacionesEventos';
 import {
   construirAsignacionesProveedor,
   construirAsignacionesInstructor,
@@ -588,6 +589,17 @@ export const PagosStaffService = {
 
         movimientoIdFinal = debeCrearMovimiento ? movimientoDoc.id : null;
       });
+
+      if (pagadoPor) {
+        void emitirEvento({
+          tipo: 'pago_staff',
+          entidadTipo: 'pagoStaff',
+          entidadId: pagoId,
+          actorUid: pagadoPor,
+          token: `${tipoStaff}|${staffId}|${pagoId}`,
+          datos: { pagoId, staffId, monto: Number(montoTotal) || 0, moneda },
+        });
+      }
 
       return { success: true, data: { id: pagoId, movimientoId: movimientoIdFinal, ...resumenFinal } };
     } catch (error) {

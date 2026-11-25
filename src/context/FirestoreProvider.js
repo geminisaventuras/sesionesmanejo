@@ -7,6 +7,9 @@ import { StaffService } from '../modules/admin/services/StaffService';
 import { obtenerFechaVenezuela } from '../modules/shared/utils/zonahoraria';
 import { construirPreciosCurso, construirProyeccionesCursos } from '../modules/inscripcion/utils/preciosCurso';
 import { construirIdCatalogo, hijosActivos, validarCatalogo } from '../modules/shared/utils/geografiaHelpers';
+import { construirSedesPublicas } from '../modules/shared/utils/sedesPublicas';
+import { COLECCION_NOTIFICACIONES, emitirEventosReserva } from '../modules/shared/services/NotificacionesEventos';
+import { msDeFecha } from '../modules/shared/utils/notificacionesHelpers';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -76,6 +79,8 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
   const [admins, setAdmins] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [notifRefreshKey, setNotifRefreshKey] = useState(0);
+  const notifWarnedRef = useRef(false);
   const [reservas, setReservas] = useState([]);
 
   const pickInstructorPublic = (data, id, opciones = {}) => {
@@ -211,10 +216,11 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     // autoridad de precio en `reservas.create`. Si sólo se guarda la sede, la
     // matriz queda obsoleta y la regla deniega el registro. Se leen los
     // catálogos y se escribe todo (sede + proyecciones) en un solo batch.
-    const [configSnap, sedesSnap, cursosSnap] = await Promise.all([
+    const [configSnap, sedesSnap, cursosSnap, horariosSnap] = await Promise.all([
       getDoc(doc(db, buildPath('configuraciones'), 'main')),
       getDocs(collection(db, buildPath('sedes'))),
-      getDocs(collection(db, buildPath('cursos')))
+      getDocs(collection(db, buildPath('cursos'))),
+      getDocs(collection(db, buildPath('horarios')))
     ]);
     const sedesActuales = sedesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const indice = sedesActuales.findIndex(s => String(s.id) === id);
@@ -227,8 +233,12 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     const proyecciones = configSnap.exists()
       ? construirProyeccionesCursos(cursosActuales, configSnap.data(), sedesActuales)
       : [];
+    const horariosActuales = horariosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const batch = writeBatch(db);
     batch.set(doc(db, buildPath('sedes'), id), nuevo);
+    // FT-062: la vitrina pública necesita el recargo vigente. Se publica la
+    // proyección mínima junto con la sede para que nunca quede desincronizada.
+    batch.set(doc(db, 'informacionPublica', 'sedes'), construirSedesPublicas(sedesActuales, horariosActuales));
     for (const { id: cursoId, proyeccion } of proyecciones) {
       batch.set(doc(db, buildPath('preciosCurso'), cursoId), {
         ...proyeccion,
@@ -239,7 +249,26 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     setSedes(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? nuevo : i) : [...prev, nuevo]);
     return nuevo;
   };
-    const saveHorario = saveCatalogo(setHorarios);
+    const saveHorarioBase = saveCatalogo(setHorarios);
+  // FT-062: si cambia la etiqueta de un horario, la vitrina de sedes debe
+  // refrescar el texto público. Un fallo aquí no revierte el horario ya
+  // guardado: se avisa y se puede reproyectar con el script de sedes.
+  const saveHorario = async (item) => {
+    const guardado = await saveHorarioBase(item);
+    try {
+      const [sedesSnap, horariosSnap] = await Promise.all([
+        getDocs(collection(db, buildPath('sedes'))),
+        getDocs(collection(db, buildPath('horarios')))
+      ]);
+      await setDoc(doc(db, 'informacionPublica', 'sedes'), construirSedesPublicas(
+        sedesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        horariosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      ));
+    } catch (error) {
+      console.warn('[FirestoreProvider] Vitrina de sedes desactualizada tras editar horario:', error);
+    }
+    return guardado;
+  };
   const saveMetodoPago = saveCatalogo(setMetodosPago);
   const savePack = saveCatalogo(setPacks);
   // T-098 / T-056: `cursos` y `preciosCurso` se escriben en el mismo batch para
@@ -307,57 +336,119 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     return () => unsub();
   }, [isAdmin, fbUser, authReady, buildPath]);
 
-    const refreshNotificaciones = useCallback(async () => {
-    if (!fbUser || !authReady) { setNotifications([]); return; }
-    const uidNotif = fbUser?.uid || user?.uid;
-    if (!isAdmin && !uidNotif) { setNotifications([]); return; }
-    const ref = collection(db, buildPath('notificaciones'));
-    try {
-      const q = isAdmin
-        ? query(ref, orderBy('createdAt', 'desc'), limit(30))
-        : query(ref, where('userId', '==', String(uidNotif)), limit(50));
-      const snapshot = await getDocs(q);
-      let docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!isAdmin) {
-        docs.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-        docs = docs.slice(0, 30);
-      }
-      setNotifications(docs);
-    } catch (err) {
-      console.warn('[FirestoreProvider] Error en notificaciones:', err.code || err.message);
-      setNotifications([]);
-    }
-  }, [fbUser, authReady, isAdmin, user?.uid, buildPath]);
-
+  // Notificaciones en tiempo real por usuario. Se mantienen dos feeds:
+  // el nuevo (`destinoUid`) y el legacy (`userId`) para no perder el historial.
   useEffect(() => {
-    refreshNotificaciones();
-  }, [refreshNotificaciones]);
+    if (!fbUser || !authReady) {
+      setNotifications([]);
+      return undefined;
+    }
+    const uidNotif = String(fbUser.uid);
+    const ref = collection(db, buildPath(COLECCION_NOTIFICACIONES));
+    let nuevas = [];
+    let legacy = [];
+    let cancelado = false;
+
+    const publicar = () => {
+      if (cancelado) return;
+      const mapa = new Map();
+      for (const n of [...nuevas, ...legacy]) {
+        if (n?.id) mapa.set(String(n.id), n);
+      }
+      const lista = [...mapa.values()]
+        .sort((a, b) => msDeFecha(b.createdAt) - msDeFecha(a.createdAt))
+        .slice(0, 50);
+      setNotifications(lista);
+    };
+
+    const avisarError = (error) => {
+      if (notifWarnedRef.current) return;
+      notifWarnedRef.current = true;
+      console.warn('[FirestoreProvider] Notificaciones no disponibles todavía:', error?.code || error?.message);
+    };
+
+    const unsubNuevas = onSnapshot(
+      query(ref, where('destinoUid', '==', uidNotif), limit(50)),
+      (snap) => {
+        nuevas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        publicar();
+      },
+      avisarError
+    );
+
+    const filtroLegacy = isAdmin ? where('userId', '==', 'admin') : where('userId', '==', uidNotif);
+    const unsubLegacy = onSnapshot(
+      query(ref, filtroLegacy, limit(30)),
+      (snap) => {
+        legacy = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        publicar();
+      },
+      avisarError
+    );
+
+    return () => {
+      cancelado = true;
+      unsubNuevas();
+      unsubLegacy();
+    };
+  }, [fbUser, authReady, isAdmin, buildPath, notifRefreshKey]);
+
+  const refreshNotificaciones = useCallback(() => {
+    notifWarnedRef.current = false;
+    setNotifRefreshKey((k) => k + 1);
+  }, []);
 
   const saveReserva = async (item) => {
     const id = item.id ? String(item.id) : Date.now().toString();
     const newItem = { ...item, id };
+    const anterior = reservas.find((r) => String(r.id) === id) || null;
     await setDoc(doc(db, buildPath('reservas'), id), newItem);
     setReservas(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
+    // En creación no se emite aquí: lo hace ReservaService o el fallback del
+    // admin, que sí saben si la reserva es nueva. En actualización se detectan
+    // transiciones (pago, aula, reprogramación) sin bloquear la escritura.
+    if (anterior && fbUser?.uid) {
+      void emitirEventosReserva(anterior, newItem, fbUser.uid);
+    }
     return newItem;
   };
 
-    const saveNotificacion = useCallback(async (item) => {
-        const id = item.id ? String(item.id) : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
-    const newItem = { ...item, id };
-    await setDoc(doc(db, buildPath('notificaciones'), id), newItem);
-    setNotifications(prev => prev.find(i => String(i.id) === id) ? prev.map(i => String(i.id) === id ? newItem : i) : [...prev, newItem]);
-    return newItem;
-  }, [buildPath]);
-
-   const markNotificationRead = useCallback(async (id) => {
-    if (!db || !fbUser) return;
+  const markNotificationRead = useCallback(async (id) => {
+    if (!db || !fbUser || !id) return;
     try {
-      await updateDoc(doc(db, buildPath('notificaciones'), id), { leida: true });
-      setNotifications(prev => prev.map(n => String(n.id) === String(id) ? { ...n, leida: true } : n));
+      await updateDoc(doc(db, buildPath(COLECCION_NOTIFICACIONES), id), {
+        leida: true,
+        leidaEn: serverTimestamp(),
+        estado: 'leida',
+      });
+      setNotifications((prev) => prev.map((n) => (String(n.id) === String(id) ? { ...n, leida: true } : n)));
     } catch (e) {
       console.warn('[FirestoreProvider] Error marking notification:', e.code || e.message);
     }
   }, [fbUser, buildPath]);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!db || !fbUser) return { ok: false };
+    const pendientes = notifications.filter((n) => !n.leida).slice(0, 450);
+    if (pendientes.length === 0) return { ok: true, actualizadas: 0 };
+    try {
+      const batch = writeBatch(db);
+      for (const n of pendientes) {
+        batch.update(doc(db, buildPath(COLECCION_NOTIFICACIONES), String(n.id)), {
+          leida: true,
+          leidaEn: serverTimestamp(),
+          estado: 'leida',
+        });
+      }
+      await batch.commit();
+      const ids = new Set(pendientes.map((n) => String(n.id)));
+      setNotifications((prev) => prev.map((n) => (ids.has(String(n.id)) ? { ...n, leida: true } : n)));
+      return { ok: true, actualizadas: pendientes.length };
+    } catch (e) {
+      console.warn('[FirestoreProvider] Error marking all notifications:', e.code || e.message);
+      return { ok: false, motivo: e.code || 'error' };
+    }
+  }, [fbUser, buildPath, notifications]);
 
   const saveMovimiento = useCallback(async (item) => {
     const tipo = item?.tipo === 'ingreso' ? 'ingreso' : 'egreso';
@@ -523,7 +614,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     sedes, saveSede, estados, municipios, ciudades, saveGeografia, horarios, saveHorario, metodosPago, saveMetodoPago, cursos, saveCurso, cursosTeoricos, saveCursoTeorico, recursos, saveRecurso, packs, savePack,    instructores, saveInstructor, handleSaveInstructorSeguro,
     proveedores, saveProveedorSeguro, motos, saveMoto,    reservas, saveReserva, movimientos, saveMovimiento, admins, saveAdmin,
     proveedoresPublicos, setProveedoresPublicos,
-    notifications, saveNotificacion, markNotificationRead, refreshNotificaciones,    
+    notifications, markNotificationRead, markAllNotificationsRead, refreshNotificaciones,
     activeLocks, suscribirLocks,
     getTodayStr, isReservaActiva, isReservationConflict, findAvailableResources,
     seedDatabase, cleanExpiredLocks, createStaffUser,

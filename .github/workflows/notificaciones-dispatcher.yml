@@ -1,0 +1,86 @@
+name: Notificaciones dispatcher
+
+# Dispatcher event-driven de alertas (F-12.4) sin Cloud Functions ni Blaze.
+# Repo privado con plan gratuito de GitHub: 2.000 min/mes.
+# Cada corrida se factura como 1 min (job corto) y `*/30` son ~1.440 min/mes,
+# así que esta cadencia es la máxima que cabe en el plan gratuito.
+# Latencia esperada: hasta ~30-40 min (GitHub puede retrasar el cron).
+# Si se necesita <5 min: mover el mismo workflow a un repo público de ops
+# (minutos ilimitados) o al Worker con Firestore REST (ADR-024).
+#
+# Requiere (Settings > Secrets and variables > Actions):
+#   NOTIFICACIONES_SA_PROD  service account JSON de motoescuelapp
+#   VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT
+# El dispatcher es idempotente (reclamo transaccional), así que dos corridas
+# solapadas no duplican notificaciones.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      limite:
+        description: 'Máximo de eventos por corrida (default 20)'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notificaciones-dispatcher
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verificar secretos
+        id: secretos
+        env:
+          SA: ${{ secrets.NOTIFICACIONES_SA_PROD }}
+          VAPID: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SA" ] || [ -z "$VAPID" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Faltan secretos NOTIFICACIONES_SA_PROD/VAPID_*; se omite el dispatch."
+            echo "Config pendiente: agrega los secretos en Settings > Secrets and variables > Actions." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.secretos.outputs.ok == 'true'
+        uses: actions/checkout@v4
+
+      - name: Node
+        if: steps.secretos.outputs.ok == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dependencias
+        if: steps.secretos.outputs.ok == 'true'
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci --no-audit --no-fund
+
+      - name: Dispatch PROD
+        if: steps.secretos.outputs.ok == 'true'
+        env:
+          NOTIFICACIONES_PROD_OK: 'true'
+          NOTIFICACIONES_SA_JSON: ${{ secrets.NOTIFICACIONES_SA_PROD }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: |
+          set -o pipefail
+          node scripts/notificaciones-dispatcher.mjs --once --prod --limit "${{ inputs.limite || '20' }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Fin: $(date -u +%Y-%m-%dT%H:%M:%SZ) · estado: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

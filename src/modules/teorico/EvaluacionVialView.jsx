@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, useContext, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../context/AppContextValue';
 import { useToast } from '../shared/components/ToastProvider';
@@ -30,7 +30,6 @@ import {
   Sparkles,
   Target,
   ArrowRight,
-  ArrowLeft,
   X,
   Play,
   GraduationCap,
@@ -45,51 +44,6 @@ import {
   Zap,
   Info,
 } from 'lucide-react';
-
-// Emulados (simuladores interactivos) cargados bajo demanda: no pesan en la carga inicial.
-const EmuladoCarril = React.lazy(() => import('./entrenador_t_ctico_de_carril_1_2_3_y_puntos_ciegos.tsx'));
-const EmuladoTclocs = React.lazy(() => import('./inspector_visual_t_clocs_360.tsx'));
-const EmuladoSlpr = React.lazy(() => import('./simulador_de_inclinaci_n_y_contramanillar_slpr.tsx'));
-const EmuladoCabina = React.lazy(() => import('./cabina_controles_sin_mirar.tsx'));
-
-const EMULADOS = [
-  {
-    id: 'carril',
-    titulo: 'Carril 1-2-3 y puntos ciegos',
-    resumen: 'Simulador en vivo, laboratorio de posiciones y desafío táctico de 8 casos.',
-    detalle: 'SEE · 3 sub-tabs',
-    icono: Target,
-    accent: 'bg-blue-50 text-[#2563EB] border-blue-200',
-    Componente: EmuladoCarril,
-  },
-  {
-    id: 'tclocs',
-    titulo: 'Inspector visual T-CLOCS 360',
-    resumen: 'Recorrido guiado por las 7 áreas de inspección antes de rodar.',
-    detalle: '7 áreas · checklist',
-    icono: ShieldCheck,
-    accent: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    Componente: EmuladoTclocs,
-  },
-  {
-    id: 'slpr',
-    titulo: 'Inclinación y contramanillar',
-    resumen: 'Curvas en vivo con inclinación, postura y reto de contramanillar.',
-    detalle: 'SLPR · giroscopio',
-    icono: Zap,
-    accent: 'bg-indigo-50 text-[#4F46E5] border-indigo-200',
-    Componente: EmuladoSlpr,
-  },
-  {
-    id: 'cabina',
-    titulo: 'Cabina: controles sin mirar',
-    resumen: 'Explora los mandos, reto de memoria y postura sin mirar el manubrio.',
-    detalle: 'Explorar · reto · postura',
-    icono: Compass,
-    accent: 'bg-amber-50 text-amber-700 border-amber-200',
-    Componente: EmuladoCabina,
-  },
-];
 
 /* ============================================================================
  * 1. COMPONENTE DE LÍMITE DE ERRORES (ERROR BOUNDARY)
@@ -1159,7 +1113,7 @@ function PantallaInicio({
   historialLocal = false,
   onIniciarQuiz,
   onAbrirFlashcards,
-  onAbrirEmulado,
+  onAbrirEmulados,
 }) {
   const tarjetasModo = [
     {
@@ -1396,55 +1350,28 @@ function PantallaInicio({
         </div>
       </section>
 
-      {/* Menú Emulado: simuladores interactivos (FT-054) */}
-      <section className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
-              <Layers className="w-4 h-4" />
+      {/* Emuladores: práctica interactiva en su propia sección (separada del test) */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-white">
+              <Compass className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-extrabold text-slate-900">Emulado</h3>
-              <p className="text-[11px] text-slate-500 leading-snug">
-                Simuladores interactivos · sin registro
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">Emuladores</h3>
+              <p className="text-[11px] leading-snug text-slate-500">
+                Carril, T-CLOCS, curvas y cabina. La práctica interactiva está en su propia sección.
               </p>
             </div>
           </div>
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
-            {EMULADOS.length} módulos
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
-          {EMULADOS.map((modulo) => {
-            const Icono = modulo.icono;
-            return (
-              <button
-                key={modulo.id}
-                type="button"
-                onClick={() => onAbrirEmulado?.(modulo.id)}
-                className="w-full text-left flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm active:scale-[0.99] transition-all"
-              >
-                <span
-                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center shrink-0 ${modulo.accent}`}
-                >
-                  <Icono className="w-4 h-4 sm:w-5 sm:h-5" />
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[13px] font-extrabold text-slate-900 leading-snug">
-                    {modulo.titulo}
-                  </span>
-                  <span className="block text-[11px] text-slate-500 leading-snug mt-0.5">
-                    {modulo.resumen}
-                  </span>
-                  <span className="inline-block mt-1.5 text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                    {modulo.detalle}
-                  </span>
-                </span>
-                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-              </button>
-            );
-          })}
+          <button
+            type="button"
+            onClick={() => onAbrirEmulados?.()}
+            className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#0F172A] px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0F172A]"
+          >
+            Ir a Emulados
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </section>
 
@@ -2774,7 +2701,7 @@ function ModalConfirmarSalida({ visible, onCancelar, onConfirmar }) {
 /* ============================================================================
  * 11. APLICACIÓN PRINCIPAL (EXPORT DEFAULT APP)
  * ============================================================================ */
-function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast }) {
+function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast, onAbrirEmulados }) {
   const [vista, setVista] = useState('inicio'); // 'inicio' | 'flashcards' | 'quiz' | 'resultados'
   const [nombrePiloto, setNombrePiloto] = useState(() => sanitizarNombre(nombreInicial));
   const nombrePilotoTocadoRef = useRef(false);
@@ -2786,28 +2713,6 @@ function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast 
   const [ultimoHistorial, setUltimoHistorial] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [mostrarModalSalida, setMostrarModalSalida] = useState(false);
-  const [emuladoActivo, setEmuladoActivo] = useState(null);
-  const emuladoSeleccionado = useMemo(
-    () => EMULADOS.find((modulo) => modulo.id === emuladoActivo) || null,
-    [emuladoActivo]
-  );
-  const abrirEmulado = useCallback((id) => setEmuladoActivo(id), []);
-  const cerrarEmulado = useCallback(() => setEmuladoActivo(null), []);
-
-  // Con un emulado abierto: bloquea el scroll de fondo y permite cerrar con Escape.
-  useEffect(() => {
-    if (!emuladoActivo) return undefined;
-    const anterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const alPresionarTecla = (e) => {
-      if (e.key === 'Escape') setEmuladoActivo(null);
-    };
-    window.addEventListener('keydown', alPresionarTecla);
-    return () => {
-      document.body.style.overflow = anterior;
-      window.removeEventListener('keydown', alPresionarTecla);
-    };
-  }, [emuladoActivo]);
 
   // El nombre del perfil llega de forma asíncrona (authReady); solo rellena si el usuario no ha escrito nada.
   useEffect(() => {
@@ -2969,8 +2874,6 @@ function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const EmuladoActivo = emuladoSeleccionado?.Componente || null;
-
   return (
     <div className="min-h-screen bg-[#F1F5F9] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden">
       {/* Animaciones suaves integradas */}
@@ -3060,7 +2963,7 @@ function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast 
               setVista('flashcards');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            onAbrirEmulado={abrirEmulado}
+            onAbrirEmulados={onAbrirEmulados}
           />
         )}
 
@@ -3110,50 +3013,6 @@ function EvaluacionVialApp({ uid, nombreInicial = '', onVolverApp, mostrarToast 
         <LegalFooter compact />
       </div>
 
-      {/* Emulado: simuladores a pantalla completa (FT-054) */}
-      {emuladoSeleccionado && EmuladoActivo && (
-        <div
-          className="fixed inset-0 z-[60] flex flex-col bg-[#F1F5F9]"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Emulado: ${emuladoSeleccionado.titulo}`}
-        >
-          <div className="shrink-0 bg-[#0F172A] text-white px-2.5 py-1.5 sm:px-4 sm:py-2 flex items-center gap-2 border-b border-slate-800">
-            <button
-              type="button"
-              onClick={cerrarEmulado}
-              className="flex items-center gap-1.5 text-xs font-bold text-slate-200 hover:text-white px-2 py-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-              aria-label="Volver al menú Emulado"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Emulado</span>
-            </button>
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-400 truncate">
-              {emuladoSeleccionado.titulo}
-            </span>
-            <button
-              type="button"
-              onClick={cerrarEmulado}
-              className="ml-auto p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors cursor-pointer shrink-0"
-              aria-label="Cerrar simulador"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="emulado-host flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            <style>{'.emulado-host .min-h-screen{min-height:100%;}'}</style>
-            <Suspense
-              fallback={
-                <div className="p-10 text-center text-sm text-slate-500">Cargando simulador…</div>
-              }
-            >
-              <EmuladoActivo />
-            </Suspense>
-          </div>
-        </div>
-      )}
-
       {/* Modal de confirmación de salida */}
       <ModalConfirmarSalida
         visible={mostrarModalSalida}
@@ -3184,6 +3043,7 @@ export default function EvaluacionVialView() {
         nombreInicial={nombrePerfil}
         mostrarToast={showToast}
         onVolverApp={() => navigate(uid ? '/portal-reservas' : '/teorico')}
+        onAbrirEmulados={() => navigate('/emulados')}
       />
     </ErrorBoundary>
   );

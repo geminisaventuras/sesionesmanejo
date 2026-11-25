@@ -2,7 +2,8 @@
 // @build: 2026-11-22 | id: T-044 | desc: límites del bloque se comparan con minutosActualesVET() (America/Caracas), sin getters de hora del runtime.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
-import { db } from '../../shared/firebase/firebase';
+import { auth, db } from '../../shared/firebase/firebase';
+import { emitirEvento } from '../../shared/services/NotificacionesEventos';
 import { SGTA_DEFAULTS } from '../constants';
 import { alertas } from '../../shared/utils/alertas';
 import { reproducirBeepModuloCompletado } from '../../shared/utils/audio';
@@ -296,6 +297,45 @@ puedeIniciarModulo: !localPausaActiva && ((!derivados.totalCompletado && !deriva
     if (!reserva?.id) return;
     try {
       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reserva.id), campos);
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid) {
+        const siguiente = { ...reserva, ...campos };
+        const base = {
+          reservaId: reserva.id,
+          instructorId: reserva.instructorId || null,
+          proveedorId: reserva.proveedorId || null,
+        };
+        if (!reserva.moduloEnProgreso && siguiente.moduloEnProgreso) {
+          void emitirEvento({
+            tipo: 'sesion_iniciada',
+            entidadTipo: 'reserva',
+            entidadId: reserva.id,
+            actorUid,
+            token: siguiente.moduloEnProgreso?.modulo || 'modulo',
+            datos: base,
+          });
+        }
+        if (!reserva.pausaActiva && siguiente.pausaActiva) {
+          void emitirEvento({
+            tipo: 'sesion_pausada',
+            entidadTipo: 'reserva',
+            entidadId: reserva.id,
+            actorUid,
+            token: siguiente.pausaActiva?.inicio || 'pausa',
+            datos: base,
+          });
+        }
+        if (reserva.estadoCurso !== 'Aprobado' && siguiente.estadoCurso === 'Aprobado') {
+          void emitirEvento({
+            tipo: 'sesion_finalizada',
+            entidadTipo: 'reserva',
+            entidadId: reserva.id,
+            actorUid,
+            token: 'aprobado',
+            datos: base,
+          });
+        }
+      }
     } catch (error) {
       // A2.1: si el instructor fue reasignado mientras tenía el aula abierta,
       // Firestore revoca el permiso de escritura. Rollback local + aviso + redirect.

@@ -71,7 +71,12 @@ export default function DashboardHeader({ nombre, children, onBack, title, onLog
           <div className="flex items-center gap-2 relative z-10">
             {showNotifications && (
               <>
-                <button onClick={handleNotificationClick} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors relative">
+                <button
+                  onClick={handleNotificationClick}
+                  className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors relative"
+                  aria-label={noLeidas > 0 ? `Notificaciones, ${noLeidas} sin leer` : 'Notificaciones'}
+                  aria-expanded={mostrarNotificaciones}
+                >
                   <Bell size={18} className="text-gray-300" />
                   {noLeidas > 0 && (
                     <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">

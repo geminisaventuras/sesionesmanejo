@@ -7,6 +7,12 @@
   max-width: 26rem;
 }
 
+/* ERR-075: en La Vía la ilustración debe compartir los bordes de la tarjeta
+   para que carril, imagen y contenido se lean como un mismo recorrido. */
+.ruta-arte--ancho {
+  max-width: none;
+}
+
 .ruta-arte__lienzo {
   position: relative;
   width: 100%;

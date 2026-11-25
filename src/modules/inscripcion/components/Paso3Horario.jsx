@@ -263,7 +263,7 @@ export function Paso3Horario({
                          {b.reason === 'BLOQUEO_ADMIN' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black">No disponible</span>}
                         {b.reason === 'EN_ESPERA_PAGO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">En espera de pago</span>}
                         {b.reason === 'OCUPADO' && <span className="text-[10px] bg-gray-100 text-slate-400 px-1.5 py-0.5 rounded font-black">OCUPADO</span>}
-                                               {b.reason === 'SIN_MOTO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">SIN MOTO</span>}
+                                               {b.reason === 'SIN_MOTO' && <span className="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded font-black">Sin motos del tipo</span>}
                         {b.reason === 'NO_OFRECIDO' && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">No Aplica</span>}
                         
                         {!b.disponible && !b.reason && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-black">NO DISP.</span>}

@@ -1,19 +1,32 @@
-// @build: 2026-11-22 | id: FT-034-CURSOS-PUBLICOS | desc: Ruta pública "La Vía" mobile-first con estados de error y vacío neutro.
-import { useState, useEffect, useContext } from 'react';
+// @build: 2026-11-24 | id: F-02-VIA-REDISENO | desc: Página pública de cursos (/sesiones) replicando el diseño "La Vía" con datos reales.
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, doc, onSnapshot, getDoc, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { CURSO_SECUENCIA } from '../../../constants/cursoSecuencia';
-import { AlertCircle, ChevronDown, Clock, Mail, MapPin, Phone } from 'lucide-react';
-import ModalCursoDetalle from '../components/ModalCursoDetalle';
+import { AlertCircle, RotateCcw } from 'lucide-react';
 import LegalFooter from '../../shared/components/LegalFooter';
-import RutaAprendizaje from '../components/RutaAprendizaje';
-import RutaProgreso from '../components/RutaProgreso';
-import { ETAPAS_RUTA } from '../utils/rutaAprendizaje';
+import { construirRutaAprendizaje } from '../utils/rutaAprendizaje';
 import { PACKS_SOURCE } from '../utils/packsSource';
-import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
+import { resolverPrecioPackPublico } from '../utils/precioPackPublico';
+import { recargosSedeDePack } from '../../inscripcion/utils/packPublico';
+import { etiquetaCortaSede, nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 import { AppContext } from '../../../context/AppContextValue';
+import ViaNavegacion from '../components/via/ViaNavegacion';
+import ViaHero from '../components/via/ViaHero';
+import ViaCarretera from '../components/via/ViaCarretera';
+import ViaPack from '../components/via/ViaPack';
+import { ViaBarraInferior, ViaContacto, ViaMiedos, ViaSedes, ViaSelectorSede } from '../components/via/ViaExtras';
+import { ViaModalAvisoBasico, ViaModalDetalle } from '../components/via/ViaModales';
+import {
+  esBasico,
+  prerequisitoLabel,
+  precioCursoConSede,
+  recomendacionPara,
+  scrollASeccion,
+  transmisionDePack,
+} from '../components/via/viaDatos';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -22,49 +35,19 @@ const capitalizar = (texto) => {
   return valor ? valor.charAt(0).toUpperCase() + valor.slice(1) : '';
 };
 
-const nombreSedePublica = (sede) => {
-  const canonico = nombreSedeCanonico(sede);
-  if (canonico !== '—') return canonico;
-  return capitalizar(sede?.id) || 'Sede';
-};
-
-const getPrerequisitoLabel = (tipoCurso, curso = null, cursos = []) => {
-  // A2.2: preferir curso.prerequisitos (editable), fallback al hardcode
-  const prereqs = Array.isArray(curso?.prerequisitos)
-    ? curso.prerequisitos
-    : (CURSO_SECUENCIA[tipoCurso]?.prerequisito || []);
-
-  if (!Array.isArray(prereqs) || prereqs.length === 0) return null;
-
-  const labels = {
-    basico_auto: 'Sesión Básica Automática',
-    basico_sincro: 'Sesión Básica Sincrónica',
-    general: 'Refuerzo Práctico'
-  };
-
-  // Preferir nombre real del curso si está en la lista; fallback al label hardcodeado
-  return prereqs.map(p => {
-    const c = (cursos || []).find(x => x.tipoCurso === p);
-    return c?.nombre || labels[p] || p;
-  }).join(' o ');
-};
-
 function CargandoRuta() {
   return (
-    <main id="ruta-contenido" tabIndex={-1} className="mx-auto w-full max-w-3xl px-4 pb-12 ruta-offset-top sm:px-6">
-      <h1 className="sr-only">Cargando ruta de aprendizaje</h1>
-      <div className="ruta-skeleton h-8 w-40" />
-      <div className="ruta-skeleton mt-3 h-12 w-11/12" />
-      <div className="ruta-skeleton mt-3 h-5 w-full" />
-      <div className="ruta-skeleton mt-2 h-5 w-4/5" />
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-        <div className="ruta-skeleton h-12 w-full" />
-        <div className="ruta-skeleton h-12 w-full" />
-      </div>
-      <div className="mt-8 space-y-4">
-        <div className="ruta-skeleton h-64 w-full" />
-        <div className="ruta-skeleton h-64 w-full" />
-        <div className="ruta-skeleton h-64 w-full" />
+    <main
+      id="ruta-contenido"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-3xl animate-pulse space-y-5 px-4 pb-16 pt-[112px] sm:px-6"
+    >
+      <h1 className="sr-only">Cargando ruta de sesiones</h1>
+      <div className="h-52 w-full rounded-3xl bg-slate-200" />
+      <div className="h-44 w-full rounded-3xl bg-slate-200" />
+      <div className="space-y-4 pl-12">
+        <div className="h-56 w-full rounded-3xl bg-slate-200" />
+        <div className="h-56 w-full rounded-3xl bg-slate-200" />
       </div>
     </main>
   );
@@ -72,21 +55,26 @@ function CargandoRuta() {
 
 function ErrorRuta({ mensaje, onReintentar }) {
   return (
-    <main id="ruta-contenido" tabIndex={-1} className="mx-auto w-full max-w-3xl px-4 pb-12 ruta-offset-top sm:px-6">
-      <div role="alert" className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
+    <main
+      id="ruta-contenido"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-3xl px-4 pb-16 pt-[112px] sm:px-6"
+    >
+      <div role="alert" className="rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
         <div className="flex items-start gap-3">
-          <AlertCircle size={22} aria-hidden="true" className="mt-0.5 shrink-0 text-red-600" />
+          <AlertCircle size={24} aria-hidden="true" className="mt-0.5 shrink-0 text-red-600" />
           <div>
-            <h1 className="text-2xl font-black text-slate-900">No pudimos cargar tu ruta</h1>
-            <p className="mt-1 break-words text-sm text-slate-600">{mensaje}</p>
+            <h1 className="text-xl font-black text-slate-900">No pudimos cargar tu ruta</h1>
+            <p className="mt-1 break-words text-sm leading-relaxed text-slate-600">{mensaje}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onReintentar}
-          className="mt-4 inline-flex min-h-[48px] items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition-transform duration-150 hover:bg-blue-700 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          className="mt-5 inline-flex min-h-[48px] cursor-pointer items-center justify-center gap-2 rounded-2xl bg-[#2563EB] px-5 py-3 text-sm font-extrabold text-white hover:bg-[#1D4ED8]"
         >
-          Reintentar
+          <RotateCcw size={16} aria-hidden="true" />
+          <span>Reintentar</span>
         </button>
       </div>
     </main>
@@ -107,6 +95,12 @@ export default function CursosPublicosView() {
   const [errorPacks, setErrorPacks] = useState(null);
   const [reintento, setReintento] = useState(0);
 
+  const [experiencia, setExperiencia] = useState('cero');
+  const [tipoMoto, setTipoMoto] = useState('auto');
+  const [sedeActivaId, setSedeActivaId] = useState(null);
+  const [activa, setActiva] = useState('equilibrio');
+  const [enPacks, setEnPacks] = useState(false);
+
   useEffect(() => {
     const cursosRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'cursos');
     const q = query(cursosRef, where('activo', '==', true));
@@ -114,7 +108,7 @@ export default function CursosPublicosView() {
       q,
       (snap) => {
         const activos = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
+          .map((d) => ({ id: d.id, ...d.data() }))
           .sort((a, b) => {
             const ordenA = CURSO_SECUENCIA[a.tipoCurso]?.orden || 99;
             const ordenB = CURSO_SECUENCIA[b.tipoCurso]?.orden || 99;
@@ -135,13 +129,12 @@ export default function CursosPublicosView() {
   }, [reintento]);
 
   useEffect(() => {
-    // T-060: fuente configurable (default `packs`; staging puede usar `packsPublicos`).
     const packsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', PACKS_SOURCE);
     const q = query(packsRef, where('activo', '==', true));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setPacks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setPacks(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setErrorPacks(null);
       },
       (error) => {
@@ -165,7 +158,9 @@ export default function CursosPublicosView() {
     }
 
     cargarContacto();
-    return () => { activo = false; };
+    return () => {
+      activo = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -188,23 +183,162 @@ export default function CursosPublicosView() {
     return () => unsubscribe();
   }, []);
 
+  const catalogos = useMemo(
+    () => ({ estados: ctx.estados || [], municipios: ctx.municipios || [], ciudades: ctx.ciudades || [] }),
+    [ctx.estados, ctx.municipios, ctx.ciudades]
+  );
+
+  const sedesLista = useMemo(() => {
+    if (!sedes) return [];
+    return Object.entries(sedes)
+      .map(([clave, valor]) => {
+        if (!valor || typeof valor !== 'object') return null;
+        // La proyección pública puede incluir metadatos; solo se pinta una sede
+        // con nombre o id real.
+        if (!valor.nombre && valor.id == null) return null;
+        const id = valor.id == null ? clave : valor.id;
+        const sede = { ...valor, id };
+        const canonico = nombreSedeCanonico(sede);
+        const corta = etiquetaCortaSede(sede, catalogos);
+        return {
+          ...sede,
+          nombreMostrado: corta !== '—' ? corta : canonico !== '—' ? canonico : capitalizar(clave),
+          nombreCorto: canonico !== '—' ? canonico : capitalizar(clave),
+        };
+      })
+      .filter(Boolean);
+  }, [sedes, catalogos]);
+
   useEffect(() => {
-    if (!avisoBasico) return undefined;
-    const cerrarConEsc = (evento) => {
-      if (evento.key === 'Escape') setAvisoBasico(null);
-    };
-    window.addEventListener('keydown', cerrarConEsc);
-    return () => window.removeEventListener('keydown', cerrarConEsc);
-  }, [avisoBasico]);
+    if (sedesLista.length === 0) return;
+    if (!sedeActivaId || !sedesLista.some((sede) => sede.id === sedeActivaId)) {
+      setSedeActivaId(sedesLista[0].id);
+    }
+  }, [sedesLista, sedeActivaId]);
+
+  const packsConRecargos = useMemo(
+    () =>
+      (Array.isArray(packs) ? packs : []).map((pack) =>
+        Array.isArray(pack?.recargosSede)
+          ? pack
+          : { ...pack, recargosSede: recargosSedeDePack(pack, ctx.sedes || []) }
+      ),
+    [packs, ctx.sedes]
+  );
+
+  const ruta = useMemo(
+    () => construirRutaAprendizaje(cursos, packsConRecargos),
+    [cursos, packsConRecargos]
+  );
+
+  const etapas = useMemo(
+    () => ({
+      equilibrio: ruta.etapas[0]?.cursos || [],
+      basicas: ruta.etapas[1]?.cursos || [],
+      practica: ruta.etapas[2]?.cursos || [],
+    }),
+    [ruta]
+  );
+
+  const tiposBasicos = useMemo(() => {
+    const tipos = [];
+    if (etapas.basicas.some((curso) => curso.tipoCurso === 'basico_auto')) tipos.push('auto');
+    if (etapas.basicas.some((curso) => curso.tipoCurso === 'basico_sincro')) tipos.push('sincro');
+    return tipos;
+  }, [etapas.basicas]);
+
+  useEffect(() => {
+    if (tiposBasicos.length > 0 && !tiposBasicos.includes(tipoMoto)) {
+      setTipoMoto(tiposBasicos[0]);
+    }
+  }, [tiposBasicos, tipoMoto]);
+
+  const preciosPacks = useMemo(() => {
+    const preciosTeoricos = new Map();
+    if (ctx.fbUser) {
+      (ctx.cursosTeoricos || []).forEach((curso) => {
+        const precio = Number(curso?.precio);
+        if (Number.isFinite(precio)) preciosTeoricos.set(String(curso.id), precio);
+      });
+    }
+    const mapa = new Map();
+    ruta.packs.forEach((pack) => {
+      mapa.set(String(pack.id), resolverPrecioPackPublico({ pack, cursos, preciosTeoricos }));
+    });
+    return mapa;
+  }, [ruta.packs, cursos, ctx.fbUser, ctx.cursosTeoricos]);
+
+  const packsVia = useMemo(
+    () =>
+      ruta.packs
+        .filter((pack) => pack.cubreRutaCompleta && Array.isArray(pack.cursos) && pack.cursos.length > 0)
+        .map((pack) => ({ pack, precio: preciosPacks.get(String(pack.id)) })),
+    [ruta.packs, preciosPacks]
+  );
+
+  const recomendacion = useMemo(
+    () => recomendacionPara({ experiencia, tipoMoto, etapas, cursos }),
+    [experiencia, tipoMoto, etapas, cursos]
+  );
+
+  const ahorroPack = useMemo(() => {
+    const candidato =
+      packsVia.find((item) => transmisionDePack(item.pack) === tipoMoto) ||
+      packsVia[0] ||
+      null;
+    const ahorro = Number(candidato?.precio?.ahorro);
+    return candidato?.precio?.estado === 'disponible' && Number.isFinite(ahorro) && ahorro > 0
+      ? ahorro
+      : null;
+  }, [packsVia, tipoMoto]);
+
+  const sedeActual = useMemo(
+    () => sedesLista.find((sede) => sede.id === sedeActivaId) || sedesLista[0] || null,
+    [sedesLista, sedeActivaId]
+  );
+
+  useEffect(() => {
+    if (loading || errorCursos) return undefined;
+    if (typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function') {
+      return undefined;
+    }
+
+    const objetivos = [
+      document.getElementById('ruta-etapa-equilibrio'),
+      document.getElementById('ruta-etapa-basicas'),
+      document.getElementById('ruta-etapa-practica'),
+      document.getElementById('ruta-packs'),
+    ].filter(Boolean);
+
+    if (objetivos.length === 0) return undefined;
+
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        entradas.forEach((entrada) => {
+          if (!entrada.isIntersecting) return;
+          const clave = entrada.target.getAttribute('data-etapa-clave');
+          if (clave === 'packs') {
+            setEnPacks(true);
+          } else if (clave) {
+            setEnPacks(false);
+            setActiva(clave);
+          }
+        });
+      },
+      { rootMargin: '-34% 0px -50% 0px', threshold: 0 }
+    );
+
+    objetivos.forEach((el) => observador.observe(el));
+    return () => observador.disconnect();
+  }, [loading, errorCursos]);
 
   const handleInscribirme = (cursoId) => {
     if (cursoId == null) return;
-    const curso = (cursos || []).find(c => String(c.id) === String(cursoId));
-    const esBasico = curso?.tipoCurso === 'basico_auto' || curso?.tipoCurso === 'basico_sincro';
+    const curso = (cursos || []).find((c) => String(c.id) === String(cursoId));
     const tienePrereq = Array.isArray(curso?.prerequisitos) && curso.prerequisitos.length > 0;
 
     // A2.2-bis: aviso para básicos con prereq de Equilibrio
-    if (esBasico && tienePrereq) {
+    if (esBasico(curso) && tienePrereq) {
       setAvisoBasico(curso);
       return;
     }
@@ -212,60 +346,72 @@ export default function CursosPublicosView() {
     navigate('/inscripcion', {
       state: {
         cursoId,
+        sedeId: sedeActual?.id ?? null,
         origen: 'publico',
         cursoSugerido: true,
-        entryToken: crearFlowId()
-      }
+        entryToken: crearFlowId(),
+      },
     });
   };
 
   const confirmarAvisoBasico = (hacerEquilibrio) => {
-    if (hacerEquilibrio) {
-      // Buscar Equilibrio y navegar a su inscripción
-      const equilibrio = (cursos || []).find(c => c.tipoCurso === 'equilibrio');
-      if (equilibrio) {
-        setAvisoBasico(null);
-        navigate('/inscripcion', {
-          state: {
-            cursoId: equilibrio.id,
-            origen: 'publico',
-            cursoSugerido: true,
-            entryToken: crearFlowId()
-          }
-        });
-      } else {
-        setAvisoBasico(null);
-      }
-    } else {
-      // Continuar con el básico elegido
-      const cursoId = avisoBasico?.id;
-      setAvisoBasico(null);
-      if (cursoId) {
-        navigate('/inscripcion', {
-          state: {
-            cursoId,
-            origen: 'publico',
-            cursoSugerido: true,
-            entryToken: crearFlowId()
-          }
-        });
-      }
-    }
+    const cursoId = hacerEquilibrio
+      ? (cursos || []).find((c) => c.tipoCurso === 'equilibrio')?.id
+      : avisoBasico?.id;
+    setAvisoBasico(null);
+    if (cursoId == null) return;
+    navigate('/inscripcion', {
+      state: {
+        cursoId,
+        sedeId: sedeActual?.id ?? null,
+        origen: 'publico',
+        cursoSugerido: true,
+        entryToken: crearFlowId(),
+      },
+    });
   };
 
   const reintentar = () => {
     setErrorCursos(null);
     setErrorPacks(null);
     setLoading(true);
-    setReintento(n => n + 1);
+    setReintento((n) => n + 1);
   };
 
-  const prerequisitoDe = (curso) => getPrerequisitoLabel(curso?.tipoCurso, curso, cursos);
+  const prerequisitoDe = (curso) => prerequisitoLabel(curso?.tipoCurso, curso, cursos);
   const estaBloqueado = (curso) => {
     const tienePrereq = Array.isArray(curso?.prerequisitos) && curso.prerequisitos.length > 0;
-    const esBasico = curso?.tipoCurso === 'basico_auto' || curso?.tipoCurso === 'basico_sincro';
-    return tienePrereq && !esBasico;
+    return tienePrereq && !esBasico(curso);
   };
+
+  const saltarA = (clave) => {
+    if (clave === 'packs') {
+      setEnPacks(true);
+      scrollASeccion('ruta-packs');
+      return;
+    }
+    setEnPacks(false);
+    setActiva(clave);
+    scrollASeccion(`ruta-etapa-${clave}`);
+  };
+
+  const whatsappNumero = contacto?.whatsapp ? String(contacto.whatsapp).replace(/\D/g, '') : null;
+  const whatsappHref = whatsappNumero
+    ? `https://wa.me/${whatsappNumero}?text=${encodeURIComponent(
+        `Hola Moto App, quiero información para reservar ${
+          recomendacion?.curso?.nombre || 'una sesión'
+        }${sedeActual?.nombreMostrado ? ` en ${sedeActual.nombreMostrado}` : ''}.`
+      )}`
+    : null;
+
+  const itemBarra = recomendacion?.curso
+    ? {
+        etiqueta: 'Tu inicio recomendado',
+        nombre: recomendacion.curso.nombre,
+        precio: precioCursoConSede(recomendacion.curso, sedeActual),
+        onAccion: () => handleInscribirme(recomendacion.curso.id),
+      }
+    : null;
 
   const skipLink = (
     <a
@@ -276,11 +422,45 @@ export default function CursosPublicosView() {
     </a>
   );
 
+  const estilosVia = (
+    <style>{`
+      @keyframes viaFadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes viaDash {
+        from { background-position-y: 0; }
+        to { background-position-y: -36px; }
+      }
+      .via-fade-in { animation: viaFadeIn 0.24s ease-out both; }
+      .via-ancla { scroll-margin-top: 7rem; }
+      .via-asfalto-dash {
+        background-image: repeating-linear-gradient(
+          to bottom,
+          rgba(248, 250, 252, 0.95) 0px,
+          rgba(248, 250, 252, 0.95) 16px,
+          transparent 16px,
+          transparent 36px
+        );
+        background-size: 100% 36px;
+        background-repeat: repeat-y;
+        animation: viaDash 1.1s linear infinite;
+      }
+      /* ERR-074: el trazo sube (la moto avanza) y es la unica senal de avance
+         de la ruta; con movimiento reducido se ralentiza en vez de congelarse. */
+      @media (prefers-reduced-motion: reduce) {
+        .via-fade-in { animation: none; }
+        .via-asfalto-dash { animation-duration: 2.6s; }
+      }
+    `}</style>
+  );
+
   if (errorCursos) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-[#F8FAFC]">
+        {estilosVia}
         {skipLink}
-        <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} mostrarEtapas={false} />
+        <ViaNavegacion onVolver={() => navigate('/')} mostrarEtapas={false} />
         <ErrorRuta mensaje={errorCursos} onReintentar={reintentar} />
         <LegalFooter />
       </div>
@@ -289,234 +469,120 @@ export default function CursosPublicosView() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-[#F8FAFC]">
+        {estilosVia}
         {skipLink}
-        <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} mostrarEtapas={false} />
+        <ViaNavegacion onVolver={() => navigate('/')} mostrarEtapas={false} />
         <CargandoRuta />
         <LegalFooter />
       </div>
     );
   }
 
-  // Sedes públicas: no asumir claves "caracas"/"guarenas". Se itera el objeto,
-  // se usa el nombre canónico cuando existe y se agrupan horarios idénticos.
-  const sedesLista = Object.entries(sedes || {})
-    .map(([clave, valor]) => {
-      if (!valor || typeof valor !== 'object') return null;
-      return { ...valor, id: valor.id == null ? clave : valor.id };
-    })
-    .filter(Boolean);
-
-  const gruposHorario = [];
-  const indiceHorario = new Map();
-  for (const sede of sedesLista) {
-    const horario = String(sede.horario || '').trim();
-    if (!horario) continue;
-    if (!indiceHorario.has(horario)) {
-      const grupo = { horario, sedes: [] };
-      indiceHorario.set(horario, grupo);
-      gruposHorario.push(grupo);
-    }
-    indiceHorario.get(horario).sedes.push(sede);
-  }
+  const pendientePacks = errorPacks && packsVia.length === 0 ? errorPacks : null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen overflow-x-hidden bg-[#F8FAFC] font-sans text-slate-900 antialiased">
+      {estilosVia}
       {skipLink}
 
-      <RutaProgreso etapas={ETAPAS_RUTA} onVolver={() => navigate('/')} />
+      <ViaNavegacion
+        activa={activa}
+        enPacks={enPacks}
+        sedeActual={sedeActual}
+        onVolver={() => navigate('/')}
+        onCambiarSede={() =>
+          scrollASeccion(sedesLista.length > 0 ? 'via-sede-selector' : 'via-sedes')
+        }
+        onSaltar={saltarA}
+      />
 
-      <main id="ruta-contenido" tabIndex={-1} className="ruta-offset-top">
-        <RutaAprendizaje
-          cursos={cursos}
-          packs={packs}
-          sedes={ctx.sedes || []}
-          anonimo={!ctx.fbUser}
-          cursosTeoricos={ctx.fbUser ? (ctx.cursosTeoricos || []) : []}
+      <main id="ruta-contenido" tabIndex={-1} className="pb-10 pt-[104px] sm:pt-[108px]">
+        <ViaSelectorSede
+          sedes={sedesLista}
+          activaId={sedeActual?.id}
+          onSeleccionar={setSedeActivaId}
+        />
+
+        <ViaHero
+          experiencia={experiencia}
+          setExperiencia={setExperiencia}
+          tipoMoto={tipoMoto}
+          setTipoMoto={setTipoMoto}
+          tiposBasicos={tiposBasicos}
+          recomendacion={recomendacion}
+          ahorroPack={ahorroPack}
+          sede={sedeActual}
+          onIrARecomendada={
+            recomendacion.curso && ['equilibrio', 'basicas', 'practica'].includes(recomendacion.clave)
+              ? () => saltarA(recomendacion.clave)
+              : undefined
+          }
+          onVerPack={() => saltarA('packs')}
+        />
+
+        <ViaCarretera
+          etapas={etapas}
+          extras={ruta.cursosExtra}
+          tiposBasicos={tiposBasicos}
+          tipoMoto={tipoMoto}
+          setTipoMoto={setTipoMoto}
+          recomendacionClave={recomendacion.clave}
           prerequisitoDe={prerequisitoDe}
           estaBloqueado={estaBloqueado}
+          activa={activa}
+          sede={sedeActual}
           onInscribirme={handleInscribirme}
           onVerDetalle={setCursoDetalle}
+          onIrAPacks={() => saltarA('packs')}
+        />
+
+        <ViaMiedos />
+
+        <ViaPack
+          packs={packsVia}
+          tipoMoto={tipoMoto}
+          onChangeTipoMoto={setTipoMoto}
           onVerPack={() => navigate('/packs')}
-          packsError={errorPacks}
+          errorPacks={pendientePacks}
           onReintentarPacks={reintentar}
         />
+
+        <ViaSedes
+          sedes={sedesLista}
+          activaId={sedeActual?.id}
+          onSeleccionar={setSedeActivaId}
+          whatsappHref={whatsappHref}
+        />
+
+        <ViaContacto contacto={contacto} whatsappHref={whatsappHref} />
+
+        <div className="pb-24">
+          <LegalFooter />
+        </div>
       </main>
 
-      <section aria-labelledby="sedes-titulo" className="mx-auto w-full max-w-3xl px-4 pb-8 pt-2 sm:px-6">
-        <h2 id="sedes-titulo" className="text-2xl font-black text-slate-900">Sedes y horarios</h2>
-        <details className="mt-3 rounded-2xl border border-slate-200 bg-white">
-          <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-            <span className="inline-flex items-center gap-2">
-              <MapPin size={17} aria-hidden="true" className="text-blue-600" />
-              Ver ubicaciones y horarios
-            </span>
-            <ChevronDown size={18} aria-hidden="true" className="shrink-0 text-slate-500" />
-          </summary>
-          <div className="border-t border-slate-100 px-4 py-4">
-            {sedes ? (
-              sedesLista.length > 0 ? (
-                <div className="space-y-4">
-                  {gruposHorario.length > 0 && (
-                    <div className="space-y-2 text-sm text-slate-600">
-                      {gruposHorario.map((grupo) => (
-                        grupo.sedes.length > 1 ? (
-                          <p key={grupo.horario} className="flex items-start gap-2 font-bold">
-                            <Clock size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500" />
-                            <span>{grupo.horario}</span>
-                          </p>
-                        ) : (
-                          <p key={grupo.horario} className="flex items-start gap-2">
-                            <Clock size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500" />
-                            <span>
-                              <strong>{nombreSedePublica(grupo.sedes[0])}:</strong> {grupo.horario}
-                            </span>
-                          </p>
-                        )
-                      ))}
-                    </div>
-                  )}
+      <ViaBarraInferior
+        item={itemBarra}
+        whatsappHref={whatsappHref}
+        visible={!cursoDetalle && !avisoBasico}
+      />
 
-                  <div className="space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-700">
-                    {sedesLista.map((sede) => (
-                      <p key={sede.id} className="flex items-start gap-2">
-                        <MapPin size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-600" />
-                        <span className="break-words">
-                          <strong>{nombreSedePublica(sede)}:</strong>{' '}
-                          {sede.direccion}
-                          {sede.puntoReferencia && ` (${sede.puntoReferencia})`}
-                        </span>
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">Información de sedes no disponible.</p>
-              )
-            ) : (
-              <p className="text-sm text-slate-500">Cargando información de sedes...</p>
-            )}
-          </div>
-        </details>
-      </section>
+      <ViaModalDetalle
+        curso={cursoDetalle}
+        sede={sedeActual}
+        prerequisitoLabel={cursoDetalle ? prerequisitoDe(cursoDetalle) : null}
+        bloqueado={cursoDetalle ? estaBloqueado(cursoDetalle) : false}
+        onClose={() => setCursoDetalle(null)}
+        onInscribirme={handleInscribirme}
+        onIrAPacks={() => saltarA('packs')}
+      />
 
-      {contacto && (
-        <section aria-labelledby="contacto-titulo" className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6">
-          <h2 id="contacto-titulo" className="text-2xl font-black text-slate-900">¿Tienes dudas?</h2>
-          <details className="mt-3 rounded-2xl border border-slate-200 bg-white">
-            <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-              <span className="inline-flex items-center gap-2">
-                <Phone size={17} aria-hidden="true" className="text-blue-600" />
-                Ver teléfono, WhatsApp y correo
-              </span>
-              <ChevronDown size={18} aria-hidden="true" className="shrink-0 text-slate-500" />
-            </summary>
-            <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-4 sm:grid-cols-3">
-              <a
-                href={`tel:${contacto.telefono}`}
-                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              >
-                <Phone size={18} aria-hidden="true" className="shrink-0 text-blue-600" />
-                <span className="break-words">
-                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Teléfono</span>
-                  {contacto.telefono}
-                </span>
-              </a>
-
-              <a
-                href={`https://wa.me/${String(contacto.whatsapp).replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              >
-                <Phone size={18} aria-hidden="true" className="shrink-0 text-emerald-600" />
-                <span className="break-words">
-                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">WhatsApp</span>
-                  {contacto.whatsapp}
-                </span>
-              </a>
-
-              <a
-                href={`mailto:${contacto.email}`}
-                className="flex min-h-[44px] items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-800 transition-transform duration-150 hover:bg-slate-100 active:scale-[.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              >
-                <Mail size={18} aria-hidden="true" className="shrink-0 text-orange-600" />
-                <span className="break-words">
-                  <span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Correo</span>
-                  {contacto.email}
-                </span>
-              </a>
-            </div>
-          </details>
-        </section>
-      )}
-
-      {cursoDetalle && (
-        <ModalCursoDetalle
-          curso={cursoDetalle}
-          prerequisitoLabel={getPrerequisitoLabel(cursoDetalle.tipoCurso, cursoDetalle, cursos)}
-          onClose={() => setCursoDetalle(null)}
-          onInscribirme={(cursoId) => {
-            setCursoDetalle(null);
-            handleInscribirme(cursoId);
-          }}
-        />
-      )}
-
-      {/* A2.2-bis: Aviso para básicos con prereq de Equilibrio */}
-      {avisoBasico && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setAvisoBasico(null)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="aviso-basico-titulo"
-            aria-describedby="aviso-basico-descripcion"
-            className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-orange-500" aria-hidden="true" />
-              <div>
-                <h2 id="aviso-basico-titulo" className="mb-2 text-lg font-bold text-slate-900">
-                  Aviso importante
-                </h2>
-                <p id="aviso-basico-descripcion" className="mb-3 text-sm text-slate-700">
-                  Esta sesión (<strong>{avisoBasico.nombre}</strong>) recomienda haber completado la sesión de <strong>Equilibrio</strong> primero.
-                </p>
-                <p className="mb-2 text-sm text-slate-700">
-                  Si ya sabes andar en bicicleta o has manejado moto y tienes equilibrio, puedes continuar.
-                </p>
-                <p className="rounded-lg border border-orange-200 bg-orange-50 p-2 text-xs text-orange-700">
-                  Si te estás saltando la sesión de Equilibrio adrede, va a ser perjudicial para ti porque no dominarás el equilibrio y el avance de la sesión será muy lento.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => confirmarAvisoBasico(true)}
-                className="min-h-[48px] w-full rounded-lg bg-blue-600 py-3 font-medium text-white transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              >
-                Hacer Equilibrio primero
-              </button>
-              <button
-                type="button"
-                onClick={() => confirmarAvisoBasico(false)}
-                className="min-h-[48px] w-full rounded-lg border-2 border-slate-200 py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              >
-                Ya sé andar, continuar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <LegalFooter />
+      <ViaModalAvisoBasico
+        avisoBasico={avisoBasico}
+        onConfirmar={confirmarAvisoBasico}
+        onCerrar={() => setAvisoBasico(null)}
+      />
     </div>
   );
 }
-

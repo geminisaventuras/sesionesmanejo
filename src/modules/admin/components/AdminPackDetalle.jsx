@@ -30,7 +30,7 @@ const AdminPackDetalle = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [waModalData, setWaModalData] = useState(null);
-  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, estados, municipios, ciudades } = useContext(AppContext);  
+  const { cursos, sedes, horarios, instructores, motos, proveedores, logoutUser, user, estados, municipios, ciudades, notifications } = useContext(AppContext);
   const { reservas, packs } = useAdminReservas();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -90,7 +90,7 @@ const AdminPackDetalle = () => {
     { id: 'config', icon: Settings, label: 'Config', action: () => navigate('/admin/config') }
   ];
 
-  const header = <DashboardHeader title={`Pack: ${pack?.packNombre || ''}`} onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} />;
+  const header = <DashboardHeader title={`Pack: ${pack?.packNombre || ''}`} onBack={() => navigate('/admin/reservas')} onLogout={handleLogout} notifications={notifications} />;
   const footer = <DashboardFooter tabs={footerTabs} activeTab="reservas" onTabChange={(id) => {
     const t = footerTabs.find(x => x.id === id);
     if (t?.action) t.action();

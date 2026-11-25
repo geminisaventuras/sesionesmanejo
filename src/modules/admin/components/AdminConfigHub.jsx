@@ -7,7 +7,7 @@ import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
 import {
   BookOpen, MapPin, Clock, Bike, Users, Briefcase, Settings, ChevronRight,
-  Activity, Wallet, Calendar, CreditCard, Package, Library, Contact, Globe } from 'lucide-react';
+  Activity, Wallet, Calendar, CreditCard, Package, Library, Contact, Globe, Megaphone } from 'lucide-react';
 import AdminCRUDPage from './AdminCRUDPage';
 
 const AdminConfigHub = memo(() => {
@@ -70,6 +70,9 @@ const AdminConfigHub = memo(() => {
               <button type="button" onClick={() => setVista('motos')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <Bike size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Motos</span>
               </button>
+              <button type="button" onClick={() => navigate('/admin/config/movilidad')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
+                <Bike size={28} className="text-emerald-500" /><span className="font-bold text-sm text-gray-800">Movilidad</span>
+              </button>
               <button type="button" onClick={() => setVista('instructores')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <Users size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Instructores</span>
               </button>
@@ -78,6 +81,9 @@ const AdminConfigHub = memo(() => {
               </button>
               <button type="button" onClick={() => navigate('/admin/directorio')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-indigo-300 transition-colors">
                 <Contact size={28} className="text-indigo-500" /><span className="font-bold text-sm text-gray-800">Directorio</span>
+              </button>
+              <button type="button" onClick={() => navigate('/admin/crm')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-indigo-300 transition-colors">
+                <Megaphone size={28} className="text-indigo-500" /><span className="font-bold text-sm text-gray-800">Interesados</span>
               </button>
                            <button type="button" onClick={() => setVista('metodosPago')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 hover:border-blue-300 transition-colors">
                 <CreditCard size={28} className="text-blue-500" /><span className="font-bold text-sm text-gray-800">Métodos de Pago</span>

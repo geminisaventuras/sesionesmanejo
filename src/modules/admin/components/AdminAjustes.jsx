@@ -58,19 +58,21 @@ const { showToast } = useToast();
   const configListo = localCfg !== null;
 
    const doSave = useCallback(async () => {
-    if (!configListo) return;
+    if (!configListo) return false;
     if (localCfg.metodoPagoStaffDefault &&
         localCfg.metodoPagoStaffDefault !== 'efectivo' &&
         !localCfg.bancoDefaultStaff) {
       showToast('Banco requerido para el método de pago seleccionado', 'error');
-      return;
+      return false;
     }
     setSaving(true);
     try {
       await saveConfig(localCfg);
       showToast('Ajustes guardados correctamente', 'success');
+      return true;
     } catch (error) {
-      showToast('Error al guardar: ' + (error.message || 'fall├│ la conexi├│n'), 'error');
+      showToast('Error al guardar: ' + (error.message || 'falló la conexión'), 'error');
+      return false;
     } finally {
       setSaving(false);
     }

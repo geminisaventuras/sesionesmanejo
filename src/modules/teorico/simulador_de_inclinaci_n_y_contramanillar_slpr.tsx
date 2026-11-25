@@ -513,7 +513,7 @@ function obtenerRecomendacionMotoApp(metricas, alertas) {
 /* ============================================================================
  * 7. COMPONENTE MODO 1: SIMULADOR DE CURVAS EN VIVO (HTML5 CANVAS 60FPS)
  * ============================================================================ */
-function SimuladorCurvasEnVivo({ gyro }) {
+function SimuladorCurvasEnVivo({ gyro, onInmersivo, compacto = false }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const rafRef = useRef(null);
@@ -536,6 +536,14 @@ function SimuladorCurvasEnVivo({ gyro }) {
   });
   const [diagnosticoFinal, setDiagnosticoFinal] = useState(null);
   const [copiado, setCopiado] = useState(false);
+
+  // Mientras corre el circuito se juega a pantalla completa: el shell oculta
+  // cabecera/pie en móvil y bloquea el scroll; los resultados vuelven al layout normal.
+  useEffect(() => {
+    const activo = estadoSim === 'corriendo' || estadoSim === 'pausado';
+    onInmersivo?.(activo);
+    return () => onInmersivo?.(false);
+  }, [estadoSim, onInmersivo]);
 
   // Estado mutable de física a 60fps
   const simRef = useRef({
@@ -744,18 +752,31 @@ function SimuladorCurvasEnVivo({ gyro }) {
     if (!canvas || !container) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const width = container.clientWidth;
-    const height = Math.max(290, Math.min(390, Math.round(width * 0.56)));
+    // En modo juego el canvas ocupa el alto disponible del panel (sin scroll de página).
+    const disponible = compacto ? container.clientHeight : 0;
+    const height =
+      disponible > 120 ? disponible : Math.max(290, Math.min(390, Math.round(width * 0.56)));
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-  }, []);
+  }, [compacto]);
 
   useEffect(() => {
     ajustarTamanoCanvas();
     window.addEventListener('resize', ajustarTamanoCanvas);
     return () => window.removeEventListener('resize', ajustarTamanoCanvas);
   }, [ajustarTamanoCanvas]);
+
+  // El contenedor cambia de alto al entrar/salir del modo juego sin resize de ventana.
+  useEffect(() => {
+    if (!compacto) return undefined;
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => ajustarTamanoCanvas());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [compacto, ajustarTamanoCanvas]);
 
   // Función de renderizado 60fps en Canvas HTML5
   const dibujarEscena = useCallback((ctx, width, height, s) => {
@@ -1640,21 +1661,29 @@ function SimuladorCurvasEnVivo({ gyro }) {
     hud.angulo < -1 ? `${Math.abs(hud.angulo)}° IZQ` : hud.angulo > 1 ? `${hud.angulo}° DER` : '0° RECTO';
 
   return (
-    <div className="space-y-4 animate-fadeIn">
+    <div className={`${compacto ? 'flex h-full min-h-0 flex-col gap-1.5' : 'space-y-4'} animate-fadeIn`}>
       {/* Barra Superior de Giroscopio y Estado de Sesión */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className={`rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 sm:gap-3 ${compacto ? 'shrink-0 bg-white/95 p-1.5' : 'bg-white p-3.5 sm:p-4'}`}>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={gyro.activo ? gyro.desactivar : gyro.activar}
-            className={`py-2 px-3.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all cursor-pointer ${
+            className={`min-h-[44px] py-2 px-3 sm:px-3.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all cursor-pointer ${
               gyro.activo
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                 : 'bg-[#0F172A] hover:bg-slate-800 text-white border-slate-800'
             }`}
           >
             <Smartphone className="w-4 h-4" />
-            <span>{gyro.activo ? 'Giroscopio Activo' : 'Activar Giroscopio'}</span>
+            <span>
+              {compacto
+                ? gyro.activo
+                  ? 'Gyro ON'
+                  : 'Gyro'
+                : gyro.activo
+                ? 'Giroscopio Activo'
+                : 'Activar Giroscopio'}
+            </span>
           </button>
 
           {gyro.activo && (
@@ -1685,7 +1714,8 @@ function SimuladorCurvasEnVivo({ gyro }) {
               <button
                 type="button"
                 onClick={togglePausa}
-                className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                aria-label={estadoSim === 'pausado' ? 'Reanudar circuito' : 'Pausar circuito'}
+                className="min-h-[44px] py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
                 {estadoSim === 'pausado' ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
                 <span>{estadoSim === 'pausado' ? 'Reanudar' : 'Pausar'}</span>
@@ -1693,7 +1723,8 @@ function SimuladorCurvasEnVivo({ gyro }) {
               <button
                 type="button"
                 onClick={finalizarCircuito}
-                className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                aria-label="Finalizar circuito"
+                className="min-h-[44px] py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
                 <span>Finalizar</span>
@@ -1703,7 +1734,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
             <button
               type="button"
               onClick={iniciarCircuito}
-              className="py-2 px-4 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="min-h-[44px] py-2 px-4 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Iniciar 6 Curvas</span>
@@ -1713,9 +1744,9 @@ function SimuladorCurvasEnVivo({ gyro }) {
       </div>
 
       {/* HUD Compacto de Telemetría (Cockpit Digital) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div className={`${compacto ? 'shrink-0 grid grid-cols-4 gap-1' : 'grid grid-cols-2 lg:grid-cols-4 gap-2.5'}`}>
         {/* Velocímetro */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs overflow-hidden`}>
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
             <span className="flex items-center gap-1">
               <Gauge className="w-3.5 h-3.5 text-[#2563EB]" />
@@ -1742,7 +1773,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
         </div>
 
         {/* Inclinómetro Digital con Arco */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs overflow-hidden`}>
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
             <span className="flex items-center gap-1">
               <Compass className="w-3.5 h-3.5 text-indigo-600" />
@@ -1769,7 +1800,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
         </div>
 
         {/* Barra de Adherencia (Grip) */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs overflow-hidden`}>
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
             <span className="flex items-center gap-1">
               <Activity className="w-3.5 h-3.5 text-emerald-600" />
@@ -1802,7 +1833,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
         </div>
 
         {/* Progreso de Curvas + Puntaje */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+        <div className={`bg-white rounded-2xl border border-slate-200 ${compacto ? 'p-1.5' : 'p-3'} shadow-xs overflow-hidden`}>
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
             <span>Curva {hud.curvaIdx + 1}/6</span>
             <span className="text-[#2563EB] font-extrabold tabular-nums">{hud.puntaje} pts</span>
@@ -1825,7 +1856,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
       </div>
 
       {/* Indicador de Secuencia SLPR en Vivo */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className={`${compacto ? 'shrink-0' : ''} grid grid-cols-4 ${compacto ? 'gap-1' : 'gap-2'}`}>
         {[
           { k: 'S', label: 'SLOW', desc: 'Disminuir' },
           { k: 'L', label: 'LOOK', desc: 'Observar' },
@@ -1836,7 +1867,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
           return (
             <div
               key={step.k}
-              className={`rounded-xl px-2.5 py-2 border text-center transition-all ${
+              className={`rounded-xl ${compacto ? 'px-1 py-1' : 'px-2.5 py-2'} border text-center transition-all ${
                 activo
                   ? 'bg-[#2563EB] border-[#2563EB] text-white shadow-sm scale-[1.02]'
                   : 'bg-white border-slate-200 text-slate-500'
@@ -1845,7 +1876,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
               <div className="text-xs font-black tracking-wide">
                 {step.k} · {step.label}
               </div>
-              <div className={`text-[10px] ${activo ? 'text-blue-100' : 'text-slate-400'}`}>
+              <div className={`text-[10px] ${compacto ? 'hidden' : ''} ${activo ? 'text-blue-100' : 'text-slate-400'}`}>
                 {step.desc}
               </div>
             </div>
@@ -1854,8 +1885,12 @@ function SimuladorCurvasEnVivo({ gyro }) {
       </div>
 
       {/* Contenedor del Canvas 60fps + Overlays */}
-      <div className="relative bg-[#0F172A] rounded-2xl overflow-hidden border border-slate-800 shadow-md">
-        <div ref={containerRef} className="w-full relative">
+      <div
+        className={`bg-[#0F172A] rounded-2xl overflow-hidden border border-slate-800 shadow-md ${
+          compacto ? 'relative flex-1 min-h-0' : 'relative'
+        }`}
+      >
+        <div ref={containerRef} className={`${compacto ? 'h-full' : ''} w-full relative`}>
           <canvas ref={canvasRef} className="block w-full touch-none select-none" />
 
           {/* Alerta instantánea flotante */}
@@ -1926,7 +1961,11 @@ function SimuladorCurvasEnVivo({ gyro }) {
       </div>
 
       {/* Panel de Controles Táctiles Universales (Touch-friendly sin menús contextuales) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3.5">
+      <div
+        className={`rounded-2xl border border-slate-200 shadow-xs ${
+          compacto ? 'shrink-0 bg-white/95 p-1.5 space-y-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]' : 'bg-white p-4 space-y-3.5'
+        }`}
+      >
         {/* Fila 1: Contramanillar Izquierdo / Slider / Contramanillar Derecho */}
         <div className="grid grid-cols-12 gap-2.5 items-center">
           <button
@@ -1946,14 +1985,14 @@ function SimuladorCurvasEnVivo({ gyro }) {
               simRef.current.pressLeft = false;
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className="col-span-6 sm:col-span-4 py-3.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-[#2563EB] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer"
+            className={`col-span-6 sm:col-span-4 ${compacto ? 'min-h-[44px] py-2' : 'py-3.5'} px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-[#2563EB] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer`}
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Presionar Izq</span>
           </button>
 
           {/* Slider de inclinación (en móvil va debajo en 12 cols, en sm+ al centro) */}
-          <div className="col-span-12 sm:col-span-4 order-last sm:order-none px-1">
+          <div className={`${compacto ? 'hidden' : ''} col-span-12 sm:col-span-4 order-last sm:order-none px-1`}>
             <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1">
               <span>-38° IZQ</span>
               <span className="text-slate-700">Inclinación manual</span>
@@ -1996,7 +2035,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
               simRef.current.pressRight = false;
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className="col-span-6 sm:col-span-4 py-3.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-[#2563EB] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer"
+            className={`col-span-6 sm:col-span-4 ${compacto ? 'min-h-[44px] py-2' : 'py-3.5'} px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-[#2563EB] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer`}
           >
             <span>Presionar Der</span>
             <ArrowRight className="w-4 h-4" />
@@ -2021,7 +2060,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
               simRef.current.brake = false;
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className="py-3.5 px-4 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-red-600 active:text-white text-amber-900 border-2 border-amber-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer"
+            className={`${compacto ? 'min-h-[44px] py-2' : 'py-3.5'} px-4 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-red-600 active:text-white text-amber-900 border-2 border-amber-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer`}
           >
             <ArrowDown className="w-4 h-4" />
             <span>Frenar (SLOW)</span>
@@ -2043,7 +2082,7 @@ function SimuladorCurvasEnVivo({ gyro }) {
               simRef.current.throttle = false;
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className="py-3.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-[#10B981] active:text-white text-emerald-900 border-2 border-emerald-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer"
+            className={`${compacto ? 'min-h-[44px] py-2' : 'py-3.5'} px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-[#10B981] active:text-white text-emerald-900 border-2 border-emerald-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 touch-none select-none transition-colors cursor-pointer`}
           >
             <ArrowUp className="w-4 h-4" />
             <span>Acelerar (ROLL)</span>
@@ -3072,6 +3111,22 @@ function RetoContramanillar({ onIrASimulador }) {
 function SimuladorSLPRApp() {
   const [tabActiva, setTabActiva] = useState('simulador'); // 'simulador' | 'laboratorio' | 'reto'
   const gyro = useGyroscope();
+  // Modo juego: en móvil se oculta la cabecera/pie y el documento no scrollea.
+  const [inmersivo, setInmersivo] = useState(false);
+  const [esMovil, setEsMovil] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const alCambiar = (e) => setEsMovil(e.matches);
+    mq.addEventListener?.('change', alCambiar);
+    return () => mq.removeEventListener?.('change', alCambiar);
+  }, []);
+
+  const modoJuego = esMovil && inmersivo;
+  const chromeOculto = esMovil && inmersivo;
 
   const tabs = [
     { id: 'simulador', label: 'Simulador de Curvas (En Vivo)', short: 'Simulador 60fps', icon: Gauge },
@@ -3080,7 +3135,11 @@ function SimuladorSLPRApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden">
+    <div
+      className={`${
+        modoJuego ? 'h-full min-h-0 overflow-hidden' : 'min-h-screen'
+      } bg-[#F1F5F9] text-slate-900 flex flex-col font-sans antialiased overflow-x-hidden`}
+    >
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(6px); }
@@ -3089,10 +3148,15 @@ function SimuladorSLPRApp() {
         .animate-fadeIn {
           animation: fadeIn 0.25s ease-out both;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-fadeIn { animation: none; }
+        }
       `}</style>
 
       {/* Cabecera Oscura Elegante (#0F172A) */}
-      <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm">
+      <header
+        className={`${chromeOculto ? 'hidden' : 'sticky top-0'} z-30 shrink-0 bg-[#0F172A] text-white border-b border-slate-800 shadow-sm`}
+      >
         <div className="max-w-5xl mx-auto px-4 pt-3.5 pb-3 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -3150,8 +3214,16 @@ function SimuladorSLPRApp() {
       </header>
 
       {/* Contenido Principal Responsive */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-5">
-        {tabActiva === 'simulador' && <SimuladorCurvasEnVivo gyro={gyro} />}
+      <main
+        className={
+          modoJuego
+            ? 'flex-1 min-h-0 w-full max-w-5xl mx-auto px-0 pt-0 pb-0 flex flex-col overflow-hidden'
+            : 'flex-1 w-full max-w-5xl mx-auto px-4 py-5'
+        }
+      >
+        {tabActiva === 'simulador' && (
+          <SimuladorCurvasEnVivo gyro={gyro} onInmersivo={setInmersivo} compacto={modoJuego} />
+        )}
         {tabActiva === 'laboratorio' && <LaboratorioSLPR gyro={gyro} />}
         {tabActiva === 'reto' && (
           <RetoContramanillar onIrASimulador={() => setTabActiva('simulador')} />
@@ -3159,7 +3231,11 @@ function SimuladorSLPRApp() {
       </main>
 
       {/* Pie informativo */}
-      <footer className="max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-1.5">
+      <footer
+        className={`${
+          chromeOculto ? 'hidden' : 'flex'
+        } shrink-0 max-w-5xl w-full mx-auto px-4 py-4 text-center text-[11px] text-slate-400 flex-wrap items-center justify-center gap-1.5`}
+      >
         <Info className="w-3.5 h-3.5" />
         <span>
           Módulo de práctica interactiva SLPR (Disminuir, Observar, Presionar, Girar) · Basado en el

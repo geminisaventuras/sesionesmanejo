@@ -16,6 +16,7 @@ import { validarInstructorAsignado, validarMotoAsignada, proveedorBloqueado } fr
 import { validarInstructorPermitidoCurso } from '../utils/instructoresPermitidos';
 import { obtenerFechaVenezuela } from '../../shared/utils/zonahoraria';
 import { evaluarSlotPasado, fechaVetHoy } from '../../shared/utils/reservaHelpers.js';
+import { emitirEvento } from '../../shared/services/NotificacionesEventos';
 
 const appId = 'motoescuela-pro-v1';
 
@@ -633,7 +634,9 @@ export const ReservaService = {
       sedeId: reservaData.sedeId,
       curso: cursoData,
       // T-054: la regla individual exige la allowlist del curso (fail-closed).
-      exigirPermitidosCurso: true
+      exigirPermitidosCurso: true,
+      // ERR-054: la variante "moto de la app" no se confirma sin moto.
+      requiereMoto: traeMotoResuelto !== 'Sí'
     });
     if (!validacionRecursos.ok) return { success: false, error: validacionRecursos.error };
 
@@ -820,7 +823,24 @@ export const ReservaService = {
           transaction.delete(doc(db, 'locks', id));
         }
       });
-        return { success: true, data: { id: reservaDoc.id } };
+
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid) {
+        void emitirEvento({
+          tipo: 'reserva_creada',
+          entidadTipo: 'reserva',
+          entidadId: reservaDoc.id,
+          actorUid,
+          token: 'nueva',
+          datos: {
+            reservaId: reservaDoc.id,
+            instructorId: datosReserva.instructorId || null,
+            proveedorId: datosReserva.proveedorId || null,
+          },
+        });
+      }
+
+      return { success: true, data: { id: reservaDoc.id } };
     } catch (error) {
       const codigo = error.code || 'transaction-failed';
       // Un lock que no autorizó la reserva (vencido, corrupto, de otro usuario
@@ -1288,6 +1308,18 @@ export const ReservaService = {
         maestraIdFinal = maestraRef.id;
       });
 
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid && childIdFinal) {
+        void emitirEvento({
+          tipo: 'reserva_creada',
+          entidadTipo: 'reserva',
+          entidadId: childIdFinal,
+          actorUid,
+          token: 'nueva',
+          datos: { reservaId: childIdFinal, packReservaId: maestraIdFinal },
+        });
+      }
+
       return {
         success: true,
         data: { id: childIdFinal, packReservaId: maestraIdFinal }
@@ -1679,6 +1711,18 @@ export const ReservaService = {
         childIdFinal = childRef.id;
       });
 
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid && childIdFinal) {
+        void emitirEvento({
+          tipo: 'reserva_creada',
+          entidadTipo: 'reserva',
+          entidadId: childIdFinal,
+          actorUid,
+          token: 'nueva',
+          datos: { reservaId: childIdFinal, packReservaId: packData.packReservaId || null },
+        });
+      }
+
       return {
         success: true,
         data: { id: childIdFinal }
@@ -1798,6 +1842,18 @@ export const ReservaService = {
         }
       });
 
+      const actorUid = auth.currentUser?.uid || adminUid;
+      if (actorUid && childReservaId) {
+        void emitirEvento({
+          tipo: 'pago_aprobado',
+          entidadTipo: 'reserva',
+          entidadId: childReservaId,
+          actorUid,
+          token: 'aprobado',
+          datos: { reservaId: childReservaId, packReservaId },
+        });
+      }
+
       // ────────── Batch post-transacción: accesos teóricos del pack ──────────
       try {
         const cursosTeoricosUnicos = [...new Set(maestraData?.packSnapshot?.cursosTeoricosIncluidos || [])];
@@ -1872,18 +1928,6 @@ export const ReservaService = {
               updatedAt: ahora
             });
           }
-
-          // 4. Notificación agregada
-          const notifRef = doc(collection(db, ...basePath, 'notificaciones'));
-          batch.set(notifRef, {
-            userId: String(userIdPack),
-            tipo: 'pack_teoricos_desbloqueados',
-            mensaje: `Tu pack desbloqueó ${faltantes.length} módulo(s) formativo(s). ¡Ya puedes acceder!`,
-            packReservaId,
-            leida: false,
-            createdAt: ahora,
-            emisorId: 'sistema'
-          });
 
           await batch.commit();
         }
@@ -1964,6 +2008,18 @@ export const ReservaService = {
           updatedAt: Timestamp.now()
         });
       });
+
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid) {
+        void emitirEvento({
+          tipo: 'pago_rechazado',
+          entidadTipo: 'reserva',
+          entidadId: childReservaId,
+          actorUid,
+          token: 'rechazado',
+          datos: { reservaId: childReservaId, packReservaId },
+        });
+      }
 
       return { success: true };
     } catch (error) {
@@ -2097,22 +2153,16 @@ export const ReservaService = {
       }
       // ────────── FIN batch ──────────
 
-      // FASE-3.5: notificación al usuario sobre cancelación del pack
-      if (maestraData?.userId) {
-        try {
-          const notifRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'notificaciones'));
-          await setDoc(notifRef, {
-            userId: String(maestraData.userId),
-            tipo: 'pack_cancelado',
-            mensaje: 'Tu pack fue cancelado por el administrador. Si crees que es un error, contacta a soporte.',
-            packReservaId,
-            leida: false,
-            createdAt: Timestamp.now(),
-            emisorId: 'sistema'
-          });
-        } catch (notifErr) {
-          console.warn('[cancelarReservaPack] Error creando notificación:', notifErr);
-        }
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid && childReservaId) {
+        void emitirEvento({
+          tipo: 'reserva_cancelada',
+          entidadTipo: 'reserva',
+          entidadId: childReservaId,
+          actorUid,
+          token: 'cancelado',
+          datos: { reservaId: childReservaId, packReservaId },
+        });
       }
 
       return { success: true };

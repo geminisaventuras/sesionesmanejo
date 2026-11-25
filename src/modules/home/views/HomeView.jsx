@@ -71,7 +71,7 @@ const HomeView = () => {
               </div>
               <div className="text-left">
                 <span className="font-black text-sm block leading-tight">Aprende Online</span>
-                <span className="text-gray-500 text-[10px] font-medium leading-tight block mt-0.5">Formación educativa</span>
+                <span className="text-gray-500 text-[10px] font-medium leading-tight block mt-0.5">Reto Vial, emulados y cursos</span>
               </div>
             </button>
           </div>
@@ -92,9 +92,9 @@ const HomeView = () => {
 
           {/* Chat + Mi Panel/Acceso - grid 2 cols compacto */}
           <div className="grid grid-cols-2 gap-3 pt-1">
-            <button disabled className="bg-white py-3 px-3 rounded-2xl flex flex-row items-center justify-center gap-2 shadow-sm border border-gray-100 opacity-60 cursor-not-allowed">
-              <MessageCircle size={18} className="text-gray-400" />
-              <span className="font-bold text-xs text-gray-500">Chat</span>
+            <button onClick={() => navigate('/chat')} className="bg-white py-3 px-3 rounded-2xl flex flex-row items-center justify-center gap-2 shadow-sm border border-gray-100 hover:shadow-md hover:border-emerald-200 transition-all active:scale-[0.98]">
+              <MessageCircle size={18} className="text-emerald-600" />
+              <span className="font-bold text-xs text-gray-900">Chat IA</span>
             </button>
 
             {user ? (

@@ -18,6 +18,15 @@ export const StaffService = {
     if (!email || !password || !role) {
       return { success: false, error: { code: 'missing-fields', message: 'Faltan datos del staff' } };
     }
+    const coleccionPorRol = {
+      instructor: 'instructores',
+      proveedor: 'proveedores',
+      movilidad: 'prestadoresMovilidad'
+    };
+    const collectionName = coleccionPorRol[role];
+    if (!collectionName) {
+      return { success: false, error: { code: 'rol-invalido', message: 'Rol de staff no válido.' } };
+    }
 
     // Crear instancia secundaria de Firebase para no perder la sesión del admin
     const secondaryAppName = `staff_creator_${Date.now()}`;
@@ -35,7 +44,6 @@ export const StaffService = {
       // Nunca persistir la contraseña en Firestore: vive solo en Firebase Auth.
       const dataSinPassword = { ...(data || {}) };
       delete dataSinPassword.password;
-      const collectionName = role === 'instructor' ? 'instructores' : 'proveedores';
       const ref = doc(db, buildPath(collectionName), uid);
       await setDoc(ref, { ...dataSinPassword, email, uid, createdAt: Timestamp.now() });
 
