@@ -834,8 +834,8 @@ export const ReservaService = {
           token: 'nueva',
           datos: {
             reservaId: reservaDoc.id,
-            instructorId: datosReserva.instructorId || null,
-            proveedorId: datosReserva.proveedorId || null,
+            instructorId: reservaData.instructorId || null,
+            proveedorId: reservaData.proveedorId || null,
           },
         });
       }
