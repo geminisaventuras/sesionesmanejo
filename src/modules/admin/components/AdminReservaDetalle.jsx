@@ -27,6 +27,9 @@ import { construirEventoReprogramacion, COLECCION_AUDITORIA_REPROGRAMACIONES, re
 import { detectarConflictosReprogramacion, mensajeConflictoReprogramacion } from '../utils/reprogramacionConflictos';
 import { mensajeBloqueoConAuditoria } from '../utils/auditoriaReprogramacion';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { calcularEdad } from '../../shared/utils/fechaNacimiento';
+import { MovilidadService } from '../../inscripcion/services/MovilidadService';
+import { MOVILIDAD_ETIQUETAS } from '../../inscripcion/utils/movilidadHelpers';
 import { db } from '../../../firebase';
 import CambiarHorarioModal from './CambiarHorarioModal';
 import ModalReasignarInstructor from './ModalReasignarInstructor';
@@ -94,6 +97,8 @@ const AdminReservaDetalle = () => {
   // Estado para el modal de motivo de rechazo: null | 'rechazar'
   const [modalMotivo, setModalMotivo] = useState(null);
   const [waModalData, setWaModalData] = useState(null);
+  const [solicitudMovilidad, setSolicitudMovilidad] = useState(null);
+  const [cargandoMovilidad, setCargandoMovilidad] = useState(false);
 
   const isAdmin = user?.role === 'admin';
   const [reservaLocal, setReservaLocal] = useState(null);
@@ -116,6 +121,54 @@ const AdminReservaDetalle = () => {
       fetchReserva();
     }
   }, [res, reservaId]);
+
+  // T-160 / FT-088: la solicitud de movilidad se registra aparte de la reserva
+  // y se paga directo al prestador. El detalle solo la muestra y enlaza.
+  useEffect(() => {
+    let activo = true;
+    const esPack = res?.tipoReserva === 'pack_sub' || Boolean(res?.packReservaId);
+    if (!res?.id || esPack) {
+      setSolicitudMovilidad(null);
+      setCargandoMovilidad(false);
+      return () => { activo = false; };
+    }
+    setCargandoMovilidad(true);
+    MovilidadService.listarPorReserva(res.id)
+      .then((lista) => {
+        if (activo) setSolicitudMovilidad(lista[0] || null);
+      })
+      .catch((err) => {
+        console.warn('[AdminReservaDetalle] No se pudo leer la movilidad:', err);
+        if (activo) setSolicitudMovilidad(null);
+      })
+      .finally(() => {
+        if (activo) setCargandoMovilidad(false);
+      });
+    return () => { activo = false; };
+  }, [res?.id, res?.tipoReserva, res?.packReservaId]);
+
+  // FT-089: completar datos del Paso 1 solo si el snapshot de la reserva no los
+  // trae. Una única lectura al perfil por reserva; el snapshot siempre gana.
+  const [perfilUsuario, setPerfilUsuario] = useState(null);
+  const [perfilConsultadoUid, setPerfilConsultadoUid] = useState(null);
+
+  useEffect(() => {
+    const faltanDatos = !res?.fechaNacimiento || !res?.sexo || !res?.condicionMedica;
+    if (!res?.userId || !faltanDatos || perfilConsultadoUid === res.userId) return;
+    let activo = true;
+    setPerfilConsultadoUid(res.userId);
+    const cargarPerfil = async () => {
+      try {
+        const ref = doc(db, 'artifacts/motoescuela-pro-v1/public/data/usuarios', res.userId);
+        const snap = await getDoc(ref);
+        if (activo && snap.exists()) setPerfilUsuario({ uid: res.userId, data: snap.data() });
+      } catch (err) {
+        console.error('[AdminReservaDetalle] No se pudo leer el perfil del usuario:', err);
+      }
+    };
+    cargarPerfil();
+    return () => { activo = false; };
+  }, [res?.userId, res?.fechaNacimiento, res?.sexo, res?.condicionMedica, perfilConsultadoUid]);
 
   const curso = (cursos || []).find(c => String(c.id) === String(res?.cursoId));
   const bloqueEfectivo = res ? getHoraIdOcupacion(res, res.fecha2 || res.fecha) : null;
@@ -1476,6 +1529,14 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     }
   ];
 
+  // FT-089: datos del Paso 1; el snapshot de la reserva gana sobre el perfil.
+  const perfilDatos = perfilUsuario?.uid === res?.userId ? perfilUsuario.data : null;
+  const fechaNacimientoDato = res?.fechaNacimiento || perfilDatos?.fechaNacimiento || '';
+  const sexoDato = res?.sexo || perfilDatos?.sexo || '';
+  const condicionMedicaDato = res?.condicionMedica || perfilDatos?.condicionMedica || '';
+  const detalleCondicionDato = res?.detalleCondicion || perfilDatos?.detalleCondicion || '';
+  const edadDato = calcularEdad(fechaNacimientoDato);
+
   return (
     <AppShell header={header} footer={footer} bgColor="bg-gray-50" maxWidth="max-w-md lg:max-w-5xl">
       <div className="flex flex-col h-full">        
@@ -1515,6 +1576,9 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
               <div className="flex items-center gap-1"><Mail size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">{res.correo || '—'}</span></div>
               <div className="flex items-center gap-1"><Phone size={12} className="text-gray-400 flex-shrink-0" /><span>Emerg: </span>{res.contactoEmergencia ? <a href={`tel:${String(res.contactoEmergencia).replace(/\D/g, '')}`} className="truncate text-blue-600 underline">{res.contactoEmergencia}</a> : <span>—</span>}</div>              
               <div className="flex items-center gap-1 col-span-2"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">{res.estado || '—'}{res.zona ? `, ${res.zona}` : ''}</span></div>
+              <div className="flex items-center gap-1"><Calendar size={12} className="text-gray-400 flex-shrink-0" /><span>Edad: {edadDato != null ? `${edadDato} años` : '—'}</span></div>
+              <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Sexo: {sexoDato || '—'}</span></div>
+              <div className="flex items-start gap-1 col-span-2"><Activity size={12} className="text-gray-400 flex-shrink-0 mt-0.5" /><span className="min-w-0 break-words">Salud: {condicionMedicaDato === 'si' ? (<><span className="font-bold text-amber-600">Sí</span>{detalleCondicionDato ? <span className="text-gray-600"> · {detalleCondicionDato}</span> : null}</>) : condicionMedicaDato === 'no' ? 'No' : '—'}</span></div>
               <div className="col-span-2 border-t border-gray-100 my-1"></div>
               <div className="flex items-center gap-1"><BookOpen size={12} className="text-gray-400 flex-shrink-0" /><span className="font-medium">{curso?.nombre || res.cursoId || '—'}</span></div>
               <div className="flex items-center gap-1"><User size={12} className="text-gray-400 flex-shrink-0" /><span className="truncate">Tutor: {instructorActual ? `${instructorActual.nombre} ${instructorActual.apellido || ''}` : 'Sin asignar'}</span></div>
@@ -1523,6 +1587,35 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
               <div className="flex items-center gap-1"><Clock size={12} className="text-gray-400 flex-shrink-0" /><span>{horario?.label || bloqueEfectivo || res.horaId || '—'}</span></div>
               <div className="flex items-center gap-1"><MapPin size={12} className="text-gray-400 flex-shrink-0" /><span>Sede: {formatearSede(sede, { catalogos: { estados, municipios, ciudades } })}</span></div>
                          <div className="flex items-center gap-1"><Bike size={12} className="text-gray-400 flex-shrink-0" /><span>{res.tipoMoto} · {res.traeMoto === 'Sí' ? 'Propia' : 'Moto App'} · Bici: {res.sabeBicicleta}</span></div>
+              <div className="col-span-2 flex flex-wrap items-center gap-1 border-t border-gray-100 pt-1 mt-0.5">
+                <Bike size={12} className="text-gray-400 flex-shrink-0" />
+                <span>Movilidad:</span>
+                {cargandoMovilidad ? (
+                  <span className="text-gray-400">Cargando…</span>
+                ) : solicitudMovilidad ? (
+                  <>
+                    <span className="font-bold text-emerald-700">{MOVILIDAD_ETIQUETAS[solicitudMovilidad.estado] || solicitudMovilidad.estado || 'Solicitada'}</span>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/movilidad?reservaId=${encodeURIComponent(res.id)}`)}
+                      className="text-[10px] font-bold text-indigo-600 underline"
+                    >
+                      Ver en Movilidad →
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-gray-500">{res.tipoReserva === 'pack_sub' || res.packReservaId ? 'No aplica (pack)' : 'No solicitada'}</span>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/movilidad')}
+                      className="text-[10px] font-bold text-indigo-600 underline"
+                    >
+                      Abrir Movilidad →
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <BadgeReposicion reserva={res} horarios={horarios} variant="compact" />
             {res.estadoCurso === 'Ausente' && (

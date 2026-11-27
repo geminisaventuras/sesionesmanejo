@@ -2,9 +2,10 @@
 import { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
-import { BookOpen, Package, GraduationCap, Compass, Zap } from 'lucide-react';
+import { BookOpen, Package, GraduationCap, Compass, Zap, Bike } from 'lucide-react';
+import { etiquetaEstadoMovilidad, resumenMovilidad } from '../utils/movilidadEstudiante';
 
-export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, metricas: metricasProp }) {
+export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, metricas: metricasProp, solicitudMovilidad }) {
   const ctx = useContext(AppContext);
   const navigate = useNavigate();
   const { user } = ctx;
@@ -61,6 +62,22 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
     </div>
   );
 
+  // T-159 / FT-086: recordatorio de movilidad (pago directo). Sin direccion ni telefono.
+  const tarjetaMovilidad = solicitudMovilidad ? (
+    <div className="bg-white rounded-2xl border border-blue-200 shadow-sm p-3 flex items-start gap-3">
+      <span className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+        <Bike size={18} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-black uppercase tracking-wider text-blue-700">Movilidad</p>
+        <p className="text-sm font-bold text-gray-900">{etiquetaEstadoMovilidad(solicitudMovilidad.estado)}</p>
+        <p className="text-[11px] text-gray-500">
+          {resumenMovilidad(solicitudMovilidad)}{resumenMovilidad(solicitudMovilidad) ? ' · ' : ''}pago directo al prestador
+        </p>
+      </div>
+    </div>
+  ) : null;
+
   // ── ESCENARIO 1: Usuario sin servicios (vitrina) ──
   if (!tieneServiciosActivos) {
     return (
@@ -73,6 +90,8 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
         </div>
 
         {resumenCinta}
+
+        {tarjetaMovilidad}
 
         <div>
           <h3 className="text-sm font-black text-gray-700 uppercase tracking-wider px-1 mb-2">
@@ -133,6 +152,8 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
       </div>
 
       {resumenCinta}
+
+      {tarjetaMovilidad}
 
       {tarjetaRetos}
 

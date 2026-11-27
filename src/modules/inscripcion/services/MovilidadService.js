@@ -123,6 +123,13 @@ export const MovilidadService = {
     return data.sort(ordenarPorFecha);
   },
 
+  // Detalle admin: una reserva individual puede tener una sola solicitud.
+  async listarPorReserva(reservaId) {
+    if (!reservaId) return [];
+    const data = await listarColeccion('solicitudesMovilidad', [['reservaId', String(reservaId)]], 10);
+    return data.sort(ordenarPorFecha);
+  },
+
   async listarTodas() {
     const data = await listarColeccion('solicitudesMovilidad');
     return data.sort(ordenarPorFecha);

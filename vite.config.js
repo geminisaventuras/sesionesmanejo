@@ -20,6 +20,9 @@ export default defineConfig({
       manifest: false,
       workbox: {
         clientsClaim: true,
+        // El SW de Workbox importa el handler de push en el mismo scope.
+        // Evita un segundo service worker que nunca recibiría la suscripción.
+        importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {

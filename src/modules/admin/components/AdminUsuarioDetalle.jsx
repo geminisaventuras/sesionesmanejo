@@ -5,10 +5,11 @@ import { AppContext } from '../../../context/AppContextValue';
 import AppShell from '../../shared/components/AppShell';
 import DashboardHeader from '../../shared/components/DashboardHeader';
 import DashboardFooter from '../../shared/components/DashboardFooter';
-import { User, Mail, Phone, BookOpen, Package, GraduationCap, ShieldCheck, MessageCircle } from 'lucide-react';
+import { User, Mail, Phone, BookOpen, Package, GraduationCap, ShieldCheck, MessageCircle, Calendar, Activity } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { getEstadoLogico } from '../../shared/utils/estadoHelpers';
+import { formatearFechaNacimiento } from '../../shared/utils/fechaNacimiento';
 
 const APP_ID = 'motoescuela-pro-v1';
 
@@ -149,6 +150,12 @@ export default function AdminUsuarioDetalle() {
               )}
             </div>
             <div className="flex items-center gap-2 col-span-2"><Mail size={14} className="text-gray-400"/> {String(perfil?.correo || '-')}</div>
+            <div className="flex items-center gap-2 col-span-2"><Calendar size={14} className="text-gray-400"/> Fecha de nacimiento: {formatearFechaNacimiento(perfil?.fechaNacimiento) || '-'}</div>
+            <div className="flex items-center gap-2 col-span-2"><User size={14} className="text-gray-400"/> Sexo: {String(perfil?.sexo || '-')}</div>
+            <div className="flex items-start gap-2 col-span-2">
+              <Activity size={14} className="text-gray-400 flex-shrink-0 mt-0.5"/>
+              <span className="min-w-0 break-words">Salud: {perfil?.condicionMedica === 'si' ? (<><span className="font-bold text-amber-600">Sí</span>{perfil?.detalleCondicion ? <span> · {perfil.detalleCondicion}</span> : null}</>) : perfil?.condicionMedica === 'no' ? 'No' : '-'}</span>
+            </div>
           </div>
         </div>
 

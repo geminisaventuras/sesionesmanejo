@@ -1,7 +1,8 @@
-// @build: 2026-06-22.REFACTOR | id: BOTON-COPIAR | desc: Componente puro para copiar datos de pago móvil al portapapeles.
+// @build: 2026-11-27 | id: BOTON-COPIAR-COMPACTO | desc: Variante compacta para la fila de Pago Movil del paso 4.
 import React from 'react';
+import { Copy } from 'lucide-react';
 
-export function BotonCopiarDatos({ config, showToast, montoVES }) {
+export function BotonCopiarDatos({ config, showToast, montoVES, compacto = false }) {
   // Formato Venezuela (bancos): 33.860,40
   const formatearMontoVES = (valor) => {
     const num = Number(valor);
@@ -41,6 +42,20 @@ export function BotonCopiarDatos({ config, showToast, montoVES }) {
       if (showToast) showToast('Error al copiar', 'error');
     });
   };
+
+  if (compacto) {
+    return (
+      <button
+        type="button"
+        onClick={handleCopiarDatos}
+        aria-label="Copiar datos de Pago Móvil"
+        title="Copiar datos de Pago Móvil"
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+      >
+        <Copy size={15} />
+      </button>
+    );
+  }
 
   return (
     <button

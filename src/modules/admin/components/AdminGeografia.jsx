@@ -38,6 +38,18 @@ const FormCatalogo = ({ tipo, item, onSave, onCancel }) => {
       })
   ), [municipios, estados, form.municipioId]);
 
+  const gruposCiudadOpciones = useMemo(() => {
+    const mapa = new Map();
+    for (const ciudad of ciudades || []) {
+      const grupo = String(ciudad?.grupoCiudad ?? '').trim();
+      if (!grupo) continue;
+      if (!mapa.has(grupo)) mapa.set(grupo, { id: grupo, nombre: ciudad?.nombre || grupo });
+    }
+    const actual = String(form.grupoCiudad ?? '').trim();
+    if (actual && !mapa.has(actual)) mapa.set(actual, { id: actual, nombre: actual });
+    return [{ id: '', nombre: 'Independiente (sin grupo)' }, ...Array.from(mapa.values()).sort(porNombre)];
+  }, [ciudades, form.grupoCiudad]);
+
   const guardar = () => {
     const catalogos = { estados: estados || [], municipios: municipios || [], ciudades: ciudades || [] };
     const datos = {
@@ -53,6 +65,9 @@ const FormCatalogo = ({ tipo, item, onSave, onCancel }) => {
       delete datos.municipioId;
     } else if (tipo === 'ciudades') {
       delete datos.estadoId;
+      const grupo = String(form.grupoCiudad ?? '').trim();
+      if (grupo) datos.grupoCiudad = grupo;
+      else delete datos.grupoCiudad;
     }
 
     const validacion = validarCatalogo({ tipo, datos, catalogos, itemActual: item });
@@ -84,12 +99,21 @@ const FormCatalogo = ({ tipo, item, onSave, onCancel }) => {
       )}
 
       {tipo === 'ciudades' && (
-        <Select
-          label="Municipio"
-          value={form.municipioId || ''}
-          onChange={e => setForm({ ...form, municipioId: e.target.value })}
-          options={municipiosOpciones}
-        />
+        <>
+          <Select
+            label="Municipio"
+            value={form.municipioId || ''}
+            onChange={e => setForm({ ...form, municipioId: e.target.value })}
+            options={municipiosOpciones}
+          />
+          <Select
+            label="Ciudad compartida"
+            value={form.grupoCiudad || ''}
+            onChange={e => setForm({ ...form, grupoCiudad: e.target.value })}
+            options={gruposCiudadOpciones}
+            helperText="Permite que dos fichas de ciudad en estados distintos se traten como la misma ciudad (ej. Caracas en Miranda y Distrito Capital)."
+          />
+        </>
       )}
 
       {error && <p className="text-sm font-bold text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{error}</p>}

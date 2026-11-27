@@ -5,6 +5,8 @@ import { Select, Input } from '../../../components/UI';
 import { BotonCopiarDatos } from './BotonCopiarDatos';
 import { validarPaso4 } from '../../shared/schemas/validations';
 import { ModalTerminos } from './ModalTerminos';
+import { ModalAvisoLegal } from './ModalAvisoLegal';
+import { CaptchaTurnstile } from './CaptchaTurnstile';
 import { BANCOS } from '../../../constants/bancos';
 
 export function Paso4Pago({
@@ -12,11 +14,14 @@ export function Paso4Pago({
   precioFinalVES, baseUSD, precioCurso, tasaCobro, monedaCobroClientes, config,
   desglosePrecio, lockId, step, lockTimer,
   captchaA, captchaB, captchaValue, onCaptchaChange,
+  captchaRef, usarCaptchaReal, captchaSiteKey,
   showToast,
   terminosAceptados, onToggleTerminos, onVerTerminos, mostrarTerminos, onCerrarTerminos
 }) {
     const [errores, setErrores] = useState({});
   const [tocados, setTocados] = useState({});
+  const [mostrarAvisoLegal, setMostrarAvisoLegal] = useState(false);
+  const pagoMovil = config?.pagoMovilEscuela || {};
 
   // Formato Venezuela (bancos): 33.860,40
   const formatearMontoVES = (valor) => {
@@ -79,12 +84,24 @@ export function Paso4Pago({
             ))}
           </div>
         </div>
-        <div className="bg-white p-4 border-t border-blue-100 text-xs text-gray-600 space-y-2">
-          <p className="font-semibold text-gray-800 mb-1">PAGO MÓVIL MOTO APP</p>
-          <div className="flex items-center gap-2"><CreditCard size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Banco:</span><span>{config?.pagoMovilEscuela?.banco || '—'}</span></div>
-          <div className="flex items-center gap-2"><Phone size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">Telf:</span><span>{config?.pagoMovilEscuela?.telefono || '—'}</span></div>
-          <div className="flex items-center gap-2"><Contact size={14} className="text-gray-500" /><span className="font-semibold text-gray-800">CI:</span><span>{config?.pagoMovilEscuela?.cedula || '—'}</span></div>
-          <BotonCopiarDatos config={config} showToast={showToast} montoVES={precioFinalVES} />
+        <div className="border-t border-blue-100 bg-white px-3 py-2">
+          <div className="flex items-center gap-2">
+            <div className="grid min-w-0 flex-1 grid-cols-3 gap-2">
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400">Banco</p>
+                <p className="truncate text-[11px] font-semibold text-gray-800" title={pagoMovil.banco || ''}>{pagoMovil.banco || '—'}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400">Telf</p>
+                <p className="truncate text-[11px] font-semibold text-gray-800" title={pagoMovil.telefono || ''}>{pagoMovil.telefono || '—'}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400">CI</p>
+                <p className="truncate text-[11px] font-semibold text-gray-800" title={pagoMovil.cedula || ''}>{pagoMovil.cedula || '—'}</p>
+              </div>
+            </div>
+            <BotonCopiarDatos compacto config={config} showToast={showToast} montoVES={precioFinalVES} />
+          </div>
         </div>
       </div>
       <div className="w-full mt-2">
@@ -101,19 +118,22 @@ export function Paso4Pago({
           {errores.pagoCedula && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoCedula}</p>}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid gap-2 ${usarCaptchaReal ? 'grid-cols-1' : 'grid-cols-2'}`}>
         <div>
           <Input label="Últimos 4 dígitos Ref." type="tel" value={form.pagoRef} onChange={e => handleChange('pagoRef', e.target.value.replace(/\D/g,'').slice(0,4))} icon={Hash} placeholder="8452" inputMode="numeric" pattern="\d{4}" maxLength={4} required />
           {errores.pagoRef && <p className="text-xs text-red-600 mt-0.5 ml-1">{errores.pagoRef}</p>}
         </div>
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Lock size={14} className="text-gray-500" /> Captcha</label>
-          <div className="bg-gray-50 border-2 border-gray-200 focus-within:border-blue-500 rounded-xl overflow-hidden">
-            <input type="tel" value={captchaValue} onChange={onCaptchaChange} placeholder={`${captchaA} + ${captchaB} = ?`} className="w-full bg-transparent py-2.5 px-3 text-sm outline-none" />
-            <div className="bg-gray-100 border-t border-gray-200 px-3 py-1 text-[10px] text-gray-500">Resuelve la suma</div>
+        {!usarCaptchaReal && (
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-0.5 ml-1 flex items-center gap-1"><Lock size={14} className="text-gray-500" /> Captcha</label>
+            <div className="bg-gray-50 border-2 border-gray-200 focus-within:border-blue-500 rounded-xl overflow-hidden">
+              <input type="tel" value={captchaValue} onChange={onCaptchaChange} placeholder={`${captchaA} + ${captchaB} = ?`} className="w-full bg-transparent py-2.5 px-3 text-sm outline-none" />
+              <div className="bg-gray-100 border-t border-gray-200 px-3 py-1 text-[10px] text-gray-500">Resuelve la suma</div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
+      {usarCaptchaReal && <CaptchaTurnstile ref={captchaRef} siteKey={captchaSiteKey} />}
             {/* Checkbox de Términos y Condiciones */}
       <div className="mt-3">
         <label className="flex items-start gap-2 cursor-pointer">
@@ -127,18 +147,16 @@ export function Paso4Pago({
             He leído y acepto los{' '}
             <button type="button" onClick={onVerTerminos} className="text-blue-600 underline font-medium">
               Términos y Condiciones del Servicio
+            </button>{' '}
+            y el{' '}
+            <button type="button" onClick={() => setMostrarAvisoLegal(true)} className="text-blue-600 underline font-medium">
+              Aviso Legal
             </button>
           </span>
         </label>
       </div>
 
-      {/* Disclaimer legal obligatorio */}
-      <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
-        <p className="text-[10px] leading-relaxed text-gray-500">
-          <strong className="font-bold">Aviso Legal:</strong> Esta plataforma ofrece servicios privados de educación no formal, consultoría deportiva y tutorías de acompañamiento para el desarrollo de habilidades motoras. No somos una 'Escuela del Transporte' ni prestamos servicios conexos regulados por el Instituto Nacional de Transporte Terrestre (INTT). Las constancias emitidas por esta plataforma son de carácter privado, recreativo, y no poseen validez legal para la obtención de licencias de conducir, certificados de saberes o cualquier otro trámite ante las autoridades de tránsito del Estado venezolano.
-        </p>
-      </div>
-
+      {mostrarAvisoLegal && <ModalAvisoLegal onClose={() => setMostrarAvisoLegal(false)} />}
       {mostrarTerminos && <ModalTerminos onClose={onCerrarTerminos} />}
     </div>
   );

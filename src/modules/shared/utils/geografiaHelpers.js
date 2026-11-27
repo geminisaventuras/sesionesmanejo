@@ -85,10 +85,17 @@ export function validarCatalogo({ tipo, datos = {}, catalogos = {}, itemActual =
   const idActual = itemActual?.id ?? datos?.id;
   const nombreNormalizado = normalizarTexto(nombre);
   if (nombre) {
+    // Unicidad por hermanos: dos "Caracas" pueden existir en municipios
+    // distintos (Sucre, Chacao, Baruta, El Hatillo y Libertador), pero no dos
+    // en el mismo padre. Estados (sin padre) siguen siendo únicos.
+    const padreActual = def.padre ? String(datos?.[def.campoPadre] ?? '') : '';
     const duplicado = norm[tipo].some(
-      (item) =>
-        normalizarTexto(item?.nombre) === nombreNormalizado &&
-        String(item?.id) !== String(idActual ?? '')
+      (item) => {
+        if (String(item?.id) === String(idActual ?? '')) return false;
+        if (normalizarTexto(item?.nombre) !== nombreNormalizado) return false;
+        if (!def.campoPadre) return true;
+        return String(item?.[def.campoPadre] ?? '') === padreActual;
+      }
     );
     if (duplicado) errores.push('Ya existe un registro con ese nombre en el mismo nivel.');
   }
@@ -335,12 +342,21 @@ export function distanciaKmEntreCoordenadas(a, b) {
   return 2 * 6371 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
+// Identidad de ciudad para búsquedas: un grupo explícito permite que Caracas
+// (Sucre/Chacao/Baruta/El Hatillo y Libertador) sea la misma ciudad aunque
+// cuelgue de estados distintos. Sin grupo, la ciudad es su propio grupo.
+export function grupoCiudadId(ciudad) {
+  const grupo = String(ciudad?.grupoCiudad ?? '').trim();
+  return grupo || String(ciudad?.id ?? '');
+}
+
 // Filtra las sedes (ya restringidas por curso/activo) por la ubicación del paso 1.
-// Base: ciudad elegida -> estado elegido -> todas. Nunca devuelve una lista vacía
-// si recibió sedes: ocultar una sede vendible por falta de datos rompe la venta.
-// Las sedes legacy sin jerarquía se conservan. `incluirCercanas` añade sedes a
-// <= radioKm usando como origen las coordenadas de una sede de la ciudad elegida
-// (o de la ciudad, si el catálogo llegara a tenerlas); no persiste ubicación.
+// Base: grupo de ciudad -> ciudad -> municipio -> estado -> todas. Nunca devuelve
+// una lista vacía si recibió sedes: ocultar una sede vendible por falta de datos
+// rompe la venta. Las sedes legacy sin jerarquía se conservan. `incluirCercanas`
+// agrega sedes de cualquier estado a <= radioKm usando como origen el centro de la
+// ciudad elegida (o una sede del resultado si la ciudad no tiene coordenadas).
+// `cercanasDisponibles` se calcula siempre para que la UI pueda avisar cuántas hay.
 export function filtrarSedesPorUbicacion(sedes = [], opciones = {}) {
   const lista = esLista(sedes) ? sedes.filter(Boolean) : [];
   const {
@@ -353,33 +369,63 @@ export function filtrarSedesPorUbicacion(sedes = [], opciones = {}) {
   const norm = normalizarCatalogos(catalogos);
   const ciudad = (norm.ciudades || []).find(c => String(c.id) === String(ciudadId)) || null;
   const estado = (norm.estados || []).find(e => String(e.id) === String(estadoId)) || null;
+  const municipio = ciudad
+    ? (norm.municipios || []).find(m => String(m.id) === String(ciudad.municipioId)) || null
+    : null;
 
   const conCadena = lista.map(sede => ({ sede, cadena: resolverCadenaSede(sede, norm) }));
+  const grupoSel = ciudad ? grupoCiudadId(ciudad) : '';
   const deCiudad = ciudadId
     ? conCadena.filter(x => x.cadena.ciudad && String(x.cadena.ciudad.id) === String(ciudadId))
+    : [];
+  const deGrupo = grupoSel
+    ? conCadena.filter(x => x.cadena.ciudad && grupoCiudadId(x.cadena.ciudad) === grupoSel)
+    : [];
+  const deMunicipio = municipio
+    ? conCadena.filter(x => x.cadena.municipio && String(x.cadena.municipio.id) === String(municipio.id))
     : [];
   const deEstado = estadoId
     ? conCadena.filter(x => x.cadena.estado && String(x.cadena.estado.id) === String(estadoId))
     : [];
   const sinUbicacion = conCadena.filter(x => !x.cadena.ciudad && !x.cadena.estado);
 
+  const ciudadesDelGrupo = grupoSel
+    ? (norm.ciudades || []).filter(c => grupoCiudadId(c) === grupoSel)
+    : [];
+  const estadosDelGrupo = new Set(
+    ciudadesDelGrupo
+      .map(c => (norm.municipios || []).find(m => String(m.id) === String(c.municipioId))?.estadoId)
+      .filter(Boolean)
+      .map(String)
+  );
+  const grupoCompartido = estadosDelGrupo.size > 1;
+
   let base = [];
   let alcance = 'sin-filtro';
   let aviso = '';
 
-  if (deCiudad.length > 0) {
+  if (deGrupo.length > 0) {
+    base = deGrupo;
+    alcance = grupoCompartido ? 'grupo' : 'ciudad';
+  } else if (deCiudad.length > 0) {
     base = deCiudad;
     alcance = 'ciudad';
+  } else if (deMunicipio.length > 0) {
+    base = deMunicipio;
+    alcance = 'municipio';
+    aviso = ciudad
+      ? `No hay sedes en ${ciudad.nombre}. Mostramos las de ${municipio?.nombre || 'tu municipio'}.`
+      : 'No hay sedes en tu ciudad. Mostramos las de tu municipio.';
   } else if (deEstado.length > 0) {
     base = deEstado;
     alcance = 'estado';
     aviso = ciudad
-      ? `No hay sedes en ${ciudad.nombre}; mostramos las de ${estado?.nombre || 'tu estado'}.`
-      : 'No hay sedes en tu ciudad; mostramos las de tu estado.';
+      ? `No hay sedes en ${ciudad.nombre}${municipio ? ` ni en ${municipio.nombre}` : ''}. Mostramos las de ${estado?.nombre || 'tu estado'}.`
+      : 'No hay sedes en tu ciudad. Mostramos las de tu estado.';
   } else if (ciudadId || estadoId) {
     base = conCadena.slice();
     alcance = 'todas';
-    aviso = 'No hay sedes en tu ciudad o estado; mostramos todas las disponibles.';
+    aviso = 'No hay sedes en tu ciudad, municipio ni estado. Mostramos todas las disponibles.';
   }
 
   if (alcance !== 'todas' && sinUbicacion.length > 0) {
@@ -387,34 +433,52 @@ export function filtrarSedesPorUbicacion(sedes = [], opciones = {}) {
     base = base.concat(sinUbicacion.filter(x => !ids.has(x.sede.id)));
   }
 
-  let cercanasAgregadas = 0;
-  if (incluirCercanas) {
-    let origen = null;
-    for (const x of deCiudad) {
+  // Origen de cercanía: centro de la ciudad elegida (preferido) o una sede del
+  // resultado. Así Los Teques/Charallave pueden ver Caracas sin depender de que
+  // la sede primaria (La Villa) esté cerca del usuario.
+  let origen = null;
+  if (ciudad) {
+    const c = validarCoordenadas(ciudad.coordenadas);
+    if (c.ok && c.coordenadas) origen = c.coordenadas;
+  }
+  if (!origen) {
+    for (const x of base) {
       const c = validarCoordenadas(x.sede.coordenadas);
       if (c.ok && c.coordenadas) { origen = c.coordenadas; break; }
     }
-    if (!origen && ciudad) {
-      const c = validarCoordenadas(ciudad.coordenadas);
-      if (c.ok && c.coordenadas) origen = c.coordenadas;
-    }
+  }
 
+  const idsBase = new Set(base.map(x => x.sede.id));
+  const cercanas = [];
+  if (origen) {
+    for (const x of conCadena) {
+      if (idsBase.has(x.sede.id)) continue;
+      const km = distanciaKmEntreCoordenadas(origen, x.sede.coordenadas);
+      if (km != null && km <= radioKm) cercanas.push({ sede: x.sede, km });
+    }
+    cercanas.sort((a, b) => a.km - b.km);
+  }
+
+  let cercanasAgregadas = 0;
+  if (incluirCercanas) {
     if (!origen) {
       const nota = 'No hay coordenadas para calcular sedes cercanas.';
       aviso = aviso ? `${aviso} ${nota}` : nota;
-    } else {
-      const ids = new Set(base.map(x => x.sede.id));
-      for (const x of conCadena) {
-        if (ids.has(x.sede.id)) continue;
-        const km = distanciaKmEntreCoordenadas(origen, x.sede.coordenadas);
-        if (km != null && km <= radioKm) {
-          base.push(x);
-          ids.add(x.sede.id);
-          cercanasAgregadas += 1;
-        }
+    } else if (cercanas.length > 0) {
+      const porId = new Map(conCadena.map(x => [String(x.sede.id), x]));
+      for (const item of cercanas) {
+        const x = porId.get(String(item.sede.id));
+        if (x) base.push(x);
       }
+      cercanasAgregadas = cercanas.length;
     }
   }
 
-  return { sedes: base.map(x => x.sede), aviso, alcance, cercanasAgregadas };
+  return {
+    sedes: base.map(x => x.sede),
+    aviso,
+    alcance,
+    cercanasAgregadas,
+    cercanasDisponibles: cercanas.map(x => x.sede),
+  };
 }

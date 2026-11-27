@@ -1,6 +1,6 @@
 // @build: 2026-11-24 | id: MOVILIDAD-PANEL-1 | desc: Panel del prestador de movilidad y asignación/roster para admin (FT-058).
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import { MovilidadService } from '../../inscripcion/services/MovilidadService';
@@ -40,6 +40,8 @@ export default function MovilidadPanel({ embebido = false }) {
         ? '/proveedor'
         : '/';
   const movilidadCfg = config?.movilidad || {};
+  const [searchParams] = useSearchParams();
+  const reservaFiltro = searchParams.get('reservaId');
   const [solicitudes, setSolicitudes] = useState([]);
   const [prestadores, setPrestadores] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -61,7 +63,7 @@ export default function MovilidadPanel({ embebido = false }) {
     try {
       if (esAdmin) {
         const [sols, provs] = await Promise.all([
-          MovilidadService.listarTodas(),
+          reservaFiltro ? MovilidadService.listarPorReserva(reservaFiltro) : MovilidadService.listarTodas(),
           MovilidadService.listarPrestadores(),
         ]);
         setSolicitudes(sols);
@@ -75,7 +77,7 @@ export default function MovilidadPanel({ embebido = false }) {
     } finally {
       setCargando(false);
     }
-  }, [user?.uid, esAdmin, showToast]);
+  }, [user?.uid, esAdmin, showToast, reservaFiltro]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -83,6 +85,18 @@ export default function MovilidadPanel({ embebido = false }) {
     () => prestadores.filter((p) => p.activo !== false),
     [prestadores]
   );
+
+  // T-160: el detalle de una reserva puede abrir el panel filtrado por reservaId.
+  const solicitudesVisibles = useMemo(
+    () => (reservaFiltro
+      ? solicitudes.filter((s) => String(s.reservaId) === String(reservaFiltro))
+      : solicitudes),
+    [solicitudes, reservaFiltro]
+  );
+
+  useEffect(() => {
+    if (reservaFiltro) setTab('solicitudes');
+  }, [reservaFiltro]);
 
   const cambiarEstado = async (solicitud, estado) => {
     const res = await MovilidadService.actualizarEstado(solicitud.id, estado);
@@ -278,14 +292,21 @@ export default function MovilidadPanel({ embebido = false }) {
           </div>
         )}
 
+        {reservaFiltro && (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900 flex flex-wrap items-center justify-between gap-2">
+            <span>Mostrando la solicitud de la reserva <strong>{String(reservaFiltro).slice(0, 8)}…</strong></span>
+            <Link to="/movilidad" className="font-black underline">Ver todas</Link>
+          </div>
+        )}
+
         {cargando && <p className="text-sm font-bold text-gray-500">Cargando…</p>}
 
         {!cargando && tab === 'solicitudes' && (
           <div className="space-y-3">
-            {solicitudes.length === 0 && (
+            {solicitudesVisibles.length === 0 && (
               <div className="text-sm text-gray-600 bg-white border border-gray-200 rounded-xl p-4">
-                <p>No hay solicitudes {esAdmin ? 'registradas' : 'asignadas'} por ahora.</p>
-                {esAdmin && (
+                <p>{reservaFiltro ? 'No hay una solicitud de movilidad para esta reserva.' : `No hay solicitudes ${esAdmin ? 'registradas' : 'asignadas'} por ahora.`}</p>
+                {!reservaFiltro && esAdmin && (
                   <button
                     type="button"
                     onClick={() => { setTab('prestadores'); setMostrarFormPrestador(true); }}
@@ -297,7 +318,7 @@ export default function MovilidadPanel({ embebido = false }) {
               </div>
             )}
 
-            {solicitudes.map((s) => {
+            {solicitudesVisibles.map((s) => {
               const mapa = urlMapa(s.pin);
               const puedeCobrar = !s.pagoDirecto?.confirmado && ['en_sesion', 'retorno', 'completada'].includes(s.estado);
               return (

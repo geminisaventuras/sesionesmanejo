@@ -8,6 +8,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { AuthService } from '../../../services/AuthService';
 import { CursoService } from '../../shared/services/CursoService';
 import { formatearRangoCorto } from '../../shared/utils/fechas';
+import { formatearFechaNacimiento } from '../../shared/utils/fechaNacimiento';
 import { CURSO_SECUENCIA, cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { Button, Spinner } from '../../../components/UI';
 import { useToast } from '../../shared/components/ToastProvider';
@@ -22,6 +23,8 @@ import { VistaHistorial } from '../components/VistaHistorial';
 import { useMetricasUsuario } from '../../../hooks/useMetricasUsuario';
 import { VistaPacks } from '../components/VistaPacks';
 import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
+import { MovilidadService } from '../../inscripcion/services/MovilidadService';
+import { seleccionarSolicitudVigente } from '../utils/movilidadEstudiante';
 
 import {
   Calendar, Clock, MapPin, Bike, BookOpen, Award, Compass, Library, FileText, Settings,
@@ -115,6 +118,18 @@ export function EstudiantePanel() {
   useEffect(() => {
     cargarPacks();
   }, [cargarPacks]);
+
+  // T-159 / FT-086: recordatorio de movilidad en el Inicio del panel.
+  // Solo lectura del dueño; no se muestra direccion ni telefono.
+  const [solicitudMovilidad, setSolicitudMovilidad] = useState(null);
+  useEffect(() => {
+    let cancelado = false;
+    if (!uid) { setSolicitudMovilidad(null); return () => { cancelado = true; }; }
+    MovilidadService.listarPorUsuario(String(uid))
+      .then((lista) => { if (!cancelado) setSolicitudMovilidad(seleccionarSolicitudVigente(lista)); })
+      .catch(() => { if (!cancelado) setSolicitudMovilidad(null); });
+    return () => { cancelado = true; };
+  }, [uid]);
 
   // FIX-PACK-REACTIVIDAD-BUG2: reaccionar al trigger SSOT (updatedAt) cuando
   // el admin cambia el estado de la maestra (aprobar/rechazar/cancelar).
@@ -885,6 +900,12 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
       }
     };
 
+    // FT-089: datos del Paso 1 desde el documento propio del estudiante.
+    const fechaNacimientoPerfil = ctx.user?.data?.fechaNacimiento || reservaActual?.fechaNacimiento || '';
+    const sexoPerfil = ctx.user?.data?.sexo || reservaActual?.sexo || '';
+    const condicionMedicaPerfil = ctx.user?.data?.condicionMedica || reservaActual?.condicionMedica || '';
+    const detalleCondicionPerfil = ctx.user?.data?.detalleCondicion || reservaActual?.detalleCondicion || '';
+
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-black text-gray-900 uppercase tracking-widest">Mi Perfil</h2>
@@ -892,6 +913,9 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
           <div><p className="text-xs text-gray-500">Nombre</p><p className="font-bold text-gray-900">{ctx.user?.data?.nombre || reservaActual?.nombre || 'No registrado'} {ctx.user?.data?.apellido || reservaActual?.apellido || ''}</p></div>
           <div><p className="text-xs text-gray-500">Cédula</p><p className="font-bold text-gray-900">{ctx.user?.data?.cedula || reservaActual?.cedula || '—'}</p></div>
           <div><p className="text-xs text-gray-500">Teléfono</p><p className="font-bold text-gray-900">{ctx.user?.data?.telefono || reservaActual?.telefono || 'No registrado'}</p></div>
+          <div><p className="text-xs text-gray-500">Fecha de nacimiento</p><p className="font-bold text-gray-900">{formatearFechaNacimiento(fechaNacimientoPerfil) || 'No registrado'}</p></div>
+          <div><p className="text-xs text-gray-500">Sexo</p><p className="font-bold text-gray-900">{sexoPerfil || 'No registrado'}</p></div>
+          <div><p className="text-xs text-gray-500">Salud</p><p className="font-bold text-gray-900">{condicionMedicaPerfil === 'si' ? (<><span className="text-amber-600">Sí</span>{detalleCondicionPerfil ? <span className="font-normal text-gray-600"> · {detalleCondicionPerfil}</span> : null}</>) : condicionMedicaPerfil === 'no' ? 'No' : 'No registrado'}</p></div>
           <div><p className="text-xs text-gray-500">Sesión Actual</p><p className="font-bold text-gray-900">{cursoAsignado.nombre || 'No asignado'}</p></div>
           <div>
             <p className="text-xs text-gray-500">Sede</p>
@@ -944,6 +968,7 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
             packExistente={packExistente}
             cursos={cursos}
             metricas={metricasHook}
+            solicitudMovilidad={solicitudMovilidad}
           />
         )}
         {tab === 'servicios' && !modoCorreccion && (

@@ -28,7 +28,9 @@ import { FormularioSalud } from '../components/FormularioSalud';
 import { CalendarioNacimiento } from '../components/CalendarioNacimiento';
 import { LockTimerFlotante } from '../components/LockTimerFlotante';
 import { ModalExpiracion } from '../components/ModalExpiracion';
+import { leerConfigCaptcha, verificarCaptcha, mensajeCaptcha } from '../utils/captchaHelpers';
 import { ArrowRight, Check, Award, Bike } from 'lucide-react';
+
 import { validarPaso1, validarPaso4 } from '../../shared/schemas/validations';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
 import { resolverUbicacionInscripcion } from '../../shared/utils/geografiaHelpers';
@@ -48,6 +50,8 @@ import { filtrarMotosProveedorActivo } from '../utils/recursosHelpers';
 import { bloqueYaInicio, getHoraIdOcupacion } from '../../shared/utils/reservaHelpers';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { useOcupacionConfirmadaRango } from '../../../hooks/useOcupacionConfirmadaRango';
+// T-159 / FT-085: si faltan site key o URL de verificacion se conserva la suma legada.
+const CAPTCHA = leerConfigCaptcha(import.meta.env);
 const LOCK_DURATION = 10 * 60 * 1000;
 const MAX_REINTENTOS_EXPIRACION = 3;
 const MAX_DIAS_RESERVA = 30;
@@ -662,8 +666,12 @@ const {
 
   const [mostrarPantallaExito, setMostrarPantallaExito] = useState(false);
   const [pinFinal, setPinFinal] = useState(null);
+  const [recordatorioMovilidad, setRecordatorioMovilidad] = useState(null);
     const [terminosAceptados, setTerminosAceptados] = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
+  // T-159: captcha real (Turnstile) con verificacion en servidor.
+  const captchaRef = useRef(null);
+  const captchaEnCursoRef = useRef(false);
 
   const [clockTick, setClockTick] = useState(0);
   useEffect(() => {
@@ -1500,7 +1508,9 @@ const disponibilidad = useMemo(() => {
 
     if (result.success) {
       // FT-058: la movilidad se registra aparte y se paga directo al prestador.
-      // Si falla, la reserva queda creada y se avisa para coordinarlo.
+      // Si falla, la reserva queda creada. El aviso se unifica con el del pago
+      // para no tapar el mensaje de éxito con dos toasts consecutivos.
+      let movilidadAviso = null;
       if (!esPack && !esRecompra && form.movilidadSolicitada === true && result.data?.id && form.movilidadSnapshot) {
         try {
           const movRes = await MovilidadService.crearSolicitud({
@@ -1520,19 +1530,31 @@ const disponibilidad = useMemo(() => {
             nombreEstudiante: `${form.nombre || ''} ${form.apellido || ''}`.trim(),
             telefonoEstudiante: form.telefono || '',
           });
-          showToast(
-            movRes.success
-              ? 'Solicitud de movilidad registrada. El prestador te contactará.'
-              : 'La reserva quedó creada, pero la movilidad no se registró. Escríbenos por WhatsApp.',
-            movRes.success ? 'success' : 'error'
-          );
+          movilidadAviso = movRes.success ? 'ok' : 'error';
         } catch {
-          showToast('La reserva quedó creada, pero la movilidad no se registró. Escríbenos por WhatsApp.', 'error');
+          movilidadAviso = 'error';
         }
       }
 
+      if (movilidadAviso === 'ok') {
+        setRecordatorioMovilidad({
+          montoUSD: Number(form.movilidadMontoUSD) || 0,
+          montoVES: Number(form.movilidadSnapshot?.montoVES) || 0,
+          fechaSesion: form.fecha1 || '',
+        });
+      }
+
+      const mensajeReserva = esPack
+        ? 'Pack adquirido correctamente. Gestiónalo desde tu portal.'
+        : movilidadAviso === 'ok'
+          ? 'Reserva creada correctamente. Solicitud de movilidad registrada; el prestador te contactará.'
+          : movilidadAviso === 'error'
+            ? 'Reserva creada correctamente, pero la movilidad no se registró. Escríbenos por WhatsApp.'
+            : 'Reserva creada correctamente.';
+      const tipoToastReserva = movilidadAviso === 'error' ? 'warning' : 'success';
+
       if (esRecompra) {
-        showToast('Reserva creada correctamente', 'success');
+        showToast(mensajeReserva, 'success');
         limpiarSesion();
         navigate('/portal-reservas');
         return;
@@ -1541,12 +1563,7 @@ const disponibilidad = useMemo(() => {
       // FIX-PACK-LOGUEADO-PIN: usuario logueado SIN PIN → redirect directo
       // Usuario nuevo (aunque esté logueado tras crear cuenta) → sí necesita ver PIN
       if (ctx.fbUser && !pinParaMostrar) {
-        showToast(
-          esPack
-            ? 'Pack adquirido correctamente. Gestiónalo desde tu portal.'
-            : 'Reserva creada correctamente.',
-          'success'
-        );
+        showToast(mensajeReserva, tipoToastReserva);
         limpiarSesion();
         if (esPack) {
           sessionStorage.removeItem('inscripcion_esPack');
@@ -1593,6 +1610,8 @@ const disponibilidad = useMemo(() => {
       // ✅ PASO 7: Mostrar pantalla de éxito con PIN capturado
       setPinFinal(pinParaMostrar);
       setMostrarPantallaExito(true);
+      // Un solo mensaje: reserva + movilidad, sin tapar la pantalla de éxito.
+      showToast(mensajeReserva, tipoToastReserva);
 
       console.log('[handleConfirmarPago] Pantalla de éxito mostrada con PIN:', pinParaMostrar ? 'SÍ' : 'NO');
     } else {
@@ -2138,7 +2157,31 @@ if (necesitaMoto) {
       }
 
 
-      if (captchaValue !== String(captchaA + captchaB)) {
+      if (CAPTCHA.real) {
+        if (captchaEnCursoRef.current) return;
+        captchaEnCursoRef.current = true;
+        try {
+          let token = '';
+          try {
+            token = await captchaRef.current?.solicitarToken();
+          } catch {
+            token = '';
+          }
+          if (!token) {
+            showToast('No pudimos completar la verificación de seguridad. Intenta de nuevo.', 'error');
+            captchaRef.current?.reiniciar();
+            return;
+          }
+          const verificacion = await verificarCaptcha(token, { verifyUrl: CAPTCHA.verifyUrl });
+          if (!verificacion.ok) {
+            showToast(mensajeCaptcha(verificacion.motivo), 'error');
+            captchaRef.current?.reiniciar();
+            return;
+          }
+        } finally {
+          captchaEnCursoRef.current = false;
+        }
+      } else if (captchaValue !== String(captchaA + captchaB)) {
         setCaptchaA(Math.floor(Math.random() * 8) + 1);
         setCaptchaB(Math.floor(Math.random() * 8) + 1);
         setCaptchaValue('');
@@ -2211,6 +2254,16 @@ if (necesitaMoto) {
               </p>
               <p className="text-xs text-orange-700">
                 Tu inscripción fue exitosa. Contacta a soporte para recuperar tu PIN.
+              </p>
+            </div>
+          )}
+          {recordatorioMovilidad && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8 w-full max-w-xs text-left">
+              <p className="text-sm font-bold text-blue-800">Movilidad solicitada</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-blue-700">
+                {recordatorioMovilidad.montoUSD > 0 ? `USD ${recordatorioMovilidad.montoUSD.toFixed(2)}` : ''}
+                {recordatorioMovilidad.montoVES > 0 ? ` · Bs ${recordatorioMovilidad.montoVES.toFixed(2)}` : ''}
+                . Se paga directo al prestador; te contactará para coordinar la recogida.
               </p>
             </div>
           )}
@@ -2322,13 +2375,10 @@ if (necesitaMoto) {
    if (recargoAlquilerMoto > 0) items.push({ label: 'Alquiler Moto', value: '+$' + recargoAlquilerMoto });
   if (descuentoMotoPropia > 0) items.push({ label: 'Descuento Moto', value: '-$' + descuentoMotoPropia });
   if (descuentoPromo > 0) items.push({ label: 'Descuento Promo', value: '-$' + descuentoPromo });
-  if (form.movilidadSolicitada === true && Number(form.movilidadMontoUSD) > 0) {
-    items.push({ label: 'Movilidad (pago directo)', value: '$' + Number(form.movilidadMontoUSD).toFixed(2) });
-  }
   items.push({ label: 'Total USD', value: '$' + baseUSD, bold: true });
   return items;
 }}
- lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
+ lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} captchaRef={captchaRef} usarCaptchaReal={CAPTCHA.real} captchaSiteKey={CAPTCHA.siteKey} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
       </div>
       {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponiblesUI} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} esCursoDosDias={!cursoUnDia} fecha2Calc={disponibilidad?.fecha2Calc || null} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}
