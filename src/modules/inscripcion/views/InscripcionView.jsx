@@ -672,6 +672,9 @@ const {
   // T-159: captcha real (Turnstile) con verificacion en servidor.
   const captchaRef = useRef(null);
   const captchaEnCursoRef = useRef(false);
+  // T-163: si Turnstile no responde (red, DNS, IPv6 ausente) se usa la suma
+  // legada en el paso 4 para no bloquear la inscripcion.
+  const [captchaFallback, setCaptchaFallback] = useState(false);
 
   const [clockTick, setClockTick] = useState(0);
   useEffect(() => {
@@ -2157,7 +2160,9 @@ if (necesitaMoto) {
       }
 
 
-      if (CAPTCHA.real) {
+      // T-163: Turnstile cuando responde; si falla, suma legada en el paso 4.
+      const usarSumaCaptcha = !CAPTCHA.real || captchaFallback;
+      if (!usarSumaCaptcha) {
         if (captchaEnCursoRef.current) return;
         captchaEnCursoRef.current = true;
         try {
@@ -2168,12 +2173,17 @@ if (necesitaMoto) {
             token = '';
           }
           if (!token) {
-            showToast('No pudimos completar la verificación de seguridad. Intenta de nuevo.', 'error');
-            captchaRef.current?.reiniciar();
+            setCaptchaFallback(true);
+            showToast('No pudimos verificar con Cloudflare. Resuelve la suma para continuar.', 'info');
             return;
           }
           const verificacion = await verificarCaptcha(token, { verifyUrl: CAPTCHA.verifyUrl });
           if (!verificacion.ok) {
+            if (verificacion.motivo === 'red' || verificacion.motivo === 'sin_configuracion') {
+              setCaptchaFallback(true);
+              showToast('No pudimos verificar con Cloudflare. Resuelve la suma para continuar.', 'info');
+              return;
+            }
             showToast(mensajeCaptcha(verificacion.motivo), 'error');
             captchaRef.current?.reiniciar();
             return;
@@ -2378,7 +2388,7 @@ if (necesitaMoto) {
   items.push({ label: 'Total USD', value: '$' + baseUSD, bold: true });
   return items;
 }}
- lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} captchaRef={captchaRef} usarCaptchaReal={CAPTCHA.real} captchaSiteKey={CAPTCHA.siteKey} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
+ lockId={lockId} step={step} lockTimer={<LockTimerFlotante tiempoRestante={tiempoRestante} renovacionUsada={renovacionUsada} onRenovarLock={handleRenovarLock} />} mostrarDetallesPago={mostrarDetallesPago} onToggleDetalles={() => setMostrarDetallesPago(!mostrarDetallesPago)} captchaA={captchaA} captchaB={captchaB} captchaValue={captchaValue} onCaptchaChange={(e) => setCaptchaValue(e.target.value.replace(/\D/g, '').slice(0, 2))} captchaRef={captchaRef} usarCaptchaReal={CAPTCHA.real && !captchaFallback} onCaptchaFallar={() => setCaptchaFallback(true)} captchaSiteKey={CAPTCHA.siteKey} showToast={showToast} terminosAceptados={terminosAceptados} onToggleTerminos={() => setTerminosAceptados(!terminosAceptados)} onVerTerminos={() => setMostrarTerminos(true)} mostrarTerminos={mostrarTerminos} onCerrarTerminos={() => setMostrarTerminos(false)} />}
       </div>
       {mostrarCalendario && <CalendarioFlotante ref={calendarioRef} form={form} updateForm={updateForm} diasDisponibles={diasDisponiblesUI} maxDate={disponibilidad?.maxDate || ''} mesCalendario={mesCalendario} setMesCalendario={setMesCalendario} onClose={() => setMostrarCalendario(false)} showToast={showToast} esCursoDosDias={!cursoUnDia} fecha2Calc={disponibilidad?.fecha2Calc || null} />}
       {mostrarFormularioSalud && <FormularioSalud form={form} updateForm={updateForm} onClose={() => setMostrarFormularioSalud(false)} />}

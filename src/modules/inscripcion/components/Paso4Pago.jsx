@@ -14,7 +14,7 @@ export function Paso4Pago({
   precioFinalVES, baseUSD, precioCurso, tasaCobro, monedaCobroClientes, config,
   desglosePrecio, lockId, step, lockTimer,
   captchaA, captchaB, captchaValue, onCaptchaChange,
-  captchaRef, usarCaptchaReal, captchaSiteKey,
+  captchaRef, usarCaptchaReal, onCaptchaFallar, captchaSiteKey,
   showToast,
   terminosAceptados, onToggleTerminos, onVerTerminos, mostrarTerminos, onCerrarTerminos
 }) {
@@ -133,7 +133,7 @@ export function Paso4Pago({
           </div>
         )}
       </div>
-      {usarCaptchaReal && <CaptchaTurnstile ref={captchaRef} siteKey={captchaSiteKey} />}
+      {usarCaptchaReal && <CaptchaTurnstile ref={captchaRef} siteKey={captchaSiteKey} onFallar={onCaptchaFallar} />}
             {/* Checkbox de Términos y Condiciones */}
       <div className="mt-3">
         <label className="flex items-start gap-2 cursor-pointer">

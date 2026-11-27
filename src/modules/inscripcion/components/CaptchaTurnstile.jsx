@@ -5,7 +5,9 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { ShieldCheck, Loader2 } from 'lucide-react';
 
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-const ESPERA_TOKEN_MS = 60000;
+// T-163: si Cloudflare no responde en este plazo se usa la suma legada.
+// Antes eran 60 s y el estudiante quedaba bloqueado en el paso 4.
+const ESPERA_TOKEN_MS = 10000;
 
 let scriptPromesa = null;
 
@@ -38,7 +40,7 @@ function cargarTurnstile() {
 }
 
 export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
-  { siteKey, accion = 'inscripcion' },
+  { siteKey, accion = 'inscripcion', onFallar },
   ref
 ) {
   const contenedorRef = useRef(null);
@@ -46,6 +48,23 @@ export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
   const pendienteRef = useRef(null);
   const temporizadorRef = useRef(null);
   const [estado, setEstado] = useState('cargando');
+  const onFallarRef = useRef(onFallar);
+  const falloReportadoRef = useRef(false);
+
+  useEffect(() => {
+    onFallarRef.current = onFallar;
+  }, [onFallar]);
+
+  // T-163: avisar una sola vez para que la vista active la suma legada.
+  const reportarFallo = useCallback(() => {
+    if (falloReportadoRef.current) return;
+    falloReportadoRef.current = true;
+    try {
+      onFallarRef.current?.();
+    } catch {
+      // el fallback nunca debe romper el formulario
+    }
+  }, []);
 
   const limpiarPendiente = useCallback((resultado, valor) => {
     if (temporizadorRef.current) {
@@ -80,20 +99,26 @@ export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
           'error-callback': () => {
             setEstado('error');
             limpiarPendiente('error', new Error('turnstile-error'));
+            reportarFallo();
           },
           'expired-callback': () => {
             setEstado('listo');
             limpiarPendiente('error', new Error('turnstile-expired'));
+            reportarFallo();
           },
           'timeout-callback': () => {
             setEstado('listo');
             limpiarPendiente('error', new Error('turnstile-timeout'));
+            reportarFallo();
           },
         });
         setEstado('listo');
       })
       .catch(() => {
-        if (!cancelado) setEstado('error');
+        if (!cancelado) {
+          setEstado('error');
+          reportarFallo();
+        }
       });
 
     return () => {
@@ -113,6 +138,7 @@ export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
   useImperativeHandle(ref, () => ({
     solicitarToken() {
       if (!window.turnstile || widgetIdRef.current === null) {
+        reportarFallo();
         return Promise.reject(new Error('turnstile-no-listo'));
       }
       if (pendienteRef.current) {
@@ -124,12 +150,14 @@ export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
         temporizadorRef.current = setTimeout(() => {
           limpiarPendiente('error', new Error('turnstile-timeout'));
           setEstado('listo');
+          reportarFallo();
         }, ESPERA_TOKEN_MS);
         try {
           window.turnstile.execute(widgetIdRef.current);
         } catch (error) {
           limpiarPendiente('error', error);
           setEstado('listo');
+          reportarFallo();
         }
       });
     },
@@ -144,7 +172,7 @@ export const CaptchaTurnstile = forwardRef(function CaptchaTurnstile(
       }
       setEstado('listo');
     },
-  }), [limpiarPendiente]);
+  }), [limpiarPendiente, reportarFallo]);
 
   return (
     <div className="flex min-h-[18px] items-center gap-1.5 text-[10px] text-gray-500" aria-live="polite">
