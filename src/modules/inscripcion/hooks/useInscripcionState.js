@@ -12,6 +12,8 @@ const DEFAULT_FORM = {
   movilidadSolicitada: false, movilidadPin: null, movilidadDireccion: '',
   movilidadDistanciaKm: null, movilidadMontoUSD: null, movilidadMontoVES: null,
   movilidadSnapshot: null, movilidadAutorizacion: false,
+  // FT-090: segundo día de una sesión de dos días (D2).
+  movilidadD2Solicitada: false,
   pagoBanco: '', pagoTelefono: '', pagoCedula: '', pagoRef: '',
   condicionMedica: '', detalleCondicion: ''
 };

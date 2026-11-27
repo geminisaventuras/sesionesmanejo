@@ -5,6 +5,8 @@ import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { AppContext } from '../../../context/AppContextValue';
 import { ReservaService } from '../../inscripcion/services/ReservaService';
+import { MovilidadService } from '../../inscripcion/services/MovilidadService';
+import { horaInicioDesdeHorario } from '../../inscripcion/utils/movilidadHelpers';
 import { LockService } from '../../../services/LockService';
 import { useDisponibilidadPack } from '../../inscripcion/hooks/useDisponibilidadPack';
 import { useOcupacionConfirmadaRango } from '../../../hooks/useOcupacionConfirmadaRango';
@@ -55,8 +57,26 @@ export function AgendarPackView() {
   const [lockExpiresAt, setLockExpiresAt] = useState(null);
   const [selectingBlockId, setSelectingBlockId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // FT-090: movilidad por sesión del pack, reutilizando una solicitud previa.
+  const [movilidadBase, setMovilidadBase] = useState(null);
+  const [solicitarMovilidad, setSolicitarMovilidad] = useState(false);
   const [activeLocksRaw, setActiveLocks] = useState([]);
   const activeLocks = useStableArray(activeLocksRaw);
+
+  // FT-090: base de la movilidad (pin, tarifa y autorización ya aceptados) para
+  // solicitar el servicio en esta sesión del pack sin volver a cotizar.
+  useEffect(() => {
+    if (!uid) { setMovilidadBase(null); return undefined; }
+    let activo = true;
+    MovilidadService.listarPorUsuario(String(uid))
+      .then((lista) => {
+        if (!activo) return;
+        const base = (lista || []).find((m) => m?.pin && m?.tarifaSnapshot?.montoUSD > 0) || null;
+        setMovilidadBase(base);
+      })
+      .catch(() => { if (activo) setMovilidadBase(null); });
+    return () => { activo = false; };
+  }, [uid]);
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
   const [tiempoRestante, setTiempoRestante] = useState(null);
@@ -577,6 +597,39 @@ const sedeNombre = etiquetaSede(sedeObj) || sedeDefault;
     setIsSubmitting(false);
 
     if (result.success) {
+      // FT-090: movilidad de esta sesión (D1 y, si es de dos días, D2).
+      if (solicitarMovilidad && movilidadBase && result.data?.id) {
+        try {
+          const horario = (horarios || []).find((h) => String(h.id) === String(horaId));
+          const horaInicio = horaInicioDesdeHorario(horario);
+          const dias = [{ dia: 'D1', fechaSesion: fecha1 }];
+          if (!cursoUnDia && disponibilidad?.fecha2Calc) {
+            dias.push({ dia: 'D2', fechaSesion: disponibilidad.fecha2Calc });
+          }
+          for (const dia of dias) {
+            await MovilidadService.crearSolicitud({
+              userId: String(uid),
+              reservaId: result.data.id,
+              childId: result.data.id,
+              fechaSesion: dia.fechaSesion,
+              dia: dia.dia,
+              horaId,
+              horaInicio,
+              sedeId: sedeSeleccionadaId || pack.sedeId || null,
+              pin: movilidadBase.pin,
+              direccion: movilidadBase.direccion || '',
+              distanciaKm: movilidadBase.distanciaKm,
+              snapshot: movilidadBase.tarifaSnapshot,
+              autorizacion: movilidadBase.autorizacion,
+              nombreEstudiante: movilidadBase.nombreEstudiante || `${childAnterior?.nombre || ''} ${childAnterior?.apellido || ''}`.trim(),
+              telefonoEstudiante: movilidadBase.telefonoEstudiante || childAnterior?.telefono || '',
+              notas: movilidadBase.notas || '',
+            });
+          }
+        } catch {
+          showToast('Sesión agendada, pero la movilidad no se registró. Escríbenos por WhatsApp.', 'warning');
+        }
+      }
       showToast('¡Sesión agendada! Ya puedes ver la fecha en tu pack.', 'success');
       navigate(`/mi-pack/${packReservaId}`);
     } else {
@@ -595,7 +648,7 @@ const sedeNombre = etiquetaSede(sedeObj) || sedeDefault;
       }
       showToast('Error al agendar: ' + (result.error?.message || 'Intentá de nuevo'), 'error');
     }
-  }, [uid, lockId, horaId, childAnterior, cursoData, disponibilidad, motos, pack, packReservaId, fecha1, showToast, navigate]);
+  }, [uid, lockId, horaId, childAnterior, cursoData, disponibilidad, motos, pack, packReservaId, fecha1, showToast, navigate, solicitarMovilidad, movilidadBase, horarios, cursoUnDia, sedeSeleccionadaId]);
 
   const handleLogout = useCallback(async () => {
     if (logoutUser) await logoutUser();
@@ -729,6 +782,27 @@ const sedeNombre = etiquetaSede(sedeObj) || sedeDefault;
           <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-center justify-between">
             <span className="text-xs font-bold text-orange-800">Tiempo para confirmar:</span>
             <span className="text-sm font-black text-orange-700">{min}:{String(seg).padStart(2, '0')}</span>
+          </div>
+        )}
+
+        {/* FT-090: movilidad por sesión del pack (reutiliza la solicitud previa). */}
+        {form.traeMoto === 'Sí' && movilidadBase && (
+          <div className="bg-white rounded-2xl border border-blue-200 p-3 shadow-sm">
+            <label className="flex items-start gap-2 text-xs font-bold text-gray-800">
+              <input
+                type="checkbox"
+                checked={solicitarMovilidad}
+                onChange={(e) => setSolicitarMovilidad(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>
+                Solicitar movilidad para esta sesión
+                <span className="block text-[11px] font-normal text-gray-600">
+                  Se usa la ubicación de tu solicitud anterior: {movilidadBase.direccion || 'tu punto de recogida autorizado'}.
+                  {!cursoUnDiaPack && ' Se crea una solicitud por cada día (D1 y D2).'}
+                </span>
+              </span>
+            </label>
           </div>
         )}
       </div>

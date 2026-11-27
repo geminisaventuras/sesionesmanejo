@@ -24,6 +24,7 @@ import { useMetricasUsuario } from '../../../hooks/useMetricasUsuario';
 import { VistaPacks } from '../components/VistaPacks';
 import { crearFlowId } from '../../inscripcion/hooks/useInscripcionState';
 import { MovilidadService } from '../../inscripcion/services/MovilidadService';
+import { diaDeSolicitud, horaInicioDesdeHorario } from '../../inscripcion/utils/movilidadHelpers';
 import { seleccionarSolicitudVigente } from '../utils/movilidadEstudiante';
 
 import {
@@ -120,16 +121,21 @@ export function EstudiantePanel() {
   }, [cargarPacks]);
 
   // T-159 / FT-086: recordatorio de movilidad en el Inicio del panel.
+  // FT-090: se conserva la lista para detectar el día faltante (D1/D2).
   // Solo lectura del dueño; no se muestra direccion ni telefono.
   const [solicitudMovilidad, setSolicitudMovilidad] = useState(null);
-  useEffect(() => {
-    let cancelado = false;
-    if (!uid) { setSolicitudMovilidad(null); return () => { cancelado = true; }; }
+  const [movilidadesUsuario, setMovilidadesUsuario] = useState([]);
+  const [solicitandoMovilidad, setSolicitandoMovilidad] = useState(false);
+  const recargarMovilidad = useCallback(() => {
+    if (!uid) { setSolicitudMovilidad(null); setMovilidadesUsuario([]); return; }
     MovilidadService.listarPorUsuario(String(uid))
-      .then((lista) => { if (!cancelado) setSolicitudMovilidad(seleccionarSolicitudVigente(lista)); })
-      .catch(() => { if (!cancelado) setSolicitudMovilidad(null); });
-    return () => { cancelado = true; };
+      .then((lista) => {
+        setMovilidadesUsuario(lista || []);
+        setSolicitudMovilidad(seleccionarSolicitudVigente(lista || []));
+      })
+      .catch(() => { setSolicitudMovilidad(null); setMovilidadesUsuario([]); });
   }, [uid]);
+  useEffect(() => { recargarMovilidad(); }, [recargarMovilidad]);
 
   // FIX-PACK-REACTIVIDAD-BUG2: reaccionar al trigger SSOT (updatedAt) cuando
   // el admin cambia el estado de la maestra (aprobar/rechazar/cancelar).
@@ -236,6 +242,68 @@ export function EstudiantePanel() {
   useEffect(() => { buscarCurso(); }, [buscarCurso]);
 
   const reservaActual = reservaRealTime || reservaContext;
+
+  // FT-090: si la reserva es de dos días y ya existe D1 (o D2), ofrecer el
+  // día faltante reutilizando la ubicación y tarifa ya autorizadas.
+  const movilidadReserva = useMemo(
+    () => (movilidadesUsuario || []).filter(
+      (m) => reservaActual?.id && String(m.reservaId) === String(reservaActual.id)
+    ),
+    [movilidadesUsuario, reservaActual?.id]
+  );
+  const diaFaltante = useMemo(() => {
+    const reservaDosDias = Boolean(reservaActual?.fecha2 && reservaActual.fecha2 !== reservaActual.fecha);
+    if (!reservaDosDias || movilidadReserva.length === 0) return null;
+    const dias = new Set(movilidadReserva.map((m) => diaDeSolicitud(m)));
+    if (dias.has('D1') && dias.has('D2')) return null;
+    return dias.has('D1') ? 'D2' : 'D1';
+  }, [movilidadReserva, reservaActual?.fecha, reservaActual?.fecha2]);
+
+  const solicitarDiaFaltante = useCallback(async () => {
+    if (!diaFaltante || !reservaActual?.id || solicitandoMovilidad) return;
+    const base = movilidadReserva.find((m) => diaDeSolicitud(m) !== diaFaltante) || movilidadReserva[0];
+    if (!base?.pin || !base?.tarifaSnapshot) {
+      showToast('No encontramos la ubicación de una solicitud previa.', 'error');
+      return;
+    }
+    const fechaSesion = diaFaltante === 'D2' ? reservaActual.fecha2 : reservaActual.fecha;
+    const horaId = diaFaltante === 'D2'
+      ? (reservaActual.horaIdReposicion || reservaActual.horaId)
+      : reservaActual.horaId;
+    const horario = (horarios || []).find((h) => String(h.id) === String(horaId));
+    const horaInicio = horaInicioDesdeHorario(horario);
+    setSolicitandoMovilidad(true);
+    try {
+      const result = await MovilidadService.crearSolicitud({
+        userId: String(uid),
+        reservaId: reservaActual.id,
+        childId: base.childId || null,
+        fechaSesion,
+        dia: diaFaltante,
+        horaId,
+        horaInicio,
+        sedeId: reservaActual.sedeId,
+        pin: base.pin,
+        direccion: base.direccion || '',
+        distanciaKm: base.distanciaKm,
+        snapshot: base.tarifaSnapshot,
+        autorizacion: base.autorizacion,
+        nombreEstudiante: base.nombreEstudiante || '',
+        telefonoEstudiante: base.telefonoEstudiante || '',
+        notas: base.notas || '',
+      });
+      if (result.success) {
+        showToast(`Movilidad ${diaFaltante} solicitada. El prestador te contactará.`, 'success');
+        recargarMovilidad();
+      } else {
+        showToast(result.error?.message || 'No pudimos registrar la movilidad.', 'error');
+      }
+    } catch {
+      showToast('No pudimos registrar la movilidad.', 'error');
+    } finally {
+      setSolicitandoMovilidad(false);
+    }
+  }, [diaFaltante, reservaActual, solicitandoMovilidad, movilidadReserva, horarios, uid, showToast, recargarMovilidad]);
 
   const handleLogout = useCallback(async () => { if (logoutUser) await logoutUser(); navigate('/'); }, [logoutUser, navigate]);
 
@@ -969,6 +1037,9 @@ const estaCompletado = cursoAprobado || Boolean(completado?.fecha);
             cursos={cursos}
             metricas={metricasHook}
             solicitudMovilidad={solicitudMovilidad}
+            diaFaltante={diaFaltante}
+            onSolicitarDiaFaltante={solicitarDiaFaltante}
+            solicitandoMovilidad={solicitandoMovilidad}
           />
         )}
         {tab === 'servicios' && !modoCorreccion && (

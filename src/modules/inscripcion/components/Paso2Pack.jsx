@@ -4,8 +4,9 @@ import { MapPin, Bike, Zap, BookOpen, Package, GraduationCap } from 'lucide-reac
 import { AppContext } from '../../../context/AppContextValue';
 import { nombreSedeCanonico } from '../../shared/utils/sedesHelpers';
 import { calcularRecargoSedePack } from '../utils/packPricing';
+import { MovilidadSolicitud } from './MovilidadSolicitud';
 
-export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
+export function Paso2Pack({ form, updateForm, pack, cursos, sedes, esCursoDosDias = false, fecha2Calc = null }) {
   const ctx = useContext(AppContext);
   const cursosPack = (pack?.cursoIds || [])
     .map(id => (cursos || []).find(c => String(c.id) === String(id)))
@@ -70,6 +71,15 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
   const precioFinalConRecargo = Number((precioFinal + recargoSedeTotal).toFixed(2));
 
   const traeMotoPorCurso = form.traeMotoPorCurso || {};
+
+  // FT-090: la movilidad de la primera sesión del pack solo aplica si esa
+  // sesión usa moto propia (el prestador conduce la moto del estudiante).
+  const primeraSesionPack = cursosConComportamiento[0] || null;
+  const traeMotoPrimeraSesion = primeraSesionPack
+    ? (primeraSesionPack.modo === 'fijo-propia' ||
+       (primeraSesionPack.modo === 'preguntar' &&
+        traeMotoPorCurso[String(primeraSesionPack.curso.id)] === 'Sí'))
+    : false;
 
   const setTraeMoto = (cursoId, valor) => {
     updateForm({
@@ -236,6 +246,20 @@ export function Paso2Pack({ form, updateForm, pack, cursos, sedes }) {
           );
         })}
       </div>
+
+      {/* FT-090: movilidad de la primera sesión del pack con captura de ubicación. */}
+      <MovilidadSolicitud
+        form={form}
+        updateForm={updateForm}
+        sedes={sedes}
+        config={ctx.config}
+        esCursoDosDias={esCursoDosDias}
+        fecha2Calc={fecha2Calc}
+        permitirSinTraeMoto={traeMotoPrimeraSesion}
+        titulo="Solicitar movilidad para la primera sesión del pack"
+        ayuda="Marca tu ubicación de recogida y autoriza el traslado. El costo se paga directo al prestador y no se suma al pack."
+        etiquetaD2="Solicitar movilidad también para el segundo día de la primera sesión"
+      />
 
       {/* Preview de precio */}
       <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-200 space-y-1 text-sm">

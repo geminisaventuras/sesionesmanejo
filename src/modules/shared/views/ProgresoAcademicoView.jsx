@@ -1,6 +1,7 @@
 // @build: 2026-09-21 | id: PROGRESO-ACADEMICO-VIEW | desc: Vista dedicada de progreso académico por reserva (admin, instructor, estudiante)
 import { useContext, useState, useEffect, useMemo } from 'react';
 import { formatearSede } from '../../shared/utils/sedesHelpers';
+import { normalizarModulos, marcarModulo, marcarTodosLosModulos, cursoEstaCompletado } from '../utils/progresoAcademico';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../firebase';
@@ -118,12 +119,9 @@ export function ProgresoAcademicoView() {
     try {
       const batch = writeBatch(db);
       const reservaRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaLocal.id);
-      const nuevosEstados = {
-        ...(reservaLocal.modulosEstado || {}),
-        [nombre]: { fecha: new Date().toISOString(), duracion: Number(modulo.duracion) || 0 }
-      };
-      const modulos = (curso?.modulos || []).map((mod) => typeof mod === 'string' ? { nombre: mod } : mod);
-      const cursoCompletado = modulos.length > 0 && modulos.every((mod) => nuevosEstados[mod.nombre]?.fecha);
+      const nuevosEstados = marcarModulo(reservaLocal.modulosEstado, modulo, new Date().toISOString());
+      const modulos = normalizarModulos(curso);
+      const cursoCompletado = cursoEstaCompletado(modulos, nuevosEstados);
       const updateData = { modulosEstado: nuevosEstados, updatedAt: serverTimestamp() };
       if (cursoCompletado) updateData.estadoCurso = 'Aprobado';
       batch.update(reservaRef, updateData);
@@ -151,13 +149,8 @@ export function ProgresoAcademicoView() {
     try {
       const batch = writeBatch(db);
       const reservaRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'reservas', reservaLocal.id);
-      const modulos = (curso?.modulos || []).map((mod) => typeof mod === 'string' ? { nombre: mod } : mod);
-      const nuevosEstados = { ...(reservaLocal.modulosEstado || {}) };
-      modulos.forEach((mod) => {
-        if (!nuevosEstados[mod.nombre]?.fecha) {
-          nuevosEstados[mod.nombre] = { fecha: new Date().toISOString(), duracion: Number(mod.duracion) || 0 };
-        }
-      });
+      const modulos = normalizarModulos(curso);
+      const nuevosEstados = marcarTodosLosModulos(reservaLocal.modulosEstado, modulos, new Date().toISOString());
       batch.update(reservaRef, { modulosEstado: nuevosEstados, estadoCurso: 'Aprobado', updatedAt: serverTimestamp() });
       batch.set(doc(db, 'ocupacionConfirmada', reservaLocal.id), { estadoCurso: 'Aprobado' }, { merge: true });
       if (reservaLocal.userId) {
@@ -214,7 +207,7 @@ export function ProgresoAcademicoView() {
   }
 
   const estados = reservaLocal?.modulosEstado || {};
-  const modulosCurso = (curso?.modulos || []).map(mod => typeof mod === 'string' ? { nombre: mod } : mod);
+  const modulosCurso = normalizarModulos(curso);
   const total = modulosCurso.length;
   const completados = modulosCurso.filter(m => estados[m.nombre]?.fecha).length;
   const tiempoConsumido = Object.values(estados).reduce((acc, m) => acc + (m.duracion || 0) + (m.duracionExtra || 0), 0);

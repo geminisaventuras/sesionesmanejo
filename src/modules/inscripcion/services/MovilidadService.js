@@ -14,7 +14,13 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { puedeTransicionarMovilidad } from '../utils/movilidadHelpers.js';
+import {
+  horaInicioDesdeHorario,
+  horaRecogidaDesdeInicio,
+  idSolicitudMovilidad,
+  planSincronizacionMovilidad,
+  puedeTransicionarMovilidad,
+} from '../utils/movilidadHelpers.js';
 
 const APP_ID = 'motoescuela-pro-v1';
 const BASE = ['artifacts', APP_ID, 'public', 'data'];
@@ -30,10 +36,6 @@ async function listarColeccion(nombre, filtros = [], tope = 100) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-function idSolicitud(reservaId, fechaSesion) {
-  return `${reservaId}_${fechaSesion}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
 export const MovilidadService = {
   /**
    * Crea la solicitud ligada a una reserva. Es idempotente por reserva+fecha:
@@ -44,6 +46,10 @@ export const MovilidadService = {
     reservaId,
     childId = null,
     fechaSesion,
+    dia = 'D1',
+    horaId = null,
+    horaInicio = null,
+    horaRecogida = null,
     sedeId,
     pin,
     direccion = '',
@@ -62,13 +68,19 @@ export const MovilidadService = {
       return { success: false, error: { code: 'tarifa-invalida', message: 'No hay una tarifa de movilidad válida.' } };
     }
 
-    const id = idSolicitud(reservaId, fechaSesion);
+    const diaNormalizado = dia === 'D2' ? 'D2' : 'D1';
+    const id = idSolicitudMovilidad(reservaId, diaNormalizado);
+    const horaRecogidaFinal = horaRecogida || horaRecogidaDesdeInicio(horaInicio, 30);
     try {
       await setDoc(doc(db, ...BASE, 'solicitudesMovilidad', id), {
         userId,
         reservaId,
         childId,
         fechaSesion,
+        dia: diaNormalizado,
+        horaId,
+        horaInicio: horaInicio || null,
+        horaRecogida: horaRecogidaFinal,
         sedeId,
         pin,
         direccion,
@@ -123,11 +135,112 @@ export const MovilidadService = {
     return data.sort(ordenarPorFecha);
   },
 
-  // Detalle admin: una reserva individual puede tener una sola solicitud.
+  // FT-090: una reserva puede tener hasta dos solicitudes (D1 y D2).
   async listarPorReserva(reservaId) {
     if (!reservaId) return [];
     const data = await listarColeccion('solicitudesMovilidad', [['reservaId', String(reservaId)]], 10);
-    return data.sort(ordenarPorFecha);
+    return data.sort((a, b) => {
+      const fecha = ordenarPorFecha(a, b);
+      if (fecha !== 0) return fecha;
+      return String(a.dia || '').localeCompare(String(b.dia || ''));
+    });
+  },
+
+  /**
+   * FT-090: mantiene D1/D2 sincronizadas con la reserva. Actualiza fecha,
+   * hora de inicio y hora de recogida (30 min antes), conserva el prestador
+   * asignado y emite el aviso; si la reserva está cancelada, cancela la
+   * movilidad. Idempotente: no escribe ni notifica si no hay cambios.
+   */
+  async sincronizarConReserva(reservaId, {
+    fecha = null,
+    fecha2 = null,
+    horaId = null,
+    horaIdReposicion = null,
+    estadoReserva = null,
+  } = {}) {
+    if (!reservaId) return { success: false, error: { code: 'datos-incompletos' } };
+    try {
+      const solicitudes = await this.listarPorReserva(reservaId);
+      if (solicitudes.length === 0) {
+        return { success: true, actualizadas: 0, canceladas: 0, omitidas: true };
+      }
+
+      const horaIds = [...new Set(
+        [horaId, horaIdReposicion, ...solicitudes.map((s) => s.horaId)].filter(Boolean).map(String)
+      )];
+      const horaInicioPorHoraId = {};
+      await Promise.all(horaIds.map(async (id) => {
+        try {
+          const snap = await getDoc(doc(db, ...BASE, 'horarios', id));
+          if (!snap.exists()) return;
+          const horaInicio = horaInicioDesdeHorario(snap.data());
+          if (horaInicio) horaInicioPorHoraId[id] = horaInicio;
+        } catch (error) {
+          // Sin horario legible la recogida queda sin calcular; no se inventa.
+          console.warn('[MovilidadService] horario no legible:', error.code || 'error');
+        }
+      }));
+
+      // Compatibilidad: si un documento legacy aún no tiene `dia`, se infiere
+      // por la fecha de la reserva antes de planificar (la migración lo fija).
+      const solicitudesConDia = solicitudes.map((solicitud) => {
+        if (solicitud.dia === 'D1' || solicitud.dia === 'D2') return solicitud;
+        if (/_D[12]$/.test(String(solicitud.id || ''))) return solicitud;
+        if (fecha2 && solicitud.fechaSesion === fecha2 && solicitud.fechaSesion !== fecha) {
+          return { ...solicitud, dia: 'D2' };
+        }
+        return { ...solicitud, dia: 'D1' };
+      });
+
+      const plan = planSincronizacionMovilidad({
+        solicitudes: solicitudesConDia,
+        fecha,
+        fecha2,
+        horaId,
+        horaIdReposicion,
+        estadoReserva,
+        horaInicioPorHoraId,
+      });
+      if (plan.length === 0) {
+        return { success: true, actualizadas: 0, canceladas: 0, omitidas: true };
+      }
+
+      let actualizadas = 0;
+      let canceladas = 0;
+      const notificables = [];
+      for (const item of plan) {
+        await updateDoc(doc(db, ...BASE, 'solicitudesMovilidad', item.id), {
+          ...item.cambios,
+          actualizadoEn: serverTimestamp(),
+        });
+        if (item.tipo === 'cancelar') {
+          canceladas += 1;
+        } else {
+          actualizadas += 1;
+          if (item.prestadorId) notificables.push({ id: item.id, prestadorId: item.prestadorId });
+        }
+      }
+
+      const actorUid = auth.currentUser?.uid || null;
+      if (actorUid) {
+        for (const item of notificables) {
+          void emitirEvento({
+            tipo: 'movilidad_asignada',
+            entidadTipo: 'movilidad',
+            entidadId: item.id,
+            actorUid,
+            token: item.prestadorId,
+            datos: { movilidadId: item.id, reservaId },
+          });
+        }
+      }
+
+      return { success: true, actualizadas, canceladas };
+    } catch (error) {
+      console.error('[MovilidadService] sincronizarConReserva:', error.code || 'error', error.message || '');
+      return { success: false, error: { code: error.code || 'error' } };
+    }
   },
 
   async listarTodas() {

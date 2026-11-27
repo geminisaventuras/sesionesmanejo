@@ -1,17 +1,13 @@
 // @build: 2026-09-14 | id: LEGAL-TERMINOLOGIA-PASO2-CONFIG | desc: Validacion de compatibilidad curso-caracteristicas + auto-ajuste segun campos del curso
-import React, { useRef, useEffect, useMemo, useState, useContext, useCallback } from 'react';
-import { Bike, Zap, BookOpen, Info, X, Check, ChevronDown } from 'lucide-react';
+import React, { useRef, useEffect, useMemo, useState, useContext } from 'react';
+import { Bike, Zap, BookOpen, Info, Check, ChevronDown } from 'lucide-react';
 import { useCursoAutomatico } from '../../../hooks/useCursoAutomatico';
 import { resolverTipoMotoCurso } from '../utils/tipoMotoCurso';
 import { cumplePrerequisito } from '../../../constants/cursoSecuencia';
 import { derivarTraeMotoPermitido } from '../../shared/utils/motoHelpers';
 import { etiquetaCortaSede } from '../../shared/utils/sedesHelpers';
 import { filtrarSedesPorUbicacion } from '../../shared/utils/geografiaHelpers';
-import SelectorUbicacionMapa from '../../shared/components/SelectorUbicacionMapa';
-import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
-import { calcularTarifaMovilidad, calcularMontoVESMovilidad, construirSnapshotMovilidad } from '../utils/movilidadPricing';
-import { distanciaMovilidadKm, MOVILIDAD_AUTORIZACION_TEXTO } from '../utils/movilidadHelpers';
-import { resolverTasaFXVigente } from '../utils/precioIndividual';
+import { MovilidadSolicitud } from './MovilidadSolicitud';
 import { AppContext } from '../../../context/AppContextValue';
 function evaluarCompatibilidad(curso, form) {
     if (!curso) return { ok: false, razon: '' };
@@ -122,7 +118,7 @@ function SelectorLista({ etiqueta, placeholder, valor, grupos = [], onSelecciona
   );
 }
 
-export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSinBici, reservas, fbUser }) {  
+export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSinBici, reservas, fbUser, esCursoDosDias = false, fecha2Calc = null }) {  
   const esOrigenPublico = form.origenPublico || form.cursoSugeridoActivo;
 
   const { cursoAsignado, esAutomatico } = useCursoAutomatico(
@@ -145,57 +141,6 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
   const mapaRef = useRef(null);
   const [biciContraida, setBiciContraida] = useState(false);
   const [motoContraida, setMotoContraida] = useState(false);
-  // La selección de la ubicación de recogida vive en una hoja (sheet) para no
-  // alargar el paso 2 en móvil; el bloque inline solo muestra el resumen.
-  const [sheetMovilidad, setSheetMovilidad] = useState(false);
-  // Se activa al marcar la casilla: la hoja abre con el aviso de ubicación y,
-  // si el permiso ya está concedido, intenta ubicar de inmediato.
-  const [pistaUbicacion, setPistaUbicacion] = useState(false);
-  const [verCondiciones, setVerCondiciones] = useState(false);
-  const sheetRef = useRef(null);
-  const cerrarSheet = useCallback(() => {
-    setSheetMovilidad(false);
-    // Al volver del mapa, deja visible la configuración (bici/moto/sede) en vez
-    // de quedar al final del paso 2.
-    if (typeof window === 'undefined') return;
-    const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      sedeRef.current?.scrollIntoView({ behavior: reducido ? 'auto' : 'smooth', block: 'start' });
-    }));
-  }, []);
-  useFocusTrap(sheetRef, cerrarSheet);
-
-  // El scroller real del wizard es el contenedor de AppShell, no el body:
-  // se bloquea mientras la hoja está abierta para que el fondo no se mueva.
-  useEffect(() => {
-    if (!sheetMovilidad) return undefined;
-    const scroller = mapaRef.current?.closest('.overflow-y-auto') || null;
-    const overflowPrevio = scroller?.style.overflow || '';
-    if (scroller) scroller.style.overflow = 'hidden';
-    return () => {
-      if (scroller) scroller.style.overflow = overflowPrevio;
-    };
-  }, [sheetMovilidad]);
-
-  useEffect(() => {
-    if (!sheetMovilidad) return undefined;
-    const overflowPrevio = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflowPrevio;
-    };
-  }, [sheetMovilidad]);
-
-  const limpiarMovilidad = () => updateForm({
-    movilidadSolicitada: false,
-    movilidadPin: null,
-    movilidadDireccion: '',
-    movilidadDistanciaKm: null,
-    movilidadMontoUSD: null,
-    movilidadMontoVES: null,
-    movilidadSnapshot: null,
-    movilidadAutorizacion: false,
-  });
   const desplazarA = (ref) => {
     if (typeof window === 'undefined') return;
     const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
@@ -392,74 +337,6 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
 
   // FT-058: movilidad opcional para quien trae moto propia.
   const movilidadCfg = useMemo(() => appConfig?.movilidad || {}, [appConfig]);
-  const sedeSeleccionada = useMemo(
-    () => (sedes || []).find(s => String(s.id) === String(form.sedeId)) || null,
-    [sedes, form.sedeId]
-  );
-  const distanciaMovilidad = useMemo(
-    () => distanciaMovilidadKm(form.movilidadPin, sedeSeleccionada),
-    [form.movilidadPin, sedeSeleccionada]
-  );
-  const tarifaMovilidad = useMemo(
-    () => (distanciaMovilidad
-      ? calcularTarifaMovilidad({ config: movilidadCfg, distanciaKm: distanciaMovilidad })
-      : null),
-    [distanciaMovilidad, movilidadCfg]
-  );
-  const tasaFXMovilidad = useMemo(() => resolverTasaFXVigente(appConfig || {}), [appConfig]);
-
-  useEffect(() => {
-    if (form.traeMoto === 'Sí') return;
-    if (!form.movilidadSolicitada && !form.movilidadPin && !form.movilidadAutorizacion) return;
-    updateForm({
-      movilidadSolicitada: false,
-      movilidadPin: null,
-      movilidadDireccion: '',
-      movilidadDistanciaKm: null,
-      movilidadMontoUSD: null,
-      movilidadMontoVES: null,
-      movilidadSnapshot: null,
-      movilidadAutorizacion: false,
-    });
-  }, [form.traeMoto, form.movilidadSolicitada, form.movilidadPin, form.movilidadAutorizacion, updateForm]);
-
-  useEffect(() => {
-    if (form.movilidadSolicitada !== true) return;
-    const snapshot = tarifaMovilidad?.disponible
-      ? construirSnapshotMovilidad({
-          config: movilidadCfg,
-          distanciaKm: distanciaMovilidad,
-          tasaFX: tasaFXMovilidad,
-          calculadoPor: 'cliente',
-        })
-      : null;
-    const monto = snapshot?.montoUSD ?? null;
-    const montoVES = snapshot?.montoVES ?? null;
-    const distancia = distanciaMovilidad ?? null;
-    if (
-      form.movilidadDistanciaKm === distancia &&
-      form.movilidadMontoUSD === monto &&
-      form.movilidadMontoVES === montoVES &&
-      form.movilidadSnapshot
-    ) return;
-    updateForm({
-      movilidadDistanciaKm: distancia,
-      movilidadMontoUSD: monto,
-      movilidadMontoVES: montoVES,
-      movilidadSnapshot: snapshot,
-    });
-  }, [
-    form.movilidadSolicitada,
-    form.movilidadDistanciaKm,
-    form.movilidadMontoUSD,
-    form.movilidadMontoVES,
-    distanciaMovilidad,
-    tarifaMovilidad,
-    tasaFXMovilidad,
-    movilidadCfg,
-    form.movilidadSnapshot,
-    updateForm,
-  ]);
 
   return (
     <div className="space-y-4">
@@ -760,195 +637,15 @@ export function Paso2Configuracion({ form, updateForm, cursos, sedes, recargoSin
         )}
       </div>
 
-      {form.traeMoto === 'Sí' && movilidadCfg.activo === true && (
-        <div ref={mapaRef} className="scroll-mt-24 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-3">
-          <label className="flex items-start gap-2 text-sm font-bold text-gray-800">
-            <input
-              type="checkbox"
-              checked={form.movilidadSolicitada === true}
-              onChange={e => {
-                if (e.target.checked) {
-                  updateForm({ movilidadSolicitada: true });
-                  setPistaUbicacion(true);
-                  setSheetMovilidad(true);
-                } else {
-                  limpiarMovilidad();
-                  setPistaUbicacion(false);
-                  setSheetMovilidad(false);
-                }
-              }}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span>
-              ¿Quieres que te busquemos en tu ubicación?
-              <span className="block text-[11px] font-normal text-gray-600 mt-0.5">
-                Un prestador conduce tu moto hasta la sede y te devuelve al terminar. El costo se paga directo al prestador.
-              </span>
-            </span>
-          </label>
-
-          {form.movilidadSolicitada === true && (
-            <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold text-gray-800">
-                    {form.movilidadPin ? 'Ubicación de recogida marcada' : 'Falta marcar tu ubicación'}
-                  </p>
-                  {form.movilidadDireccion && (
-                    <p className="m-0 truncate text-[11px] text-gray-600">{form.movilidadDireccion}</p>
-                  )}
-                  {tarifaMovilidad?.disponible && (
-                    <p className="m-0 mt-1 text-[11px] font-bold text-blue-800">
-                      ${tarifaMovilidad.montoUSD.toFixed(2)} · {distanciaMovilidad.toFixed(1)} km
-                    </p>
-                  )}
-                  {!form.movilidadAutorizacion && (
-                    <p className="m-0 mt-1 text-[11px] font-semibold text-amber-700">
-                      Falta aceptar las condiciones del traslado.
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSheetMovilidad(true)}
-                  className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
-                >
-                  {form.movilidadPin ? 'Ajustar' : 'Marcar'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {form.traeMoto === 'Sí' && movilidadCfg.activo === true && sheetMovilidad && form.movilidadSolicitada === true && (
-        <div className="fixed inset-0 z-50 flex">
-          <section
-            ref={sheetRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="movilidad-sheet-titulo"
-            className="relative flex h-dvh w-full flex-col bg-white"
-          >
-            <header className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 pb-2 pt-[calc(10px_+_env(safe-area-inset-top))]">
-              <h2 id="movilidad-sheet-titulo" className="m-0 text-base font-extrabold leading-tight text-gray-900">
-                Ubicación de recogida
-              </h2>
-              <button
-                type="button"
-                onClick={cerrarSheet}
-                aria-label="Cerrar mapa de movilidad"
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </header>
-
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-4 pb-3 pt-2">
-              {!sedeSeleccionada && (
-                <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                  Selecciona primero la sede para calcular la distancia.
-                </p>
-              )}
-
-              <SelectorUbicacionMapa
-                latitud={form.movilidadPin?.lat}
-                longitud={form.movilidadPin?.lng}
-                centro={sedeSeleccionada?.coordenadas}
-                onChange={(pin) => updateForm({ movilidadPin: pin })}
-                onDireccion={({ direccion, lat, lng }) => updateForm({
-                  movilidadPin: { lat, lng },
-                  movilidadDireccion: direccion || form.movilidadDireccion || '',
-                })}
-                etiqueta="Tu ubicación de recogida"
-                ayuda="Escribe tu dirección, usa tu ubicación o toca el mapa."
-                ariaLabel="Mapa para marcar tu ubicación de recogida"
-                permitirBuscarDireccion
-                permitirGeolocalizacion
-                variante="hoja"
-                autoUbicar={pistaUbicacion}
-              />
-
-              {form.movilidadPin && !sedeSeleccionada?.coordenadas && (
-                <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
-                  La sede no tiene ubicación configurada; no podemos calcular la distancia.
-                </p>
-              )}
-
-              {tarifaMovilidad?.disponible && (
-                <div className="rounded-xl bg-white border border-blue-200 p-2">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-[11px] font-bold text-gray-600">
-                      {tarifaMovilidad.modalidad === 'plana' ? 'Tarifa plana' : 'Tarifa por km'} · {distanciaMovilidad.toFixed(1)} km
-                    </span>
-                    <span className="text-base font-black text-gray-900">
-                      ${tarifaMovilidad.montoUSD.toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="text-[11px] font-bold text-blue-800 mt-0.5">
-                    Bs {calcularMontoVESMovilidad(tarifaMovilidad.montoUSD, tasaFXMovilidad).toFixed(2)}
-                  </p>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Un solo monto por viaje ida y vuelta. Pago directo al prestador, no se suma al pago del curso.
-                  </p>
-                </div>
-              )}
-
-              {tarifaMovilidad && !tarifaMovilidad.disponible && (
-                <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
-                  {tarifaMovilidad.motivo === 'fuera-cobertura'
-                    ? `Tu ubicación está fuera de la cobertura (${tarifaMovilidad.kmTope} km).`
-                    : 'No pudimos cotizar la movilidad para esta ubicación.'}
-                </p>
-              )}
-
-              <div>
-                <label className="flex items-start gap-2 text-[11px] leading-snug text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={form.movilidadAutorizacion === true}
-                    onChange={e => updateForm({ movilidadAutorizacion: e.target.checked })}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>Acepto las condiciones del traslado.</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setVerCondiciones(v => !v)}
-                  className="ml-6 mt-0.5 text-[10.5px] font-bold text-blue-700 underline underline-offset-2"
-                >
-                  {verCondiciones ? 'Ocultar condiciones' : 'Ver condiciones'}
-                </button>
-                {verCondiciones && (
-                  <p className="mt-1 rounded-lg bg-gray-50 px-2 py-1.5 text-[10.5px] leading-snug text-gray-600">
-                    {MOVILIDAD_AUTORIZACION_TEXTO}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <footer className="grid shrink-0 grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2 border-t border-gray-100 px-4 pb-[calc(11px_+_env(safe-area-inset-bottom))] pt-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  limpiarMovilidad();
-                  cerrarSheet();
-                }}
-                className="min-h-12 rounded-xl border border-gray-200 bg-white px-3 text-[12.5px] font-bold text-gray-800 hover:bg-gray-50"
-              >
-                Quitar solicitud
-              </button>
-              <button
-                type="button"
-                onClick={cerrarSheet}
-                className="min-h-12 rounded-xl bg-blue-600 px-3 text-[12.5px] font-bold text-white hover:bg-blue-700"
-              >
-                Listo
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
+      <MovilidadSolicitud
+        form={form}
+        updateForm={updateForm}
+        sedes={sedes}
+        config={appConfig}
+        esCursoDosDias={esCursoDosDias}
+        fecha2Calc={fecha2Calc}
+        mapaRef={mapaRef}
+      />
     </div>
   );
 }

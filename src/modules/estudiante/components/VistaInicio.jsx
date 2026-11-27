@@ -5,7 +5,17 @@ import { AppContext } from '../../../context/AppContextValue';
 import { BookOpen, Package, GraduationCap, Compass, Zap, Bike } from 'lucide-react';
 import { etiquetaEstadoMovilidad, resumenMovilidad } from '../utils/movilidadEstudiante';
 
-export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, metricas: metricasProp, solicitudMovilidad }) {
+export function VistaInicio({
+  onNavigate,
+  reservaActual,
+  packExistente,
+  cursos,
+  metricas: metricasProp,
+  solicitudMovilidad,
+  diaFaltante = null,
+  onSolicitarDiaFaltante = null,
+  solicitandoMovilidad = false,
+}) {
   const ctx = useContext(AppContext);
   const navigate = useNavigate();
   const { user } = ctx;
@@ -63,17 +73,32 @@ export function VistaInicio({ onNavigate, reservaActual, packExistente, cursos, 
   );
 
   // T-159 / FT-086: recordatorio de movilidad (pago directo). Sin direccion ni telefono.
-  const tarjetaMovilidad = solicitudMovilidad ? (
+  // FT-090: si falta un día (D1/D2), se ofrece solicitarlo con la ubicación ya autorizada.
+  const tarjetaMovilidad = (solicitudMovilidad || diaFaltante) ? (
     <div className="bg-white rounded-2xl border border-blue-200 shadow-sm p-3 flex items-start gap-3">
       <span className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
         <Bike size={18} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-[10px] font-black uppercase tracking-wider text-blue-700">Movilidad</p>
-        <p className="text-sm font-bold text-gray-900">{etiquetaEstadoMovilidad(solicitudMovilidad.estado)}</p>
-        <p className="text-[11px] text-gray-500">
-          {resumenMovilidad(solicitudMovilidad)}{resumenMovilidad(solicitudMovilidad) ? ' · ' : ''}pago directo al prestador
+        <p className="text-sm font-bold text-gray-900">
+          {solicitudMovilidad ? etiquetaEstadoMovilidad(solicitudMovilidad.estado) : `Falta solicitar ${diaFaltante}`}
         </p>
+        {solicitudMovilidad && (
+          <p className="text-[11px] text-gray-500">
+            {resumenMovilidad(solicitudMovilidad)}{resumenMovilidad(solicitudMovilidad) ? ' · ' : ''}pago directo al prestador
+          </p>
+        )}
+        {diaFaltante && onSolicitarDiaFaltante && (
+          <button
+            type="button"
+            onClick={onSolicitarDiaFaltante}
+            disabled={solicitandoMovilidad}
+            className="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {solicitandoMovilidad ? 'Solicitando...' : `Solicitar movilidad ${diaFaltante}`}
+          </button>
+        )}
       </div>
     </div>
   ) : null;

@@ -6,7 +6,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { auth } from '../../../firebase';
 import { ReservaService } from '../../../services/ReservaService';
 import { MovilidadService } from '../services/MovilidadService';
-import { MOVILIDAD_AUTORIZACION_VERSION } from '../utils/movilidadHelpers';
+import { diasSolicitudMovilidad, horaInicioDesdeHorario, MOVILIDAD_AUTORIZACION_VERSION } from '../utils/movilidadHelpers';
 import { LockService } from '../../../services/LockService';
 import { AuthService } from '../../../services/AuthService';
 import UsuarioService from '../../shared/services/UsuarioService';
@@ -1514,28 +1514,97 @@ const disponibilidad = useMemo(() => {
       // Si falla, la reserva queda creada. El aviso se unifica con el del pago
       // para no tapar el mensaje de éxito con dos toasts consecutivos.
       let movilidadAviso = null;
+      let movilidadSinHora = false;
+      const fecha2Sesion = disponibilidad?.fecha2Calc || fecha2Calc || null;
       if (!esPack && !esRecompra && form.movilidadSolicitada === true && result.data?.id && form.movilidadSnapshot) {
+        const horarioD1 = (ctx.horarios || []).find(h => String(h.id) === String(form.horaId));
+        const horaInicioD1 = horaInicioDesdeHorario(horarioD1);
+        movilidadSinHora = !horaInicioD1;
+        const dias = diasSolicitudMovilidad({
+          fecha1: form.fecha1,
+          fecha2: fecha2Sesion,
+          d2Solicitada: form.movilidadD2Solicitada === true,
+          cursoUnDia,
+        });
         try {
-          const movRes = await MovilidadService.crearSolicitud({
-            userId: uid,
-            reservaId: result.data.id,
-            fechaSesion: form.fecha1,
-            sedeId: form.sedeId,
-            pin: form.movilidadPin,
-            direccion: form.movilidadDireccion || '',
-            distanciaKm: form.movilidadDistanciaKm,
-            snapshot: form.movilidadSnapshot,
-            autorizacion: {
-              aceptada: true,
-              version: MOVILIDAD_AUTORIZACION_VERSION,
-              aceptadaEn: new Date().toISOString(),
-            },
-            nombreEstudiante: `${form.nombre || ''} ${form.apellido || ''}`.trim(),
-            telefonoEstudiante: form.telefono || '',
-          });
-          movilidadAviso = movRes.success ? 'ok' : 'error';
+          let todasOk = true;
+          for (const dia of dias) {
+            const movRes = await MovilidadService.crearSolicitud({
+              userId: uid,
+              reservaId: result.data.id,
+              fechaSesion: dia.fechaSesion,
+              dia: dia.dia,
+              horaId: form.horaId,
+              horaInicio: horaInicioD1,
+              sedeId: form.sedeId,
+              pin: form.movilidadPin,
+              direccion: form.movilidadDireccion || '',
+              distanciaKm: form.movilidadDistanciaKm,
+              snapshot: form.movilidadSnapshot,
+              autorizacion: {
+                aceptada: true,
+                version: MOVILIDAD_AUTORIZACION_VERSION,
+                aceptadaEn: new Date().toISOString(),
+              },
+              nombreEstudiante: `${form.nombre || ''} ${form.apellido || ''}`.trim(),
+              telefonoEstudiante: form.telefono || '',
+            });
+            if (!movRes.success) todasOk = false;
+          }
+          movilidadAviso = todasOk ? 'ok' : 'error';
         } catch {
           movilidadAviso = 'error';
+        }
+      } else if (esPack && form.movilidadSolicitada === true && result.data?.id) {
+        // FT-090: la primera sesión del pack captura su propia ubicación y
+        // tarifa en el paso 2. Sin snapshot válido no se inventa nada.
+        if (
+          !form.movilidadPin ||
+          !form.movilidadSnapshot ||
+          !(form.movilidadSnapshot.montoUSD > 0) ||
+          form.movilidadAutorizacion !== true
+        ) {
+          movilidadAviso = 'error';
+        } else {
+          try {
+            const horarioD1 = (ctx.horarios || []).find(h => String(h.id) === String(form.horaId));
+            const horaInicioD1 = horaInicioDesdeHorario(horarioD1);
+            movilidadSinHora = !horaInicioD1;
+            const dias = diasSolicitudMovilidad({
+              fecha1: form.fecha1,
+              fecha2: fecha2Sesion,
+              d2Solicitada: form.movilidadD2Solicitada === true,
+              cursoUnDia,
+            });
+            let todasOk = true;
+            for (const dia of dias) {
+              const movRes = await MovilidadService.crearSolicitud({
+                userId: uid,
+                reservaId: result.data.id,
+                childId: result.data.id,
+                fechaSesion: dia.fechaSesion,
+                dia: dia.dia,
+                horaId: form.horaId,
+                horaInicio: horaInicioD1,
+                sedeId: form.sedeId,
+                pin: form.movilidadPin,
+                direccion: form.movilidadDireccion || '',
+                distanciaKm: form.movilidadDistanciaKm,
+                snapshot: form.movilidadSnapshot,
+                autorizacion: {
+                  aceptada: true,
+                  version: MOVILIDAD_AUTORIZACION_VERSION,
+                  aceptadaEn: new Date().toISOString(),
+                },
+                nombreEstudiante: `${form.nombre || ''} ${form.apellido || ''}`.trim(),
+                telefonoEstudiante: form.telefono || '',
+              });
+              if (!movRes.success) todasOk = false;
+            }
+            movilidadAviso = todasOk ? 'ok' : 'error';
+          } catch {
+            movilidadAviso = 'error';
+          }
         }
       }
 
@@ -1544,11 +1613,15 @@ const disponibilidad = useMemo(() => {
           montoUSD: Number(form.movilidadMontoUSD) || 0,
           montoVES: Number(form.movilidadSnapshot?.montoVES) || 0,
           fechaSesion: form.fecha1 || '',
+          fechaSesion2: form.movilidadD2Solicitada === true ? fecha2Sesion : null,
+          sinHora: movilidadSinHora,
         });
       }
 
       const mensajeReserva = esPack
-        ? 'Pack adquirido correctamente. Gestiónalo desde tu portal.'
+        ? (form.movilidadSolicitada === true && movilidadAviso === 'error'
+          ? 'Pack adquirido correctamente, pero la movilidad de la primera sesión no se registró. Escríbenos por WhatsApp.'
+          : 'Pack adquirido correctamente. Gestiónalo desde tu portal.')
         : movilidadAviso === 'ok'
           ? 'Reserva creada correctamente. Solicitud de movilidad registrada; el prestador te contactará.'
           : movilidadAviso === 'error'
@@ -2274,7 +2347,13 @@ if (necesitaMoto) {
                 {recordatorioMovilidad.montoUSD > 0 ? `USD ${recordatorioMovilidad.montoUSD.toFixed(2)}` : ''}
                 {recordatorioMovilidad.montoVES > 0 ? ` · Bs ${recordatorioMovilidad.montoVES.toFixed(2)}` : ''}
                 . Se paga directo al prestador; te contactará para coordinar la recogida.
+                {recordatorioMovilidad.fechaSesion2 ? ' Incluye el segundo día (D2).' : ''}
               </p>
+              {recordatorioMovilidad.sinHora && (
+                <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                  No pudimos calcular la hora de recogida: el bloque no tiene hora de inicio legible. Te contactaremos para confirmarla.
+                </p>
+              )}
             </div>
           )}
           <Button onClick={handleIrAlPanel} variant="primary" icon={Bike}>Ir a mi panel</Button>
@@ -2312,9 +2391,11 @@ if (necesitaMoto) {
             pack={packActivo}
             cursos={ctx.cursos}
             sedes={ctx.sedes}
+            esCursoDosDias={!cursoUnDia}
+            fecha2Calc={disponibilidad?.fecha2Calc || fecha2Calc || null}
           />
         ) : (
-                    <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} reservas={ctx.reservas} fbUser={ctx.fbUser} />
+                    <Paso2Configuracion form={form} updateForm={updateForm} cursos={ctx.cursos} sedes={ctx.sedes} recargoSinBici={ctx.config.recargoSinBici} reservas={ctx.reservas} fbUser={ctx.fbUser} esCursoDosDias={!cursoUnDia} fecha2Calc={disponibilidad?.fecha2Calc || fecha2Calc || null} />
         ))}        {step === '3' && !ctx.fbUser ? (
   <div className="flex-1 flex items-center justify-center"><Spinner message="Verificando sesión..." /></div>
 ) : step === '3' && (!ctx.instructores?.length || !ctx.motos?.length || !ctx.horarios?.length || cargandoBloqueos || cargandoProveedor || cargandoInstructor) ? (

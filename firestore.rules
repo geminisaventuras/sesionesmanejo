@@ -759,7 +759,8 @@ service cloud.firestore {
           request.resource.data.estado == 'solicitada' &&
           request.resource.data.prestadorId == null &&
           request.resource.data.keys().hasOnly([
-            'userId', 'reservaId', 'childId', 'fechaSesion', 'sedeId', 'pin',
+            'userId', 'reservaId', 'childId', 'fechaSesion', 'dia', 'horaId',
+            'horaInicio', 'horaRecogida', 'sedeId', 'pin',
             'direccion', 'distanciaKm', 'tarifaSnapshot', 'montoUSD', 'montoVES',
             'tasaFX', 'estado', 'prestadorId', 'autorizacion', 'nombreEstudiante',
             'telefonoEstudiante', 'notas', 'codigoRecogida', 'pagoDirecto',
@@ -770,6 +771,20 @@ service cloud.firestore {
           (request.resource.data.childId == null || request.resource.data.childId is string) &&
           request.resource.data.fechaSesion is string &&
           request.resource.data.fechaSesion.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+          // FT-090: id estable por reserva+día y hora de recogida 30 min antes.
+          request.resource.data.dia in ['D1', 'D2'] &&
+          (request.resource.data.horaId == null || (
+            request.resource.data.horaId is string &&
+            request.resource.data.horaId.size() <= 80
+          )) &&
+          (request.resource.data.horaInicio == null || (
+            request.resource.data.horaInicio is string &&
+            request.resource.data.horaInicio.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          )) &&
+          (request.resource.data.horaRecogida == null || (
+            request.resource.data.horaRecogida is string &&
+            request.resource.data.horaRecogida.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          )) &&
           request.resource.data.sedeId is string &&
           request.resource.data.pin is map &&
           request.resource.data.pin.keys().hasOnly(['lat', 'lng']) &&

@@ -412,6 +412,16 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
     
     try {
       await batch.commit();
+      // FT-090: si la reserva se cancela, su movilidad también.
+      if (tipo === 'cancelar') {
+        await MovilidadService.sincronizarConReserva(res.id, {
+          fecha: res.fecha,
+          fecha2: res.fecha2,
+          horaId: res.horaId,
+          horaIdReposicion: res.horaIdReposicion || null,
+          estadoReserva: 'Cancelado',
+        }).catch((err) => console.warn('[AdminReservaDetalle] Movilidad no sincronizada:', err?.code || err?.message));
+      }
       if (user?.uid) {
         void emitirEvento({
           tipo: tipo === 'cancelar' ? 'reserva_cancelada' : 'pago_rechazado',
@@ -1099,6 +1109,15 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
 
         await batch.commit();
 
+        // FT-090: D2 repuesto → mover la movilidad de D2 y avisar al prestador.
+        await MovilidadService.sincronizarConReserva(res.id, {
+          fecha: res.fecha,
+          fecha2: nuevaFecha2,
+          horaId: res.horaId,
+          horaIdReposicion,
+          estadoReserva: res.estadoPago,
+        }).catch((err) => console.warn('[AdminReservaDetalle] Movilidad D2 no sincronizada:', err?.code || err?.message));
+
         const msg = construirMensajeReprogramacion({
           nombre: res.nombre,
           curso: curso?.nombre || 'tu sesión',
@@ -1260,6 +1279,15 @@ const horario = (horarios || []).find(h => String(h.id) === String(bloqueEfectiv
       });
 
       await batch.commit();
+
+      // FT-090: cambio total de fecha/hora → sincronizar D1 (y D2 si aplica).
+      await MovilidadService.sincronizarConReserva(res.id, {
+        fecha: nuevaFecha,
+        fecha2: nuevaFecha2,
+        horaId: nuevoHoraId,
+        horaIdReposicion: null,
+        estadoReserva: res.estadoPago,
+      }).catch((err) => console.warn('[AdminReservaDetalle] Movilidad no sincronizada:', err?.code || err?.message));
 
       const msg = construirMensajeReprogramacion({
         nombre: res.nombre,
