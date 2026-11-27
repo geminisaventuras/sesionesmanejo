@@ -5,7 +5,7 @@ import { AppContext } from '../../../context/AppContextValue';
 import { useToast } from '../../shared/components/ToastProvider';
 import { MovilidadService } from '../../inscripcion/services/MovilidadService';
 import { MOVILIDAD_ETIQUETAS } from '../../inscripcion/utils/movilidadHelpers';
-import { MapPin, Phone, RefreshCw, Plus, Check, X, Bell } from 'lucide-react';
+import { MapPin, Phone, RefreshCw, Plus, Check, X, Bell, Clock } from 'lucide-react';
 
 const formatoFecha = (fecha) => {
   if (!fecha) return 'Sin fecha';
@@ -337,6 +337,13 @@ export default function MovilidadPanel({ embebido = false }) {
                     <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700">{Number(s.distanciaKm || 0).toFixed(1)} km</span>
                     <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700">${Number(s.montoUSD || 0).toFixed(2)}</span>
                     <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700">Bs {Number(s.montoVES || 0).toFixed(2)}</span>
+                    {(s.horaRecogida || s.horaInicio) && (
+                      <span className="px-2 py-1 rounded-lg bg-cyan-50 text-cyan-800">
+                        <Clock size={12} className="inline mr-1" />
+                        {s.horaRecogida ? `Recogida ${s.horaRecogida}` : `Inicio ${s.horaInicio}`}
+                        {s.horaRecogida && s.horaInicio ? ` · Inicio ${s.horaInicio}` : ''}
+                      </span>
+                    )}
                     {s.pagoDirecto?.confirmado && <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700">Cobro confirmado</span>}
                   </div>
 
