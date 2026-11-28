@@ -35,6 +35,7 @@ import {
   plantillaNotificacion,
 } from '../src/modules/shared/utils/notificacionesHelpers.js';
 import { resolverServiceAccount } from './lib/notificaciones-dispatch-config.mjs';
+import { validarActorEvento } from './lib/notificaciones-actor.mjs';
 
 const APP_ID = 'motoescuela-pro-v1';
 const RUTA_DATOS = `artifacts/${APP_ID}/public/data`;
@@ -157,11 +158,24 @@ function agregar(destinatarios, uid, rol, ctx = {}) {
   destinatarios.set(clave, { uid: clave, rol, ctx });
 }
 
+// ERR-095: un actor autenticado no puede forjar eventos sensibles de otra
+// entidad. El evento se rechaza sin notificar y sin reintentos.
+function actorNoAutorizado(tipo, motivo) {
+  const error = new Error(`Actor no autorizado para ${tipo} (${motivo})`);
+  error.code = 'ACTOR_NO_AUTORIZADO';
+  return error;
+}
+
+function exigirActor(validacion, tipo) {
+  if (!validacion?.ok) throw actorNoAutorizado(tipo, validacion?.motivo || 'denegado');
+}
+
 async function destinatariosDe(evento) {
   const destinatarios = new Map();
   const incluirActor = new Set(['reserva_creada', 'sistema_prueba']);
 
   if (evento.tipo === 'sistema_prueba') {
+    exigirActor(validarActorEvento({ tipo: evento.tipo, actorUid: evento.actorUid, actorRol: null, entidad: null }), evento.tipo);
     agregar(destinatarios, evento.actorUid, await rolDe(evento.actorUid), { entidadId: evento.entidadId });
     return [...destinatarios.values()];
   }
@@ -170,6 +184,15 @@ async function destinatariosDe(evento) {
     const snap = await datos('reservas').doc(String(evento.entidadId)).get();
     if (!snap.exists) throw new Error(`Reserva ${evento.entidadId} no existe`);
     const reserva = { id: snap.id, ...snap.data() };
+    exigirActor(
+      validarActorEvento({
+        tipo: evento.tipo,
+        actorUid: evento.actorUid,
+        actorRol: evento.actorUid ? await rolDe(evento.actorUid) : null,
+        entidad: reserva,
+      }),
+      evento.tipo
+    );
     const ctx = {
       entidadId: reserva.id,
       reservaId: reserva.id,
@@ -205,6 +228,15 @@ async function destinatariosDe(evento) {
     const snap = await datos('pagosStaff').doc(String(evento.entidadId)).get();
     if (!snap.exists) throw new Error(`Pago ${evento.entidadId} no existe`);
     const pago = snap.data();
+    exigirActor(
+      validarActorEvento({
+        tipo: evento.tipo,
+        actorUid: evento.actorUid,
+        actorRol: evento.actorUid ? await rolDe(evento.actorUid) : null,
+        entidad: pago,
+      }),
+      evento.tipo
+    );
     const uid = pago.staffId || pago.userId || pago.beneficiarioId || pago.instructorId || pago.proveedorId;
     const rol = await rolDe(uid);
     agregar(destinatarios, uid, rol === 'admin' ? 'instructor' : rol, { entidadId: evento.entidadId });
@@ -217,6 +249,15 @@ async function destinatariosDe(evento) {
     const snap = await datos('deudasProveedor').doc(String(evento.entidadId)).get();
     if (!snap.exists) throw new Error(`Deuda ${evento.entidadId} no existe`);
     const deuda = snap.data();
+    exigirActor(
+      validarActorEvento({
+        tipo: evento.tipo,
+        actorUid: evento.actorUid,
+        actorRol: evento.actorUid ? await rolDe(evento.actorUid) : null,
+        entidad: deuda,
+      }),
+      evento.tipo
+    );
     const uid = deuda.proveedorId || deuda.proveedorUid || deuda.userId;
     agregar(destinatarios, uid, 'proveedor', { entidadId: evento.entidadId });
     for (const admin of await admins()) agregar(destinatarios, admin, 'admin', { entidadId: evento.entidadId });
@@ -228,6 +269,15 @@ async function destinatariosDe(evento) {
     const snap = await datos('solicitudesMovilidad').doc(String(evento.entidadId)).get();
     if (!snap.exists) throw new Error(`Solicitud ${evento.entidadId} no existe`);
     const solicitud = snap.data();
+    exigirActor(
+      validarActorEvento({
+        tipo: evento.tipo,
+        actorUid: evento.actorUid,
+        actorRol: evento.actorUid ? await rolDe(evento.actorUid) : null,
+        entidad: solicitud,
+      }),
+      evento.tipo
+    );
     const ctx = { entidadId: evento.entidadId, movilidadId: evento.entidadId };
     if (solicitud.userId) agregar(destinatarios, solicitud.userId, 'estudiante', ctx);
     if (solicitud.prestadorId) agregar(destinatarios, solicitud.prestadorId, 'movilidad', ctx);
@@ -432,6 +482,18 @@ async function procesarPendientes() {
         console.log(`[notif] ${doc.data().tipo} ${doc.id}: ${res.creadas} inbox, ${res.push} push, ${res.destinatarios} destinatarios`);
       }
     } catch (error) {
+      if (error?.code === 'ACTOR_NO_AUTORIZADO') {
+        // Rechazo definitivo: no se notifica ni se reintenta como transitorio.
+        console.warn(`[notif] rechazado ${doc.id} ${doc.data().tipo}: actor-no-autorizado`);
+        if (!MODO.dryRun) {
+          await datos('eventosNotificacion').doc(doc.id).update({
+            estado: 'fallido',
+            error: 'actor-no-autorizado',
+            ultimoIntentoEn: FieldValue.serverTimestamp(),
+          }).catch(() => {});
+        }
+        continue;
+      }
       const intentos = Number(doc.data().intentos || 0) + 1;
       console.warn(`[notif] Error ${doc.id}:`, error?.message || error);
       if (!MODO.dryRun) {
