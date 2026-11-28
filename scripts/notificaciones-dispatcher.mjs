@@ -567,7 +567,13 @@ async function testPush(uid) {
 
 async function ejecutar() {
   if (MODO.test) {
-    await testPush(MODO.uid);
+    // Sin --uid: prueba a todos los admins (workflow_dispatch test=true).
+    const destino = MODO.uid ? [MODO.uid] : await admins();
+    if (destino.length === 0) {
+      console.log('[notif] test sin admins en notificacionesRoles/admin');
+      return;
+    }
+    for (const uid of destino) await testPush(uid);
     return;
   }
   await recuperarAtascados();

@@ -23,6 +23,11 @@ on:
         description: 'Máximo de eventos por corrida (default 20)'
         required: false
         default: '20'
+      test:
+        description: 'Enviar push de prueba a los admins (no procesa eventos)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,9 +91,14 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           LIMITE: ${{ inputs.limite || '20' }}
+          TEST: ${{ inputs.test }}
         run: |
           set -o pipefail
-          node scripts/notificaciones-dispatcher.mjs --once --prod --limit "$LIMITE" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$TEST" = "true" ]; then
+            node scripts/notificaciones-dispatcher.mjs --test --prod | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            node scripts/notificaciones-dispatcher.mjs --once --prod --limit "$LIMITE" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Resumen
         if: always()
