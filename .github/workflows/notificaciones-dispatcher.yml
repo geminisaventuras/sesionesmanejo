@@ -67,6 +67,16 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: npm ci --no-audit --no-fund
 
+      - name: Validar limite
+        if: steps.secretos.outputs.ok == 'true'
+        env:
+          LIMITE: ${{ inputs.limite || '20' }}
+        run: |
+          if ! printf '%s' "$LIMITE" | grep -Eq '^[0-9]+$'; then
+            echo "::error::limite invalido: solo se permiten digitos"
+            exit 1
+          fi
+
       - name: Dispatch PROD
         if: steps.secretos.outputs.ok == 'true'
         env:
@@ -75,9 +85,10 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          LIMITE: ${{ inputs.limite || '20' }}
         run: |
           set -o pipefail
-          node scripts/notificaciones-dispatcher.mjs --once --prod --limit "${{ inputs.limite || '20' }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          node scripts/notificaciones-dispatcher.mjs --once --prod --limit "$LIMITE" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Resumen
         if: always()

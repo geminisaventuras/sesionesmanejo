@@ -4,7 +4,7 @@
 // resuelve destinatarios, valida el estado actual en Firestore y crea la
 // notificación. Así el navegador no elige a quién notificar ni escribe PII.
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { db } from '../firebase/firebase';
+import { db, auth } from '../firebase/firebase';
 import {
   TIPOS_EVENTO,
   construirClaveEvento,
@@ -33,6 +33,30 @@ function limpiarDatos(datos = {}) {
     salida[clave] = valor;
   }
   return salida;
+}
+
+const URL_DESPERTADOR = String(import.meta.env.VITE_NOTIFICACIONES_TRIGGER_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+
+// Fire-and-forget: despierta el dispatcher para no depender solo del cron.
+// Cualquier fallo se ignora y NUNCA bloquea la reserva/pago.
+function dispararDespertador() {
+  if (!URL_DESPERTADOR) return;
+  const usuario = auth?.currentUser;
+  if (!usuario) return;
+  try {
+    void usuario
+      .getIdToken()
+      .then((token) => fetch(`${URL_DESPERTADOR}/despertar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
+      }))
+      .catch(() => {});
+  } catch {
+    // Ignorado a proposito: la alerta no puede romper la accion de negocio.
+  }
 }
 
 export async function emitirEvento({
@@ -69,6 +93,7 @@ export async function emitirEvento({
       intentos: 0,
       ocurridoEn: serverTimestamp(),
     });
+    dispararDespertador();
     return { ok: true, clave };
   } catch (error) {
     // La acción de negocio ya se completó: no se revierte por una alerta.

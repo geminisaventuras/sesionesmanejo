@@ -368,7 +368,7 @@ export function useFirestoreProvider(fbUser, authReady, isAdmin, showToast, user
     };
 
     const unsubNuevas = onSnapshot(
-      query(ref, where('destinoUid', '==', uidNotif), limit(50)),
+      query(ref, where('destinoUid', '==', uidNotif), orderBy('createdAt', 'desc'), limit(50)),
       (snap) => {
         nuevas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         publicar();
